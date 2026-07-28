@@ -1,11 +1,11 @@
-# Project Log — Rust Game & Engine Project
-### Working Title: *"The Morning She Was Gone"* (game) / Engine TBD
+# Project Log — Tetherwood
+### Game: *Tetherwood* · Act I / vertical slice: *"The Morning She Was Gone"* · Engine: unnamed (deliberate)
 
 **Document type:** Living project record (docs-as-code)
 **Started:** July 2026
-**Revision:** v2
-**Status:** First-act design complete (beats v2) → Derivation pass is next
-**Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated at the end of each session where decisions are made.
+**Revision:** v3
+**Status:** Design phase complete → Toolchain setup & M0/M1 next. Companion document: `docs/DERIVATION.md` (feature inventory, engine split, Rust map, milestones, 45-day plan).
+**Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated when decisions accumulate, not on a timer.
 
 ---
 
@@ -60,20 +60,18 @@ Game needs feature → Implement → Use in game → Learn from real usage
 - Beginner: Rust, game engine architecture, graphics programming.
 - Implication: skip general programming explanations; never assume Rust idioms or graphics knowledge.
 
-### 2.5 Candidate Technology Stack (not committed)
+### 2.5 Technology Stack (slice-committed vs deferred)
 
-| Concern | Candidate |
-|---|---|
-| Language / build | Rust + Cargo |
-| Windowing | winit |
-| Graphics | wgpu |
-| Math | glam |
-| ECS | Bevy ECS or hecs (evaluation pending) |
-| Audio | kira |
-| Physics | Rapier (likely unnecessary — grid combat) |
-| Serialization | serde |
-
-Initial foundation candidate: **Rust + Cargo + winit + wgpu + glam.** Dependencies added when needed, not before.
+| Concern | Choice | Status |
+|---|---|---|
+| Language / build | Rust + Cargo | committed |
+| Windowing | winit | committed (slice) |
+| Graphics | wgpu (+ WGSL shaders) | committed (slice) |
+| Math | glam | committed (slice) |
+| Audio | kira | committed (slice) |
+| ECS | none for slice (ADR-025) | re-evaluate Phase 1 |
+| Serialization | none for slice (ADR-027) | serde/RON at Phase 1 thickening |
+| Physics | none — grid combat needs no physics lib | likely never |
 
 ---
 
@@ -171,6 +169,14 @@ Drafted the 7-beat slice with per-beat system demands. Retained conceptually; st
 
 **Slice exclusions (unchanged in spirit):** tree UI, z-essence UI, multiple simultaneous enemies beyond one initiate, abilities, second town, cult reveal content, save system, pause-menu tabs, glossary.
 
+### Phase 8 — Derivation Pass (completed)
+
+Beats v2 ground into: full feature inventory (per beat, slice/Phase-1 tagged) → engine/game system split (E1–E11 machinery vs content) → Rust concept map (concept → where it bites → milestone) → milestones M0–M7, each ending visible → day plan (30-day checkpoint: walkable village with dialogue and flags; **slice complete ~day 45**). Full output lives in `docs/DERIVATION.md`. Five decisions forced by the pass are recorded below as ADR-025–029. Named risks: the wgpu wall (days 8–16, budgeted), baseline rabbit-holing (M0 hard-stops day 7), placeholder-art shame (rectangles are correct until M5), the index-refactor (curriculum, not crisis), battle-feel perfectionism (knobs are for Phase 1 playtesting).
+
+### Phase 9 — Naming (completed)
+
+Title brainstorm to stress-test the working title. Criteria that emerged: layered referents that re-read after the credits; revelation energy, not secrecy energy; shaped as a tiny story or as the driving artifact (Ocarina pattern); weighty; not on-the-nose. Result: **Tetherwood** (ADR-030). The former working title survives as the Act I / slice chapter title. Collision check performed (small itch.io jam prototype of the same name; assessed and accepted as soft). Engine remains deliberately unnamed.
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -191,7 +197,7 @@ Drafted the 7-beat slice with per-beat system demands. Retained conceptually; st
 
 ### ADR-003: Low-level libraries, not a full framework
 - **Context:** Bevy ships games faster but does the architecture learning for us.
-- **Decision:** Compose winit/wgpu/glam etc.; study frameworks for inspiration only. (Bevy ECS *as a library* still under evaluation.)
+- **Decision:** Compose winit/wgpu/glam etc.; study frameworks for inspiration only. (Bevy ECS *as a library* still under evaluation — see ADR-025.)
 - **Rationale:** Understanding engine internals is a primary goal.
 - **Consequences:** Slower start; more surface area; full ownership of the result.
 
@@ -247,13 +253,13 @@ Drafted the 7-beat slice with per-beat system demands. Retained conceptually; st
 - **Context:** Textbook-first vs purely on-demand learning.
 - **Decision:** Storyboard → features → engine requirements → concept map → 1–2 week shallow baseline → build and learn on demand.
 - **Rationale:** Problems make learning stick; zero baseline makes compiler errors unreadable.
-- **Consequences:** Slice storyboard blocks coding — by design.
+- **Consequences:** Slice storyboard blocks coding — by design. (Fulfilled: the derivation pass, Phase 8, was the gate.)
 
 ### ADR-013: Docs-as-code with ADRs
 - **Context:** Start-to-end record wanted, maintained during the project; assistant has no cross-session persistence.
 - **Decision:** This log lives in the repo, updated on request at session ends; decisions as immutable ADRs.
 - **Rationale:** Git guarantees continuity; ADRs answer "why."
-- **Consequences:** Developer owns the update ritual. **Versioning is git commits on one canonical file** — filename suffixes (_v2) are a pre-repo stopgap only.
+- **Consequences:** Developer owns the update ritual. **Versioning is git commits on one canonical file** — filename suffixes (_v3) are a pre-repo stopgap only. Log revs when decisions accumulate, not on a timer.
 
 ### ADR-014: Split-grid combat with asymmetric depth
 - **Context:** Split grid vs shared free-movement grid; camping/cheese concerns.
@@ -321,36 +327,73 @@ Drafted the 7-beat slice with per-beat system demands. Retained conceptually; st
 - **Rationale:** Preserves ADR-002's protection; same content, two zoom levels; each phase ends playable.
 - **Consequences:** Every feature is tagged slice / Phase 1 / later. Beats v2 table (Phase 7) carries the tags.
 
+### ADR-025: No ECS for the slice; indices over references
+- **Context:** ECS evaluation (formerly an open question) came due at the derivation pass; the slice has ~12 live entities.
+- **Decision:** Simple structs + plain collections; entities addressed by index/ID, never by held references. No ECS crate. Re-evaluate at Phase 1 with real experience.
+- **Rationale:** ECS solves problems the slice doesn't have. The borrow-checker fight over cross-entity references (enemy AI reading player position) *is* the core Rust-gamedev curriculum; adopting ECS first outsources the lesson. Rc/RefCell appearing in entity code is treated as a design smell (fighting the index rule).
+- **Consequences:** Expect and welcome the "indices, not references" refactor around M5–M6 (budgeted ~1 day of confusion). A future ECS adoption would be a superseding ADR made from experience, not anticipation.
+
+### ADR-026: Single crate; engine/game as modules
+- **Context:** Workspace (multi-crate) vs single crate for the repo's first structure.
+- **Decision:** One binary crate `tetherwood` with `src/engine/` and `src/game/` modules from day one. Workspace split deferred until extraction is real.
+- **Rationale:** Honors "don't over-engineer repo structure" (charter). Module visibility boundaries enforce the machinery/content discipline; the crate split later is a folder move narrated by `refactor(engine): extract …` commits.
+- **Consequences:** Module hygiene is the discipline that makes the eventual split cheap. Scope `engine` vs `game` in commit messages tracks the boundary from commit one.
+
+### ADR-027: Static Rust data for slice content
+- **Context:** Dialogue tables, NPC definitions, and enemy parameters need to live somewhere; serde+RON/JSON was the assumed default.
+- **Decision:** Slice content is `const`/`static` Rust data structures in `src/game/`. No serde, no data files, no format decision yet.
+- **Rationale:** Data-driven ≠ file-driven — the machinery consumes tables; the table's location is a detail. Defers a dependency and a format debate until content volume creates real pain (Phase 1 thickening).
+- **Consequences:** serde/RON evaluated at Phase 1. Content edits require recompiles during the slice — acceptable at slice content volume.
+
+### ADR-028: Authored scenes, not an isometric tile engine
+- **Context:** "Isometric rendering" silently implied tile math, projection transforms, map formats, and tooling.
+- **Decision:** A scene is a hand-authored background image + collision rectangles + y-sorted entity sprites. The isometric *look* is art direction; there is no isometric *engine* in the slice.
+- **Rationale:** Classic adventure games shipped exactly this way; deletes an entire subsystem from slice scope. The renderer's slice job reduces to textured quads, draw order, and a camera.
+- **Consequences:** Isometric tilemaps become a Phase 2+ evaluation *if ever needed*. Scene art (even placeholder rectangles) is authored per scene.
+
+### ADR-029: Time model — frame delta + battle tick accumulator
+- **Context:** ADR-015's hybrid design needed a concrete implementation model; full fixed-timestep machinery was the over-engineered default.
+- **Decision:** Variable frame delta for overworld movement; accumulator-driven fixed tick (~0.5s) inside battle for enemy actions; player input sampled every frame everywhere.
+- **Rationale:** Simplest model satisfying the design. Tick length is one constant (a named tuning knob).
+- **Consequences:** Revisit only if determinism is ever genuinely required (unlikely — no physics, no netplay planned).
+
+### ADR-030: Title — Tetherwood
+- **Context:** Working title "The Morning She Was Gone" was adopted without brainstorming; stress-tested via a naming session. Criteria that emerged: layered post-credits re-reading; revelation energy (not secrecy — secrecy is the villains' mode); shaped as a tiny story or as the driving artifact (the Ocarina pattern); weighty; not on-the-nose.
+- **Decision:** The game is **Tetherwood** — repo `tetherwood`, Cargo package `tetherwood`. The former working title survives as the **Act I / vertical slice chapter title**: *"The Morning She Was Gone."* The engine remains deliberately unnamed (OQ).
+- **Rationale:** Names the central artifact (the wooden sigil is literally a tether: sibling bond, z-essence absorption, the map's obedience, her link to the ritual, and the parked narrator question). The "-wood" family (driftwood, heartwood, wormwood) makes the coinage read as a natural word; the game cashes the title from Beat 1, defusing the try-hard risk. Consistent with the developer's naming voice (cf. *Isolated*). Collision check: a 2-day itch.io jam prototype shares the name — assessed as soft (no commercial presence, no apparent trademark); accepted. Proper trademark search deferred to any commercial release.
+- **Consequences:** Repo/crate named before `git init` — no rename churn. The window title in M1 is `Tetherwood`. Chapter-title convention established (acts may carry their own titles).
+
 ---
 
 ## 5. Current State & Open Questions
 
-### Where the project stands (July 2026, v2)
+### Where the project stands (July 2026, v3)
 
 - ✅ Charter, principles, feasibility.
 - ✅ Systems identity; premise; story arc; thesis mechanic; setting.
-- ✅ Combat model (grid, ticks, telegraphs, lockout, enemy tiers).
-- ✅ Progression (sigil tree, z-essence, keepsake unification).
-- ✅ First act designed; **beats v2** with slice/Phase-1 tags.
-- ✅ Voice system, context system, world-texture rules, UI staging.
-- ⬜ **Derivation pass** — beats v2 → feature list → engine systems → Rust concept map → 30-day plan. ← next session
-- ⬜ Repo initialization (docs-first; can happen any time — no code required).
-- ⬜ Rust baseline (1–2 weeks, after derivation).
-- ⬜ Any code — still intentionally zero.
+- ✅ Combat model; progression; first act (beats v2); voice/context/texture/UI staging.
+- ✅ **Derivation pass** (`docs/DERIVATION.md`): features, engine split E1–E11, Rust concept map, milestones M0–M7, 45-day slice plan.
+- ✅ **Naming:** Tetherwood / "The Morning She Was Gone" (Act I).
+- ✅ Design phase **closed**. All gates to code are open.
+- ⬜ Toolchain: rustup + MSVC build tools + rust-analyzer (Windows). ← next
+- ⬜ Repo init + docs commits (Log v1 → v2 → v3 → DERIVATION) + `cargo new tetherwood` with module skeleton (days 1–2).
+- ⬜ M0 ∥ M1 (days 3–7): Rust baseline alongside the first window.
+- ⬜ Code written so far: zero. This is the last revision for which that is true.
 
 ### Open questions
 
 1. **Tuning knobs (playtest, not debate):** grid width (~4), tick length (~0.5s), lockout duration, telegraph visual treatment.
-2. **Beat 5 remainder:** the initiate's exact pre-fight line (direction settled: recognize-and-warn, confirm nothing); flatten-effect v1 fidelity (minimum acceptable version of the identity transition).
-3. **Beat 3/4 clue-chain dialogue:** actual lines for vendor, shopkeeper, child; flag names.
-4. **Meta-NPC brainstorm:** period-appropriate joke lines (tulip mania et al.), scrapped-premise NPC lines, narrator T2 winks.
-5. **Narrator identity:** parked. Possible tether tie-in; revisit no earlier than Phase 2 writing.
-6. **ECS evaluation:** decide during/after the derivation pass, when actual system requirements exist.
-7. **Engine name; open-source license:** unclaimed / deferred until the engine crate boundary exists.
+2. **Writing pending:** initiate pre-fight line (direction settled); clue-chain dialogue (vendor, shopkeeper, child) + flag names; meta-NPC joke lines; narrator T2 winks; flatten-effect v1 fidelity.
+3. **Narrator identity:** parked; revisit no earlier than Phase 2 writing.
+4. **ECS re-evaluation:** Phase 1, with slice experience in hand (per ADR-025).
+5. **serde/RON adoption:** Phase 1 thickening, when content volume hurts (per ADR-027).
+6. **Engine name; open-source license:** deferred until the engine crate boundary exists.
 
-### Next session agenda
+### Next session agenda (Milestone Chat: The Toolchain / M1)
 
-1. **The derivation pass** (this is the gate to Rust): beats v2 → complete feature list → engine system requirements → mapped Rust concepts in learning order → first 30-day plan.
-2. Repo initialization checklist (docs-first) if not already done.
+1. rustup on Windows (accept the MSVC build tools prompt), VS Code + rust-analyzer.
+2. Repo init; commit sequence: `chore(repo): initialize repository with docs structure` → the three log commits → derivation commit → `chore(repo): initialize rust project with module skeleton`.
+3. M1 begins: winit window titled **Tetherwood**, clear color, ESC quits, WASD logs. First real Rust fight expected: the event-loop closure (`move`, `'static`).
+4. Log v4: not scheduled. It arrives when code forces decisions worth recording — likely mid-M1 or at the M2 wall.
 
 ---
