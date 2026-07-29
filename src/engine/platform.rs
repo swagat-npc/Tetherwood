@@ -1,7 +1,8 @@
 use winit::{
     application::ApplicationHandler,
-    event::WindowEvent,
+    event::{KeyEvent, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowId},
 };
 
@@ -52,23 +53,47 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                println!("Window redraw requested");
-                // Redraw the application.
-                //
-                // It's preferable for applications that do not render continuously to render in
-                // this event rather than in AboutToWait, since rendering in here allows
-                // the program to gracefully handle redraws requested by the OS.
-
-                // Draw.
-
-                // Queue a RedrawRequested event.
-                //
-                // You only need to call this if you've determined that you need to redraw in
-                // applications which do not always need to. Applications that redraw continuously
-                // can render here instead.
+                // println!("Window redraw requested");
                 self.window.as_ref().unwrap().request_redraw();
             }
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        physical_key: PhysicalKey::Code(code),
+                        state: key_state,
+                        ..
+                    },
+                ..
+            } => match (code, key_state.is_pressed()) {
+                (KeyCode::KeyW, true) => println!("{} Key Pressed", Directions::Up),
+                (KeyCode::KeyA, true) => println!("{} Key Pressed", Directions::Left),
+                (KeyCode::KeyS, true) => println!("{} Key Pressed", Directions::Down),
+                (KeyCode::KeyD, true) => println!("{} Key Pressed", Directions::Right),
+                (KeyCode::Escape, true) => {
+                    println!("Escape key pressed; stopping");
+                    event_loop.exit();
+                }
+                _ => {}
+            },
             _ => {}
+        }
+    }
+}
+
+enum Directions {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+impl std::fmt::Display for Directions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Directions::Up => write!(f, "Up"),
+            Directions::Down => write!(f, "Down"),
+            Directions::Left => write!(f, "Left"),
+            Directions::Right => write!(f, "Right"),
         }
     }
 }
