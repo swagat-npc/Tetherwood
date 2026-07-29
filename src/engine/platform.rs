@@ -1,7 +1,9 @@
-use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::window::{Window, WindowId};
+use winit::{
+    application::ApplicationHandler,
+    event::WindowEvent,
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    window::{Window, WindowId},
+};
 
 pub fn run() {
     let event_loop = EventLoop::new().expect("failed to create event loop");
@@ -15,21 +17,27 @@ pub fn run() {
     // input, and uses significantly less power/CPU time than ControlFlow::Poll.
     event_loop.set_control_flow(ControlFlow::Wait);
 
-    let mut app = App { window: None };
+    let mut app = App {
+        window: None,
+        window_id: None,
+    };
     event_loop.run_app(&mut app).expect("event loop error");
 }
 
 struct App {
     window: Option<Window>, // None until `resumed` — the fight I promised
+    window_id: Option<WindowId>,
 }
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.window = Some(
-            event_loop
-                .create_window(Window::default_attributes())
-                .unwrap(),
-        );
+        let window_attributes = Window::default_attributes()
+            .with_title("Tetherwood: The Morning She Was Gone — window ok")
+            .with_inner_size(winit::dpi::LogicalSize::new(512.0, 512.0));
+
+        let window = event_loop.create_window(window_attributes).unwrap();
+        self.window_id = Some(window.id());
+        self.window = Some(window);
     }
 
     fn window_event(
