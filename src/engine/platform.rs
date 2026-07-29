@@ -1,3 +1,4 @@
+use std::time::Instant;
 use winit::{
     application::ApplicationHandler,
     event::{KeyEvent, WindowEvent},
@@ -11,16 +12,13 @@ pub fn run() {
 
     // ControlFlow::Poll continuously runs the event loop, even if the OS hasn't
     // dispatched any events. This is ideal for games and similar applications.
-    // event_loop.set_control_flow(ControlFlow::Poll);
-
-    // ControlFlow::Wait pauses the event loop if no events are available to process.
-    // This is ideal for non-game applications that only update in response to user
-    // input, and uses significantly less power/CPU time than ControlFlow::Poll.
-    event_loop.set_control_flow(ControlFlow::Wait);
+    event_loop.set_control_flow(ControlFlow::Poll);
 
     let mut app = App {
         window: None,
         window_id: None,
+        last_frame: Instant::now(),
+        frame_count: 0,
     };
     event_loop.run_app(&mut app).expect("event loop error");
 }
@@ -28,6 +26,8 @@ pub fn run() {
 struct App {
     window: Option<Window>, // None until `resumed` — the fight I promised
     window_id: Option<WindowId>,
+    last_frame: Instant,
+    frame_count: u32,
 }
 
 impl ApplicationHandler for App {
@@ -39,6 +39,21 @@ impl ApplicationHandler for App {
         let window = event_loop.create_window(window_attributes).unwrap();
         self.window_id = Some(window.id());
         self.window = Some(window);
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        let now = Instant::now();
+        let delta = now - self.last_frame; // std::time::Duration
+        self.last_frame = now;
+
+        self.frame_count += 1;
+        if self.frame_count.is_multiple_of(60) {
+            println!(
+                "delta: {:.2?} (~{:.0} fps)",
+                delta,
+                1.0 / delta.as_secs_f32()
+            );
+        }
     }
 
     fn window_event(
@@ -54,6 +69,19 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 // println!("Window redraw requested");
+                // Redraw the application.
+                //
+                // It's preferable for applications that do not render continuously to render in
+                // this event rather than in AboutToWait, since rendering in here allows
+                // the program to gracefully handle redraws requested by the OS.
+
+                // Draw.
+
+                // Queue a RedrawRequested event.
+                //
+                // You only need to call this if you've determined that you need to redraw in
+                // applications which do not always need to. Applications that redraw continuously
+                // can render here instead.
                 self.window.as_ref().unwrap().request_redraw();
             }
             WindowEvent::KeyboardInput {
@@ -65,10 +93,10 @@ impl ApplicationHandler for App {
                     },
                 ..
             } => match (code, key_state.is_pressed()) {
-                (KeyCode::KeyW, true) => println!("{} Key Pressed", Directions::Up),
-                (KeyCode::KeyA, true) => println!("{} Key Pressed", Directions::Left),
-                (KeyCode::KeyS, true) => println!("{} Key Pressed", Directions::Down),
-                (KeyCode::KeyD, true) => println!("{} Key Pressed", Directions::Right),
+                (KeyCode::KeyW, false) => println!("{} Key Pressed", Directions::Up),
+                (KeyCode::KeyA, false) => println!("{} Key Pressed", Directions::Left),
+                (KeyCode::KeyS, false) => println!("{} Key Pressed", Directions::Down),
+                (KeyCode::KeyD, false) => println!("{} Key Pressed", Directions::Right),
                 (KeyCode::Escape, true) => {
                     println!("Escape key pressed; stopping");
                     event_loop.exit();
