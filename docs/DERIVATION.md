@@ -192,6 +192,3 @@ Ordered by when the build forces each concept. "Bites" = where you will meet it 
 - Repo + `cargo new` — immediately.
 - Log v3: fold D-A…D-E in as ADR-025–029.
 - The next session types code or debugs the toolchain. Design is, for now, done.
-
-*Suggested commit:* `docs(log): add derivation pass — features, engine split, rust map, 45-day plan`
-*(body)* `Grinds beats v2 into engine/game system requirements, maps Rust concepts to milestones M0–M7, sets the 30-day checkpoint and 45-day slice target. Decides: no ECS for slice, single crate, static data, authored scenes over tile engine. Refs: ADR-002, ADR-012, ADR-014–016, ADR-020–022.`
