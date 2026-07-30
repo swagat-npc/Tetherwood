@@ -5,3 +5,8 @@ edition = "2024"
 
 [dependencies]
 winit = "0.30.13"
+wgpu = "30"
+pollster = "0.4"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
