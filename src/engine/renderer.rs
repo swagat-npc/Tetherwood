@@ -297,16 +297,19 @@ impl Renderer {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let scale = glam::Mat4::from_scale(glam::Vec3::new(
+        let multiplying_factor = 5.0;
+
+        let sprite_size = glam::Vec2::new(
             self.sprite_texture.width as f32,
             self.sprite_texture.height as f32,
-            1.0,
-        ));
-        let multiplying_factor = 5.0;
-        let multiplier =
-            glam::Mat4::from_scale(glam::Vec3::new(multiplying_factor, multiplying_factor, 1.0));
-        let translate = glam::Mat4::from_translation(self.sprite_position.extend(0.0));
-        let model = translate * multiplier * scale;
+        ) * multiplying_factor;
+        let half_size = sprite_size / 2.0;
+
+        let scale = glam::Mat4::from_scale(sprite_size.extend(1.0));
+
+        let translate =
+            glam::Mat4::from_translation((self.sprite_position - half_size).extend(0.0));
+        let model = translate * scale;
 
         let screen_center = glam::Vec2::new(
             self.config.width as f32 / 2.0,
