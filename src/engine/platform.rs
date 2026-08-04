@@ -115,6 +115,7 @@ impl ApplicationHandler for App {
                         renderer.sprite_position +=
                             movement.normalize() * speed * delta.as_secs_f32();
                     }
+                    renderer.camera_position = renderer.sprite_position;
                 }
 
                 match self.renderer.as_mut().unwrap().render() {

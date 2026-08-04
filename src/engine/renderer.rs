@@ -67,6 +67,7 @@ pub struct Renderer {
     sprite_bind_group: wgpu::BindGroup,
     sprite_texture: texture::Texture,
     pub sprite_position: glam::Vec2,
+    pub camera_position: glam::Vec2,
 }
 
 impl Renderer {
@@ -270,6 +271,7 @@ impl Renderer {
             sprite_bind_group,
             sprite_texture,
             sprite_position: glam::Vec2::new(100.0, 80.0),
+            camera_position: glam::Vec2::ZERO,
         })
     }
 
@@ -305,6 +307,14 @@ impl Renderer {
             glam::Mat4::from_scale(glam::Vec3::new(multiplying_factor, multiplying_factor, 1.0));
         let translate = glam::Mat4::from_translation(self.sprite_position.extend(0.0));
         let model = translate * multiplier * scale;
+
+        let screen_center = glam::Vec2::new(
+            self.config.width as f32 / 2.0,
+            self.config.height as f32 / 2.0,
+        );
+        let camera_view =
+            glam::Mat4::from_translation((screen_center - self.camera_position).extend(0.0));
+
         let projection = glam::Mat4::orthographic_rh(
             0.0,
             self.config.width as f32,
@@ -313,7 +323,7 @@ impl Renderer {
             -1.0,
             1.0,
         );
-        let transform = projection * model;
+        let transform = projection * camera_view * model;
         self.queue.write_buffer(
             &self.transform_buffer,
             0,
