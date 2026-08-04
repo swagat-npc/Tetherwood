@@ -1,4 +1,5 @@
 use pollster::block_on;
+use std::collections::HashSet;
 use std::{sync::Arc, time::Instant};
 use winit::{
     application::ApplicationHandler,
@@ -23,6 +24,7 @@ pub fn run() {
         last_frame: Instant::now(),
         frame_count: 0,
         renderer: None,
+        held_keys: HashSet::new(),
     };
     event_loop.run_app(&mut app).expect("event loop error");
 }
@@ -32,6 +34,7 @@ struct App {
     last_frame: Instant,
     frame_count: u32,
     renderer: Option<Renderer>,
+    held_keys: HashSet<KeyCode>,
 }
 
 impl ApplicationHandler for App {
@@ -93,6 +96,27 @@ impl ApplicationHandler for App {
                     );
                 }
 
+                if let Some(renderer) = self.renderer.as_mut() {
+                    let speed = 100.0; // pixels per second
+                    let mut movement = glam::Vec2::ZERO;
+                    if self.held_keys.contains(&KeyCode::KeyW) {
+                        movement.y -= 1.0;
+                    }
+                    if self.held_keys.contains(&KeyCode::KeyS) {
+                        movement.y += 1.0;
+                    }
+                    if self.held_keys.contains(&KeyCode::KeyA) {
+                        movement.x -= 1.0;
+                    }
+                    if self.held_keys.contains(&KeyCode::KeyD) {
+                        movement.x += 1.0;
+                    }
+                    if movement != glam::Vec2::ZERO {
+                        renderer.sprite_position +=
+                            movement.normalize() * speed * delta.as_secs_f32();
+                    }
+                }
+
                 match self.renderer.as_mut().unwrap().render() {
                     Ok(()) => {}
                     Err(e) => {
@@ -106,30 +130,23 @@ impl ApplicationHandler for App {
                     KeyEvent {
                         physical_key: PhysicalKey::Code(code),
                         state: key_state,
-                        repeat,
+                        repeat: false,
                         ..
                     },
                 ..
-            } => match (code, key_state.is_pressed(), repeat) {
-                (KeyCode::KeyW, true, false) => println!("{:?} Key Pressed", Directions::Up),
-                (KeyCode::KeyA, true, false) => println!("{:?} Key Pressed", Directions::Left),
-                (KeyCode::KeyS, true, false) => println!("{:?} Key Pressed", Directions::Down),
-                (KeyCode::KeyD, true, false) => println!("{:?} Key Pressed", Directions::Right),
-                (KeyCode::Escape, true, false) => {
-                    println!("Escape key pressed; stopping");
-                    event_loop.exit();
+            } => match key_state {
+                winit::event::ElementState::Pressed => {
+                    if code == KeyCode::Escape {
+                        println!("Escape key pressed; stopping");
+                        event_loop.exit();
+                    }
+                    self.held_keys.insert(code);
                 }
-                _ => {}
+                winit::event::ElementState::Released => {
+                    self.held_keys.remove(&code);
+                }
             },
             _ => {}
         }
     }
-}
-
-#[derive(Debug)]
-enum Directions {
-    Up,
-    Down,
-    Left,
-    Right,
 }

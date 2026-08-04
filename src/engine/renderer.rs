@@ -66,6 +66,7 @@ pub struct Renderer {
     num_indices: u32,
     sprite_bind_group: wgpu::BindGroup,
     sprite_texture: texture::Texture,
+    pub sprite_position: glam::Vec2,
 }
 
 impl Renderer {
@@ -263,11 +264,12 @@ impl Renderer {
             render_pipeline,
             vertex_buffer,
             index_buffer,
+            transform_buffer,
+            transform_bind_group,
             num_indices,
             sprite_bind_group,
             sprite_texture,
-            transform_buffer,
-            transform_bind_group,
+            sprite_position: glam::Vec2::new(100.0, 80.0),
         })
     }
 
@@ -301,7 +303,7 @@ impl Renderer {
         let multiplying_factor = 5.0;
         let multiplier =
             glam::Mat4::from_scale(glam::Vec3::new(multiplying_factor, multiplying_factor, 1.0));
-        let translate = glam::Mat4::from_translation(glam::Vec3::new(100.0, 80.0, 0.0));
+        let translate = glam::Mat4::from_translation(self.sprite_position.extend(0.0));
         let model = translate * multiplier * scale;
         let projection = glam::Mat4::orthographic_rh(
             0.0,
