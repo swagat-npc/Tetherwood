@@ -8,16 +8,17 @@ struct VertexOutput {
     @location(0) tex_coords: vec2<f32>,
 };
 
+@group(0) @binding(0) var t_sprite: texture_2d<f32>;
+@group(0) @binding(1) var s_sprite: sampler;
+@group(1) @binding(0) var<uniform> transform: mat4x4<f32>;
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    out.clip_position = vec4<f32>(in.position, 1.0);
+    out.clip_position = transform * vec4<f32>(in.position, 1.0);
     out.tex_coords = in.tex_coords;
     return out;
 }
-
-@group(0) @binding(0) var t_sprite: texture_2d<f32>;
-@group(0) @binding(1) var s_sprite: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {

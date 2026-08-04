@@ -33,21 +33,21 @@ impl Vertex {
 
 const VERTICES: &[Vertex] = &[
     Vertex {
-        position: [-0.5, 0.5, 0.0],
+        position: [0.0, 0.0, 0.0],
         tex_coords: [0.0, 0.0],
-    }, // 0 top-left
+    }, // top-left
     Vertex {
-        position: [-0.5, -0.5, 0.0],
+        position: [0.0, 1.0, 0.0],
         tex_coords: [0.0, 1.0],
-    }, // 1 bottom-left
+    }, // bottom-left
     Vertex {
-        position: [0.5, -0.5, 0.0],
+        position: [1.0, 1.0, 0.0],
         tex_coords: [1.0, 1.0],
-    }, // 2 bottom-right
+    }, // bottom-right
     Vertex {
-        position: [0.5, 0.5, 0.0],
+        position: [1.0, 0.0, 0.0],
         tex_coords: [1.0, 0.0],
-    }, // 3 top-right
+    }, // top-right
 ];
 
 const INDICES: &[u16] = &[0, 1, 2, 0, 3, 2];
@@ -61,6 +61,8 @@ pub struct Renderer {
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
+    transform_buffer: wgpu::Buffer,
+    transform_bind_group: wgpu::BindGroup,
     num_indices: u32,
     sprite_bind_group: wgpu::BindGroup,
     sprite_texture: texture::Texture,
@@ -136,6 +138,21 @@ impl Renderer {
                 ],
             });
 
+        let transform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("transform bind group layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
         let sprite_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("sprite bind group"),
             layout: &texture_bind_group_layout,
@@ -154,7 +171,10 @@ impl Renderer {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("render pipeline layout"),
-                bind_group_layouts: &[Some(&texture_bind_group_layout)],
+                bind_group_layouts: &[
+                    Some(&texture_bind_group_layout),
+                    Some(&transform_bind_group_layout),
+                ],
                 immediate_size: 0,
             });
 
@@ -206,6 +226,20 @@ impl Renderer {
             contents: bytemuck::cast_slice(INDICES),
             usage: wgpu::BufferUsages::INDEX,
         });
+        let transform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("transform buffer"),
+            contents: bytemuck::cast_slice(&glam::Mat4::IDENTITY.to_cols_array()),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let transform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("transform bind group"),
+            layout: &transform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: transform_buffer.as_entire_binding(),
+            }],
+        });
+
         let num_indices = INDICES.len() as u32;
 
         let config = wgpu::SurfaceConfiguration {
@@ -232,6 +266,8 @@ impl Renderer {
             num_indices,
             sprite_bind_group,
             sprite_texture,
+            transform_buffer,
+            transform_bind_group,
         })
     }
 
@@ -256,6 +292,31 @@ impl Renderer {
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let scale = glam::Mat4::from_scale(glam::Vec3::new(
+            self.sprite_texture.width as f32,
+            self.sprite_texture.height as f32,
+            1.0,
+        ));
+        let multiplying_factor = 5.0;
+        let multiplier =
+            glam::Mat4::from_scale(glam::Vec3::new(multiplying_factor, multiplying_factor, 1.0));
+        let translate = glam::Mat4::from_translation(glam::Vec3::new(100.0, 80.0, 0.0));
+        let model = translate * multiplier * scale;
+        let projection = glam::Mat4::orthographic_rh(
+            0.0,
+            self.config.width as f32,
+            self.config.height as f32,
+            0.0,
+            -1.0,
+            1.0,
+        );
+        let transform = projection * model;
+        self.queue.write_buffer(
+            &self.transform_buffer,
+            0,
+            bytemuck::cast_slice(&transform.to_cols_array()),
+        );
 
         let mut encoder = self
             .device
@@ -288,6 +349,7 @@ impl Renderer {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.sprite_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.transform_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
