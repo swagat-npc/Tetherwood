@@ -3,7 +3,7 @@
 
 **Document type:** Living project record (docs-as-code)
 **Started:** July 2026
-**Revision:** v3
+**Revision:** v4
 **Status:** Design phase complete → Toolchain setup & M0/M1 next. Companion document: `docs/DERIVATION.md` (feature inventory, engine split, Rust map, milestones, 45-day plan).
 **Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated when decisions accumulate, not on a timer.
 
@@ -176,6 +176,29 @@ Beats v2 ground into: full feature inventory (per beat, slice/Phase-1 tagged) �
 ### Phase 9 — Naming (completed)
 
 Title brainstorm to stress-test the working title. Criteria that emerged: layered referents that re-read after the credits; revelation energy, not secrecy energy; shaped as a tiny story or as the driving artifact (Ocarina pattern); weighty; not on-the-nose. Result: **Tetherwood** (ADR-030). The former working title survives as the Act I / slice chapter title. Collision check performed (small itch.io jam prototype of the same name; assessed and accepted as soft). Engine remains deliberately unnamed.
+
+### Phase 10 — M2: The Wall (completed)
+
+Full wgpu pipeline stood up: instance/adapter/device/queue, WGSL shader,
+unit quad + index buffer, texture module (decode, upload, view, sampler),
+two bind group slots (texture, transform uniform). 2D world coordinate
+system decided and implemented (ADR-031). Transform chain established as
+projection * view * model (ADR-032), recomputed every frame. Sprite
+position convention corrected mid-milestone to mean center, not top-left
+(ADR-033), discovered via camera-centering testing rather than anticipated
+up front — a real example of the "let the second use case teach the
+abstraction" pattern the project already trusts (cf. ADR-025). Back-face
+culling disabled as a consequence of the y-down projection (ADR-034).
+Held-state WASD input implemented directly in App, with the raw-keycode
+placement flagged as deliberate, temporary debt rather than a missed
+abstraction (ADR-035). Camera-follow implemented and proven correct.
+
+M2 definition of done met in full: textured sprite, arbitrary position,
+movable with arrow keys, camera offset working. Docs-as-code extended:
+docs/screenshots/ established, 10 images taken across M1–M2, each tied to
+a specific lesson (clear color, first triangle, interpolation, winding/
+culling, texture skew before/after transform, held-input movement,
+camera-follow).
 
 ---
 
@@ -363,37 +386,160 @@ Title brainstorm to stress-test the working title. Criteria that emerged: layere
 - **Rationale:** Names the central artifact (the wooden sigil is literally a tether: sibling bond, z-essence absorption, the map's obedience, her link to the ritual, and the parked narrator question). The "-wood" family (driftwood, heartwood, wormwood) makes the coinage read as a natural word; the game cashes the title from Beat 1, defusing the try-hard risk. Consistent with the developer's naming voice (cf. *Isolated*). Collision check: a 2-day itch.io jam prototype shares the name — assessed as soft (no commercial presence, no apparent trademark); accepted. Proper trademark search deferred to any commercial release.
 - **Consequences:** Repo/crate named before `git init` — no rename churn. The window title in M1 is `Tetherwood`. Chapter-title convention established (acts may carry their own titles).
 
+### ADR-031: 2D world coordinates — pixels, top-left origin, y-down
+- **Context:** wgpu's clip space is y-up, origin-center, −1..1 — standard
+  for 3D engines but foreign to every 2D authoring surface the project
+  actually uses (images, UV space, Aseprite, Godot).
+- **Decision:** Tetherwood's world space is pixels, origin top-left,
+  y-down. The projection matrix (built via `glam::Mat4::orthographic_rh`
+  with bottom/top swapped) is the single place the y-flip into clip
+  space happens.
+- **Rationale:** Matches every 2D surface the developer already thinks
+  in; makes M3's y-sort read naturally (greater y = lower on screen =
+  drawn in front, matching draw-order intuition). The alternative
+  (native y-up) buys nothing for a 2D adventure game and costs a mental
+  flip at every sprite, every scene, forever.
+- **Consequences:** The y-flip reverses on-screen triangle winding,
+  forcing ADR-034 (culling disabled). Any future code reading raw clip-
+  space or NDC values (shouldn't be common) must remember the flip lives
+  only in the projection matrix, not scattered through game code.
+
+### ADR-032: Transform chain — projection * view * model, rebuilt per frame
+- **Context:** Sprites need independent position/size (model), the
+  camera needs to offset the whole world (view), and pixel space needs
+  to become clip space (projection). Needed a combination order and a
+  recomputation policy.
+- **Decision:** `transform = projection * view * model`, matrices
+  multiplied right-to-left (model applies first, then view, then
+  projection). All three rebuilt from scratch every frame, uploaded via
+  `queue.write_buffer` each `render()` call — no dirty-flag/caching.
+- **Rationale:** Right-to-left order is the only order that produces
+  correct results (translating before scaling blows up position, as
+  discovered by hand-tracing coordinates during derivation). Rebuilding
+  every frame is negligible cost at slice scale (single sprite, few
+  matrix multiplies) — correctness and simplicity beat an unearned
+  optimization. `view` implements the camera as "shift the whole world
+  opposite the camera's motion," the standard fake since there is no
+  literal lens.
+- **Consequences:** Revisit only once entity count makes per-frame
+  matrix rebuilding for every entity a measured cost (Phase 1+, not
+  before). `view`'s screen-center offset makes `camera_position` mean
+  "the world point mapped to screen center," not "world point mapped to
+  top-left" — a deliberate, documented convention (see ADR-033 for the
+  matching decision on entity position).
+
+### ADR-033: Entity position means center, not top-left corner
+- **Context:** The model matrix's translate initially placed the unit
+  quad's top-left corner at `sprite_position`. Camera-centering testing
+  surfaced that this convention put the sprite's visual center off-
+  screen-center by half its size — a CSS-instinct fix (offset the
+  camera by half-size) was considered and rejected in favor of fixing
+  the convention at the source.
+- **Decision:** `sprite_position` (and any future entity position field)
+  means the entity's visual center. The model matrix subtracts half the
+  sprite's size before translating, so the corner-vs-center conversion
+  happens once, at construction, rather than being compensated for at
+  every consumer (camera, collision, etc).
+- **Rationale:** Center is the convention every downstream system will
+  want: collision checks, facing direction, distance-to-player for
+  enemy AI (M6), y-sort ordering (M3) all reason about "where is this
+  entity" most naturally as a single center point. Fixing the meaning
+  once beats every future system re-deriving a half-size offset
+  independently. Rejected alternative (offset only at the camera step)
+  would have left the top-left convention intact and forced every other
+  consumer to repeat the same correction.
+- **Consequences:** Any future position field on any entity follows this
+  convention by default — worth stating explicitly so M3's entity model
+  doesn't have to rediscover it. Sprite size must be known wherever a
+  position is placed (already true — read from `texture::Texture`).
+
+### ADR-034: Back-face culling disabled for 2D sprites
+- **Context:** The pipeline's `cull_mode: Some(Face::Back)` was set
+  during the triangle/quad chunks, before ADR-031's y-down projection
+  existed. The y-flip reverses screen-space winding for every quad,
+  which the existing cull setting would silently discard.
+- **Decision:** `cull_mode: None`.
+- **Rationale:** Back-face culling exists to skip triangles facing away
+  from the camera in closed 3D meshes — a screen-aligned 2D sprite quad
+  has no "back" to skip; the optimization doesn't apply to this
+  project's geometry at all, independent of the winding issue it
+  happened to also fix.
+- **Consequences:** None expected — this is the standard setting for 2D
+  renderers built on 3D-oriented APIs like wgpu.
+
+### ADR-035: Raw key handling in App is temporary; input abstraction deferred
+- **Context:** Held-state WASD movement is currently implemented as
+  direct `KeyCode` checks inside `App` (platform-adjacent code), which
+  fails the machinery/content test — a different game built on this
+  engine could not remap controls without editing this code.
+- **Decision:** Ship the raw version for M2. Defer building an
+  Action/InputMap abstraction layer (engine exposes abstract actions;
+  game supplies the key mapping and the meaning) until a second real
+  input-consuming system exists — candidates: M4 dialogue advance/skip,
+  or menu navigation.
+- **Rationale:** Same reasoning as ADR-025's ECS deferral: designing the
+  abstraction now means guessing its shape from a single data point
+  (movement only). Real design questions are still open — does battle's
+  hybrid real-time/tick input (ADR-015) even fit the same action model
+  as overworld movement? A second consumer will answer that; anticipating
+  it won't. Building it now would be premature generalization against
+  Principle 5.
+- **Consequences:** A `// TODO(engine): ...` marker is left at the raw
+  `KeyCode` handling site in `App`, naming this ADR, so the debt surfaces
+  in-editor rather than relying on memory. Flagged explicitly here so a
+  future chat doesn't mistake "not yet built" for "not noticed."
+
 ---
 
 ## 5. Current State & Open Questions
 
-### Where the project stands (July 2026, v3)
+### Where the project stands (August 2026, v4)
 
-- ✅ Charter, principles, feasibility.
-- ✅ Systems identity; premise; story arc; thesis mechanic; setting.
-- ✅ Combat model; progression; first act (beats v2); voice/context/texture/UI staging.
-- ✅ **Derivation pass** (`docs/DERIVATION.md`): features, engine split E1–E11, Rust concept map, milestones M0–M7, 45-day slice plan.
-- ✅ **Naming:** Tetherwood / "The Morning She Was Gone" (Act I).
-- ✅ Design phase **closed**. All gates to code are open.
-- ⬜ Toolchain: rustup + MSVC build tools + rust-analyzer (Windows). ← next
-- ⬜ Repo init + docs commits (Log v1 → v2 → v3 → DERIVATION) + `cargo new tetherwood` with module skeleton (days 1–2).
-- ⬜ M0 ∥ M1 (days 3–7): Rust baseline alongside the first window.
-- ⬜ Code written so far: zero. This is the last revision for which that is true.
+- ✅ Design phase, derivation pass, naming (Phases 0–9, unchanged).
+- ✅ **M1 (The Toolchain and Window):** winit 0.30 integrated, window,
+  input logging, delta timing, ControlFlow::Poll.
+- ✅ **M2 (The Wall):** full wgpu pipeline — surface/device/queue,
+  WGSL shader, textured quad, bind groups, transform uniform, 2D
+  coordinate system (ADR-031), transform chain (ADR-032), entity
+  position-as-center convention (ADR-033), held-state input, working
+  camera-follow. Definition of done met in full.
+- ⬜ **M3 (The Room)** ← next. Per DERIVATION.md §5: Beat 1 playable —
+  authored bedroom scene, player walks with collision, camera follows,
+  y-sort proven (walk behind furniture). Engine systems: E5 (entity
+  model, promoted from single-sprite scaffolding), E8 partial
+  (interaction/trigger), E10 (asset loading, beyond one embedded PNG).
+- Code written so far: renderer, texture module, input handling, one
+  hardcoded sprite. No entity model, no scene system, no content beyond
+  the test character sprite yet.
 
 ### Open questions
 
-1. **Tuning knobs (playtest, not debate):** grid width (~4), tick length (~0.5s), lockout duration, telegraph visual treatment.
-2. **Writing pending:** initiate pre-fight line (direction settled); clue-chain dialogue (vendor, shopkeeper, child) + flag names; meta-NPC joke lines; narrator T2 winks; flatten-effect v1 fidelity.
-3. **Narrator identity:** parked; revisit no earlier than Phase 2 writing.
-4. **ECS re-evaluation:** Phase 1, with slice experience in hand (per ADR-025).
-5. **serde/RON adoption:** Phase 1 thickening, when content volume hurts (per ADR-027).
-6. **Engine name; open-source license:** deferred until the engine crate boundary exists.
+1. **Tuning knobs (playtest, not debate):** grid width, tick length,
+   lockout duration, telegraph visuals — unchanged, still Phase 1+.
+2. **Writing pending:** unchanged from v3.
+3. **Narrator identity:** parked, unchanged.
+4. **ECS / serde re-evaluation:** unchanged, Phase 1.
+5. **Input abstraction (ADR-035):** deferred until a second
+   input-consuming system exists — watch for the natural trigger at
+   M4 (dialogue advance) or M5 (menu nav); don't build early.
+6. **Engine name; open-source license:** deferred, unchanged.
+7. **New:** current single-sprite scaffolding on `Renderer`
+   (`sprite_position`, `camera_position`, `transform_buffer`) needs to
+   migrate to an entity model in M3 — not a question of *whether*, but
+   the concrete shape is M3's problem to solve, not to anticipate here.
 
-### Next session agenda (Milestone Chat: The Toolchain / M1)
+### Next session agenda (Milestone Chat #3: The Room / M3)
 
-1. rustup on Windows (accept the MSVC build tools prompt), VS Code + rust-analyzer.
-2. Repo init; commit sequence: `chore(repo): initialize repository with docs structure` → the three log commits → derivation commit → `chore(repo): initialize rust project with module skeleton`.
-3. M1 begins: winit window titled **Tetherwood**, clear color, ESC quits, WASD logs. First real Rust fight expected: the event-loop closure (`move`, `'static`).
-4. Log v4: not scheduled. It arrives when code forces decisions worth recording — likely mid-M1 or at the M2 wall.
+1. Design the entity model (E5): plain structs, index/ID addressing
+   per ADR-025 — no ECS, no references between entities.
+2. Scene as authored content: background image + collision rectangles
+   + y-sorted entity sprites (ADR-028) — bedroom scene as first content.
+3. Move `sprite_position`/`camera_position` off `Renderer` and onto
+   the entity model; `render()` should take positions as draw-call
+   parameters rather than owning state.
+4. Collision vs. static rectangles; y-sort proof (walk behind a piece
+   of furniture).
+5. Camera-follow re-verified once it's following a real entity rather
+   than the single scaffolded sprite.
 
 ---

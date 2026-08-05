@@ -96,6 +96,9 @@ impl ApplicationHandler for App {
                     );
                 }
 
+                // TODO(engine): raw KeyCode handling here is content, not machinery (ADR-035).
+                // Extract an Action/InputMap layer once a second input-consuming system exists
+                // (dialogue advance, menus, battle input).
                 if let Some(renderer) = self.renderer.as_mut() {
                     let speed = 100.0; // pixels per second
                     let mut movement = glam::Vec2::ZERO;
