@@ -200,6 +200,82 @@ a specific lesson (clear color, first triangle, interpolation, winding/
 culling, texture skew before/after transform, held-input movement,
 camera-follow).
 
+### Phase 11 — M3: The Room (completed)
+
+Full entity/scene layer built from scratch and proven against real,
+playable content. `Entity` (E5): position (center, per ADR-033), size,
+`Option<Rect>` collider, `Option<TextureId>` texture — the same shape
+covers visible solid furniture, invisible solid blockers (Kecleon-
+style), and visible non-solid decoration without special-casing any
+of them. `TextureStore`: scene-scoped, load-once, never-mutated asset
+storage; textures referenced by a `Copy` newtype index rather than
+owned or `Rc`-shared per entity, extending ADR-025's indices-over-
+references principle from entities to assets (ADR-036). Entities are
+deactivated, never removed, from a scene's entity list during play
+(ADR-037) — verified against both a defeated-enemy case and the Beat 1
+keepsake-pickup case without needing new machinery.
+
+Collision: AABB overlap derived and hand-traced (center-distance vs.
+summed half-extents, per axis) before being written as code
+(`aabb_overlap`); walls (`Vec<Rect>`, world-space) and entity colliders
+feed the same test, source-agnostic. Movement resolves as two
+sequential per-axis proposals (x, then y from the resulting x) rather
+than one combined 2D proposal — produces correct sliding along walls
+and furniture edges, verified against inside-corner cases by hand
+(ADR-038).
+
+Y-sort: entities draw in ascending order of baseline
+(`position.y + size.y / 2.0`), not center — confirmed against tall-
+furniture cases where center-sort gives the wrong order. Feet-only
+collider boxes (deliberately smaller than sprite bounds) are designed
+to work with this rule, producing the walk-behind-furniture effect
+(ADR-039).
+
+Renderer rewritten end to end: the M2 single hardcoded sprite is gone.
+`prepare_scene` builds one `wgpu::BindGroup` per texture at scene load;
+`render` now takes a `&Scene`, y-sorts its entities, and draws the
+background plus every visible entity, each with its own command
+encoder and submission — discovered and fixed a real correctness bug
+where writing the shared transform buffer multiple times before one
+shared `submit()` would have let every draw read only the last-written
+transform (ADR-040).
+
+Camera gains a second mode: a static, scene-authored anchor (bedroom
+anchors at its own center) alongside M2's follow-camera, giving
+indoor/outdoor scenes distinct feel. No `CameraMode` abstraction built
+yet — one concrete consumer so far, deferred per the same reasoning as
+ADR-035 (ADR-041).
+
+`multiplying_factor` scales the entire scene composition — every
+position, size, and collider dimension, for entities, walls, and the
+background alike — uniformly from world origin, plus player movement
+speed. An early version that scaled size only (leaving position and
+the room boundary fixed) caused furniture to visually drift out of
+proportion with the room; scaling the whole composition together
+preserves every placement ratio regardless of factor, decoupling
+layout correctness from visual zoom (ADR-042).
+
+Debug tooling added as permanent, reusable engine machinery rather
+than a throwaway M3 aid: a collider overlay (F1) via a second render
+pipeline that computes fill/border directly from each fragment's UV
+coordinate — not a stretched texture, which cannot represent a
+constant-pixel-width border across non-square rects. Border thickness
+is converted from pixels to UV space per axis, per draw, since UV
+space is stretched independently per axis (ADR-043). Keypress logging
+(F2) hooked into the existing press-state match arm, not per-frame
+held-key checks, so each press logs exactly once. Both tools were then
+used to fine-tune the bedroom's actual furniture placement and sizes,
+visually confirming collision and the walk-behind y-sort effect
+against real content, not just hand-derived numbers.
+
+M3 definition of done met in full: authored bedroom scene, player
+movement collision-checked against both walls and furniture, y-sort
+proven by walking behind furniture — confirmed on screen, not just on
+paper. Docs-as-code extended: docs/screenshots/ now covers m3-01
+through m3-06, each tied to a specific lesson (multi-entity render,
+factor scaling, debug overlay alone and combined with scaling, tuned
+collision, tuned y-sort).
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -282,7 +358,7 @@ camera-follow).
 - **Context:** Start-to-end record wanted, maintained during the project; assistant has no cross-session persistence.
 - **Decision:** This log lives in the repo, updated on request at session ends; decisions as immutable ADRs.
 - **Rationale:** Git guarantees continuity; ADRs answer "why."
-- **Consequences:** Developer owns the update ritual. **Versioning is git commits on one canonical file** — filename suffixes (_v3) are a pre-repo stopgap only. Log revs when decisions accumulate, not on a timer.
+- **Consequences:** Developer owns the update ritual. **Versioning is git commits on one canonical file** — filename suffixes (_v3) are a pre-repo stopgap only. Log revs when decisions accumulate, not on a timer. `docs(repo)` is used specifically for repo-wide milestone-closing commits — a Phase Log entry, a batch of ADRs, current-state and next-session rewrites, all together, closing out a completed milestone (cf. the M2 and M3 log-close commits). Smaller, isolated documentation edits (e.g., a single screenshot addition) use `docs(log)` instead.
 
 ### ADR-014: Split-grid combat with asymmetric depth
 - **Context:** Split grid vs shared free-movement grid; camping/cheese concerns.
@@ -551,22 +627,25 @@ camera-follow).
   coordinate system (ADR-031), transform chain (ADR-032), entity
   position-as-center convention (ADR-033), held-state input, working
   camera-follow. Definition of done met in full.
-- 🔶 **M3 (The Room), in progress:** entity model (E5), scene
-  composition, texture store (E10), AABB collision + sequential
-  per-axis resolution, y-sort by baseline, and a full renderer rewrite
-  (multi-entity draw via per-texture bind groups, one command
-  submission per draw) are all built and working — `cargo run` loads
-  a real bedroom scene (Beat 1) with six real textures, player
-  movement is collision-checked against both walls and furniture.
-  `multiplying_factor` scales the entire composition uniformly from
-  world origin (ADR-042), decoupling layout correctness from visual
-  scale. Debug tooling added as permanent engine machinery: a
-  collider overlay (F1) using a dedicated shader that computes
-  fill/border directly from UV coordinates rather than a stretched
-  texture (ADR-043), and keypress logging (F2). Remaining before M3's
-  DoD is fully proven: furniture placement/size fine-tuning (now
-  tool-assisted via the overlay), and confirming the walk-behind-
-  furniture y-sort effect is visibly correct with tuned numbers.
+- ✅ **M3 (The Room):** entity model, scene composition, texture
+  store, AABB collision with sequential per-axis resolution, y-sort
+  by baseline, full renderer rewrite (multi-entity draw, per-draw
+  submission), multiplying_factor whole-composition scaling, and
+  permanent debug tooling (collider overlay, input logging) — all
+  built and proven against tuned, real bedroom content. Definition
+  of done met in full.
+- ⬜ **M4 (The Voice)** ← next. Per DERIVATION.md §5: Beat 2 playable
+  — room transition (scene trait + stack, E4), examine bed → narrator
+  text, typewriter + blips, inner-monologue frame visually distinct
+  from NPC dialogue. Engine systems: E4 (scene trait/stack/
+  transitions), E6 (dialogue machinery — typewriter, three registers,
+  flag-conditioned lines, advance/skip), E7 (audio — one music track,
+  blip playback via kira, not yet integrated).
+- Code written so far: entity/scene/asset layer, collision, y-sort,
+  full renderer, debug tooling — one scene (bedroom) as content. No
+  scene *transitions* exist yet (the bedroom is currently the only
+  loadable scene, loaded once at startup); no dialogue, text
+  rendering, or audio exists yet at all.
 
 ### Open questions
 
@@ -586,16 +665,30 @@ camera-follow).
 
 ### Next session agenda (Milestone Chat #3: The Room / M3)
 
-1. Design the entity model (E5): plain structs, index/ID addressing
-   per ADR-025 — no ECS, no references between entities.
-2. Scene as authored content: background image + collision rectangles
-   + y-sorted entity sprites (ADR-028) — bedroom scene as first content.
-3. Move `sprite_position`/`camera_position` off `Renderer` and onto
-   the entity model; `render()` should take positions as draw-call
-   parameters rather than owning state.
-4. Collision vs. static rectangles; y-sort proof (walk behind a piece
-   of furniture).
-5. Camera-follow re-verified once it's following a real entity rather
-   than the single scaffolded sprite.
+1. Design the `Scene` trait and scene stack (E4) — M3's `Scene` is
+   currently a concrete struct; M4 needs push/pop semantics (battle-
+   over-overworld is the eventual target per Beat 6, but M4 itself
+   only needs room-to-room transition, not a stack depth beyond one).
+   Decide what "transition" means concretely: unload/load, spawn
+   points, whether the old scene's state persists.
+2. Text rendering (E2/E6 boundary) — nothing in the renderer draws
+   text yet at all. This is likely the milestone's own "wgpu wall"
+   moment: a new, real subsystem (font atlas or similar), budget
+   accordingly rather than assume it's small.
+3. Dialogue machinery (E6): typewriter reveal, advance/skip input
+   (the natural second consumer for ADR-035's deferred Action/InputMap
+   abstraction — watch for whether this milestone is where that
+   finally gets built, or whether it's still prematurely early).
+4. Three-register visual design (ADR-021): narrator (no avatar), inner
+   monologue (avatar + distinct frame), NPC (avatar + standard frame)
+   — M4's slice only needs inner monologue + narrator (NPC dialogue
+   isn't until M5's village).
+5. Audio (E7): first blip sounds, tied to typewriter reveal per
+   character/register.
+6. Content: Beat 2's actual scene (the empty house / bedroom
+   transition), examine-triggered narrator text on the sister's bed —
+   this is where E8's interaction/trigger system (proximity + facing +
+   button, stubbed as a console log in M3) gets its first real
+   payoff: console log becomes actual dialogue text.
 
 ---
