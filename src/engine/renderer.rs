@@ -416,8 +416,14 @@ impl Renderer {
             self.config.width as f32 / 2.0,
             self.config.height as f32 / 2.0,
         );
+
+        // This makes it static
         let camera_view =
             glam::Mat4::from_translation((screen_center - self.camera_position).extend(0.0));
+
+        // This moves camera with the player
+        // let camera_view =
+        //     glam::Mat4::from_translation((screen_center - scene.player().position).extend(0.0));
 
         // y-sort: entities drawn in ascending order of baseline
         // (bottom edge = position.y + half height), so entities with a

@@ -23,7 +23,7 @@ pub fn run() {
         renderer: None,
         scene: None,
         held_keys: HashSet::new(),
-        multiplying_factor: 2.5,
+        multiplying_factor: 5.0,
         show_colliders: false,
         show_debug_info: false,
     };
@@ -46,7 +46,8 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = Window::default_attributes()
             .with_title("Tetherwood")
-            .with_inner_size(winit::dpi::LogicalSize::new(512.0, 512.0));
+            .with_inner_size(winit::dpi::LogicalSize::new(800.0, 600.0))
+            .with_position(winit::dpi::LogicalPosition::new(0.0, 100.0));
 
         let window = event_loop.create_window(window_attributes).unwrap();
         let window = Arc::new(window);
