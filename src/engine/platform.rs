@@ -23,6 +23,7 @@ pub fn run() {
         renderer: None,
         scene: None,
         held_keys: HashSet::new(),
+        multiplying_factor: 2.5,
     };
     event_loop.run_app(&mut app).expect("event loop error");
 }
@@ -34,6 +35,7 @@ struct App {
     renderer: Option<Renderer>,
     scene: Option<Scene>,
     held_keys: HashSet<KeyCode>,
+    multiplying_factor: f32,
 }
 
 impl ApplicationHandler for App {
@@ -48,8 +50,9 @@ impl ApplicationHandler for App {
         let mut renderer =
             block_on(Renderer::new(window.clone())).expect("failed to initialize renderer");
 
-        let scene = Scene::new_bedroom(renderer.device(), renderer.queue())
-            .expect("failed to build bedroom scene");
+        let scene =
+            Scene::new_bedroom(renderer.device(), renderer.queue(), self.multiplying_factor)
+                .expect("failed to build bedroom scene");
         renderer.prepare_scene(&scene);
 
         // Static indoor camera: anchored once at the room's own center,
@@ -57,7 +60,7 @@ impl ApplicationHandler for App {
         // player behavior) is deferred until an outdoor/follow scene
         // needs it — no CameraMode abstraction built yet, since there's
         // only one real consumer so far (same reasoning as ADR-035).
-        renderer.camera_position = glam::Vec2::new(256.0, 256.0);
+        renderer.camera_position = glam::Vec2::new(64.0, 64.0) * self.multiplying_factor;
 
         self.scene = Some(scene);
         self.renderer = Some(renderer);
@@ -103,7 +106,7 @@ impl ApplicationHandler for App {
 
                 // TODO(engine): raw KeyCode handling here is content, not machinery (ADR-035).
                 if let Some(scene) = self.scene.as_mut() {
-                    let speed = 100.0; // pixels per second
+                    let speed = 80.0 * self.multiplying_factor; // pixels per second scaled up to the factor
                     let mut movement = glam::Vec2::ZERO;
                     if self.held_keys.contains(&KeyCode::KeyW) {
                         movement.y -= 1.0;

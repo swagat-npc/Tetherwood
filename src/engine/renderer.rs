@@ -352,8 +352,8 @@ impl Renderer {
         let mut draws: Vec<(usize, glam::Vec2, glam::Vec2)> = Vec::new();
         draws.push((
             scene.background.0,
-            glam::Vec2::new(256.0, 256.0),
-            glam::Vec2::new(512.0, 512.0),
+            scene.background_position,
+            scene.background_size,
         ));
         for &idx in &order {
             let entity = &scene.entities[idx];

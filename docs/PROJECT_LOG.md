@@ -525,6 +525,12 @@ camera-follow).
 - **Rationale:** Gives the indoor/outdoor distinction narrative weight (cozy, fully-visible interiors vs. vast, player-centered exteriors), rather than treating camera behavior as an incidental default.
 - **Consequences:** A real `CameraMode` type is expected, scoped for whenever the first outdoor/follow scene is built alongside the first static one — not before.
 
+### ADR-042: multiplying_factor scales the whole scene composition uniformly
+- **Context:** Content is authored at raw, small pixel dimensions (matching source art and hand-derived layout math) but needs visual scale-up for legibility. An early attempt scaled only sprite/collider size while leaving position and the room boundary fixed, causing furniture to visually drift out of proportion with the (unscaled) room as the factor changed.
+- **Decision:** `multiplying_factor` is applied uniformly to every position, size, and collider offset/half_size — entities, walls, and background alike — from world origin, at scene-construction time (`Scene::new_bedroom(..., multiplying_factor)`). It also scales player movement speed, keeping felt movement speed (body-lengths per second) constant across zoom levels. The factor lives as an `App` field (not a local variable), since both scene construction and per-frame movement code need to read it.
+- **Rationale:** Scaling the whole composition from one shared origin preserves every placement ratio (gaps, wall clearance, walk-behind spacing) exactly, regardless of factor — layout only needs tuning once, at any single factor, decoupling "is the layout correct" from "does it look good at this zoom level." Matches the Photoshop-group-scale mental model explicitly adopted over per-component scaling.
+- **Consequences:** Every literal in scene-construction content carries an explicit `* multiplying_factor` — a real, visible verbosity cost, accepted as a consequence of static Rust content (D-C) rather than data-driven loading, where the multiply would live in one place. Revisit if/when content moves to serde/RON (Phase 1+). The viewport itself does not auto-scale with the factor — "let content drive size" (already decided) means viewport bumps remain a separate, deliberate call once content visibly outgrows the current window.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -539,18 +545,16 @@ camera-follow).
   coordinate system (ADR-031), transform chain (ADR-032), entity
   position-as-center convention (ADR-033), held-state input, working
   camera-follow. Definition of done met in full.
-- 🔶 **M3 (The Room), in progress:** entity model (E5), scene composition
-  (E4-adjacent), texture store (E10), AABB collision + sequential
+- 🔶 **M3 (The Room), in progress:** entity model (E5), scene
+  composition, texture store (E10), AABB collision + sequential
   per-axis resolution, y-sort by baseline, and a full renderer rewrite
   (multi-entity draw via per-texture bind groups, one command
   submission per draw) are all built and working — `cargo run` loads
-  a real bedroom scene (Beat 1) with six real textures, player movement
-  is collision-checked against both walls and furniture. Content is
-  currently at `multiplying_factor = 1.0` — raw layout numbers, pending
-  a visual-scale pass. Remaining before M3's DoD is fully proven:
-  debug collider visualization (in progress), furniture placement/size
-  tuning, and confirming the walk-behind-furniture y-sort effect is
-  actually visible on screen once real placements are dialed in.
+  a real bedroom scene (Beat 1) with six real textures, player
+  movement is collision-checked against both walls and furniture.
+  `multiplying_factor` scales the entire composition uniformly from
+  world origin (ADR-042), decoupling layout correctness from visual
+  scale.
 
 ### Open questions
 
