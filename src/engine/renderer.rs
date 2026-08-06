@@ -11,6 +11,21 @@ struct Vertex {
     tex_coords: [f32; 2],
 }
 
+struct DebugRect {
+    position: glam::Vec2,
+    size: glam::Vec2,
+    fill_color: [f32; 4],
+    border_color: [f32; 4],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct DebugRectUniform {
+    fill_color: [f32; 4],
+    border_color: [f32; 4],
+    border_thickness: [f32; 4], // x, y used; z, w are padding
+}
+
 impl Vertex {
     fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
@@ -76,6 +91,8 @@ pub struct Renderer {
     num_indices: u32,
     texture_bind_group_layout: wgpu::BindGroupLayout,
     bind_groups: Vec<wgpu::BindGroup>,
+    debug_bind_group_layout: wgpu::BindGroupLayout,
+    debug_pipeline: wgpu::RenderPipeline,
     pub camera_position: glam::Vec2,
 }
 
@@ -233,6 +250,71 @@ impl Renderer {
             }],
         });
 
+        let debug_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("debug rect bind group layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let debug_shader = device.create_shader_module(wgpu::include_wgsl!("debug_shader.wgsl"));
+
+        let debug_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("debug pipeline layout"),
+                bind_group_layouts: &[
+                    Some(&debug_bind_group_layout),
+                    Some(&transform_bind_group_layout),
+                ],
+                immediate_size: 0,
+            });
+
+        let debug_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("debug rect pipeline"),
+            layout: Some(&debug_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &debug_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Some(Vertex::desc())],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &debug_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview_mask: None,
+            cache: None,
+        });
+
         let num_indices = INDICES.len() as u32;
 
         let config = wgpu::SurfaceConfiguration {
@@ -260,6 +342,8 @@ impl Renderer {
             transform_bind_group,
             num_indices,
             texture_bind_group_layout,
+            debug_bind_group_layout,
+            debug_pipeline,
             bind_groups: Vec::new(),
             camera_position: glam::Vec2::ZERO,
         })
@@ -298,7 +382,7 @@ impl Renderer {
         }
     }
 
-    pub fn render(&mut self, scene: &Scene) -> anyhow::Result<()> {
+    pub fn render(&mut self, scene: &Scene, show_colliders: bool) -> anyhow::Result<()> {
         if !self.is_surface_configured {
             return Ok(());
         }
@@ -359,6 +443,33 @@ impl Renderer {
             let entity = &scene.entities[idx];
             if let Some(texture_id) = entity.texture_id {
                 draws.push((texture_id.0, entity.position, entity.size));
+            }
+        }
+
+        let mut debug_rects: Vec<DebugRect> = Vec::new();
+        if show_colliders {
+            const WALL_FILL: [f32; 4] = [1.0, 0.0, 0.0, 0.15];
+            const WALL_BORDER: [f32; 4] = [0.7, 0.0, 0.0, 0.9];
+            const ENTITY_FILL: [f32; 4] = [0.0, 0.4, 1.0, 0.15];
+            const ENTITY_BORDER: [f32; 4] = [0.0, 0.2, 0.8, 0.9];
+
+            for wall in &scene.walls {
+                debug_rects.push(DebugRect {
+                    position: wall.offset,
+                    size: wall.half_size * 2.0,
+                    fill_color: WALL_FILL,
+                    border_color: WALL_BORDER,
+                });
+            }
+            for entity in &scene.entities {
+                if let Some(collider) = &entity.collider {
+                    debug_rects.push(DebugRect {
+                        position: entity.position + collider.offset,
+                        size: collider.half_size * 2.0,
+                        fill_color: ENTITY_FILL,
+                        border_color: ENTITY_BORDER,
+                    });
+                }
             }
         }
 
@@ -423,6 +534,72 @@ impl Renderer {
                 render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
             }
 
+            self.queue.submit(std::iter::once(encoder.finish()));
+        }
+
+        const BORDER_PX: f32 = 3.0;
+
+        for rect in &debug_rects {
+            let uniform = DebugRectUniform {
+                fill_color: rect.fill_color,
+                border_color: rect.border_color,
+                border_thickness: [BORDER_PX / rect.size.x, BORDER_PX / rect.size.y, 0.0, 0.0],
+            };
+
+            let debug_uniform_buffer =
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("debug rect uniform"),
+                        contents: bytemuck::cast_slice(&[uniform]),
+                        usage: wgpu::BufferUsages::UNIFORM,
+                    });
+            let debug_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("debug rect bind group"),
+                layout: &self.debug_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: debug_uniform_buffer.as_entire_binding(),
+                }],
+            });
+
+            let model = model_matrix(rect.position, rect.size);
+            let transform = projection * camera_view * model;
+            self.queue.write_buffer(
+                &self.transform_buffer,
+                0,
+                bytemuck::cast_slice(&transform.to_cols_array()),
+            );
+
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("debug rect encoder"),
+                });
+            {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("debug rect pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                    multiview_mask: None,
+                });
+                render_pass.set_pipeline(&self.debug_pipeline);
+                render_pass.set_bind_group(0, &debug_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.transform_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                render_pass
+                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            }
             self.queue.submit(std::iter::once(encoder.finish()));
         }
 

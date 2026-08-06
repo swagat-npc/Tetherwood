@@ -531,6 +531,12 @@ camera-follow).
 - **Rationale:** Scaling the whole composition from one shared origin preserves every placement ratio (gaps, wall clearance, walk-behind spacing) exactly, regardless of factor — layout only needs tuning once, at any single factor, decoupling "is the layout correct" from "does it look good at this zoom level." Matches the Photoshop-group-scale mental model explicitly adopted over per-component scaling.
 - **Consequences:** Every literal in scene-construction content carries an explicit `* multiplying_factor` — a real, visible verbosity cost, accepted as a consequence of static Rust content (D-C) rather than data-driven loading, where the multiply would live in one place. Revisit if/when content moves to serde/RON (Phase 1+). The viewport itself does not auto-scale with the factor — "let content drive size" (already decided) means viewport bumps remain a separate, deliberate call once content visibly outgrows the current window.
 
+### ADR-043: Debug collider overlay via a dedicated shader, not a stretched texture
+- **Context:** M3 needed a way to visualize (normally invisible) wall and entity colliders during placement tuning. A first attempt used a small texture with a baked-in border, stretched over each collider's world-space size — but stretching means border pixel-width scales with rect size, giving visibly uneven borders on non-square rects. This overlay is intended as permanent, reusable engine machinery (Unity/Godot-style gizmo drawing), not a throwaway M3 debugging trick, so the imprecision was worth fixing properly rather than accepting.
+- **Decision:** A second, dedicated render pipeline (`debug_shader.wgsl`) draws fill + border directly from each fragment's UV coordinate, with no texture involved. A per-draw uniform (`DebugRectUniform`: fill color, border color, border thickness) is computed fresh for each rect — border thickness is specified once in pixels and converted to UV space **per axis, per draw** (`px / rect_width`, `px / rect_height`), since UV space is stretched independently per axis and a single shared thickness value would produce a mismatched border on any non-square rect. The corner case requires no special handling: a fragment near two edges simultaneously satisfies two of the four border conditions at once, and the existing OR already covers it.
+- **Rationale:** True constant-pixel-width borders, at any rect size, are only achievable by computing the border test against real dimensions at draw time — a texture's fixed pixel grid cannot represent this regardless of resolution. The pipeline reuses the existing quad geometry and `Vertex` layout entirely; only the shader and its bind group layout differ from the textured pipeline (group 0 holds `DebugRectUniform` instead of texture+sampler; group 1's transform binding is shared unchanged between both pipelines).
+- **Consequences:** A new uniform buffer + bind group is built per debug rect, per frame, while the overlay is active — an accepted, deliberate cost at slice-scale rect counts (a dozen or so), not the "cheap, rebuild every frame" territory ADR-032 justified for the transform buffer alone. Revisit (e.g., batch into one buffer) only if rect count or overlay-on frame cost becomes measurably relevant (village-scale content, Phase 1+). A third debug color (for interactable entities, e.g. the door) is deferred until an `Entity` field distinguishing interactables actually exists — coloring decisions follow data, not the reverse.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -554,7 +560,13 @@ camera-follow).
   movement is collision-checked against both walls and furniture.
   `multiplying_factor` scales the entire composition uniformly from
   world origin (ADR-042), decoupling layout correctness from visual
-  scale.
+  scale. Debug tooling added as permanent engine machinery: a
+  collider overlay (F1) using a dedicated shader that computes
+  fill/border directly from UV coordinates rather than a stretched
+  texture (ADR-043), and keypress logging (F2). Remaining before M3's
+  DoD is fully proven: furniture placement/size fine-tuning (now
+  tool-assisted via the overlay), and confirming the walk-behind-
+  furniture y-sort effect is visibly correct with tuned numbers.
 
 ### Open questions
 

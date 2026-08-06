@@ -24,6 +24,8 @@ pub fn run() {
         scene: None,
         held_keys: HashSet::new(),
         multiplying_factor: 2.5,
+        show_colliders: false,
+        show_debug_info: false,
     };
     event_loop.run_app(&mut app).expect("event loop error");
 }
@@ -36,6 +38,8 @@ struct App {
     scene: Option<Scene>,
     held_keys: HashSet<KeyCode>,
     multiplying_factor: f32,
+    show_colliders: bool,
+    show_debug_info: bool,
 }
 
 impl ApplicationHandler for App {
@@ -128,7 +132,7 @@ impl ApplicationHandler for App {
 
                 if let (Some(renderer), Some(scene)) = (self.renderer.as_mut(), self.scene.as_ref())
                 {
-                    match renderer.render(scene) {
+                    match renderer.render(scene, self.show_colliders) {
                         Ok(()) => {}
                         Err(e) => {
                             log::error!("render failed: {e}");
@@ -151,6 +155,21 @@ impl ApplicationHandler for App {
                     if code == KeyCode::Escape {
                         println!("Escape key pressed; stopping");
                         event_loop.exit();
+                    } else if code == KeyCode::F1 {
+                        self.show_colliders = !self.show_colliders;
+                        println!(
+                            "{} Colliders",
+                            if self.show_colliders { "Show" } else { "Hide" }
+                        );
+                    } else if code == KeyCode::F2 {
+                        self.show_debug_info = !self.show_debug_info;
+                        println!(
+                            "{} Debug Info",
+                            if self.show_debug_info { "Show" } else { "Hide" }
+                        );
+                    }
+                    if self.show_debug_info {
+                        println!("{code:?} pressed");
                     }
                     self.held_keys.insert(code);
                 }
