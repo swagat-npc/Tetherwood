@@ -1,5 +1,43 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use image::GenericImageView;
+
+use crate::engine::entity::TextureId;
+
+pub struct TextureStore {
+    textures: Vec<Texture>,
+}
+
+impl TextureStore {
+    pub fn new() -> Self {
+        Self {
+            textures: Vec::new(),
+        }
+    }
+
+    pub fn load(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        path: &str,
+    ) -> Result<TextureId> {
+        let bytes =
+            std::fs::read(path).with_context(|| format!("failed to read texture file: {path}"))?;
+        let texture = Texture::from_bytes(device, queue, &bytes, path)?;
+        let id = TextureId(self.textures.len());
+        self.textures.push(texture);
+        Ok(id)
+    }
+
+    pub fn get(&self, id: TextureId) -> &Texture {
+        &self.textures[id.0]
+    }
+
+    /// How many textures are currently loaded. Used by the renderer to
+    /// walk every texture in order when building bind groups.
+    pub fn len(&self) -> usize {
+        self.textures.len()
+    }
+}
 
 pub struct Texture {
     pub texture: wgpu::Texture,

@@ -1,4 +1,5 @@
-use crate::engine::texture;
+use crate::engine::entity::TextureId;
+use crate::engine::scene::Scene;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
@@ -35,22 +36,31 @@ const VERTICES: &[Vertex] = &[
     Vertex {
         position: [0.0, 0.0, 0.0],
         tex_coords: [0.0, 0.0],
-    }, // top-left
+    },
     Vertex {
         position: [0.0, 1.0, 0.0],
         tex_coords: [0.0, 1.0],
-    }, // bottom-left
+    },
     Vertex {
         position: [1.0, 1.0, 0.0],
         tex_coords: [1.0, 1.0],
-    }, // bottom-right
+    },
     Vertex {
         position: [1.0, 0.0, 0.0],
         tex_coords: [1.0, 0.0],
-    }, // top-right
+    },
 ];
 
 const INDICES: &[u16] = &[0, 1, 2, 0, 3, 2];
+
+/// Builds the model matrix for a sprite: scale a unit quad to `size`,
+/// then translate so `position` lands at the sprite's center (ADR-033).
+fn model_matrix(position: glam::Vec2, size: glam::Vec2) -> glam::Mat4 {
+    let half_size = size / 2.0;
+    let scale = glam::Mat4::from_scale(size.extend(1.0));
+    let translate = glam::Mat4::from_translation((position - half_size).extend(0.0));
+    translate * scale
+}
 
 pub struct Renderer {
     surface: wgpu::Surface<'static>,
@@ -64,9 +74,8 @@ pub struct Renderer {
     transform_buffer: wgpu::Buffer,
     transform_bind_group: wgpu::BindGroup,
     num_indices: u32,
-    sprite_bind_group: wgpu::BindGroup,
-    sprite_texture: texture::Texture,
-    pub sprite_position: glam::Vec2,
+    texture_bind_group_layout: wgpu::BindGroupLayout,
+    bind_groups: Vec<wgpu::BindGroup>,
     pub camera_position: glam::Vec2,
 }
 
@@ -114,9 +123,6 @@ impl Renderer {
 
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
-        let sprite_bytes = include_bytes!("../../assets/player.png");
-        let sprite_texture = texture::Texture::from_bytes(&device, &queue, sprite_bytes, "player")?;
-
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("texture bind group layout"),
@@ -154,21 +160,6 @@ impl Renderer {
                     count: None,
                 }],
             });
-
-        let sprite_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("sprite bind group"),
-            layout: &texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&sprite_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sprite_texture.sampler),
-                },
-            ],
-        });
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -268,14 +259,46 @@ impl Renderer {
             transform_buffer,
             transform_bind_group,
             num_indices,
-            sprite_bind_group,
-            sprite_texture,
-            sprite_position: glam::Vec2::new(100.0, 80.0),
+            texture_bind_group_layout,
+            bind_groups: Vec::new(),
             camera_position: glam::Vec2::ZERO,
         })
     }
 
-    pub fn render(&mut self) -> anyhow::Result<()> {
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    /// Builds one bind group per texture currently in the scene's
+    /// TextureStore, indexed identically to TextureId — call once,
+    /// right after a scene is constructed, before the first render().
+    pub fn prepare_scene(&mut self, scene: &Scene) {
+        self.bind_groups.clear();
+        for i in 0..scene.texture_store.len() {
+            let texture = scene.texture_store.get(TextureId(i));
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("scene texture bind group"),
+                layout: &self.texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&texture.sampler),
+                    },
+                ],
+            });
+            self.bind_groups.push(bind_group);
+        }
+    }
+
+    pub fn render(&mut self, scene: &Scene) -> anyhow::Result<()> {
         if !self.is_surface_configured {
             return Ok(());
         }
@@ -297,27 +320,6 @@ impl Renderer {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let multiplying_factor = 5.0;
-
-        let sprite_size = glam::Vec2::new(
-            self.sprite_texture.width as f32,
-            self.sprite_texture.height as f32,
-        ) * multiplying_factor;
-        let half_size = sprite_size / 2.0;
-
-        let scale = glam::Mat4::from_scale(sprite_size.extend(1.0));
-
-        let translate =
-            glam::Mat4::from_translation((self.sprite_position - half_size).extend(0.0));
-        let model = translate * scale;
-
-        let screen_center = glam::Vec2::new(
-            self.config.width as f32 / 2.0,
-            self.config.height as f32 / 2.0,
-        );
-        let camera_view =
-            glam::Mat4::from_translation((screen_center - self.camera_position).extend(0.0));
-
         let projection = glam::Mat4::orthographic_rh(
             0.0,
             self.config.width as f32,
@@ -326,51 +328,104 @@ impl Renderer {
             -1.0,
             1.0,
         );
-        let transform = projection * camera_view * model;
-        self.queue.write_buffer(
-            &self.transform_buffer,
-            0,
-            bytemuck::cast_slice(&transform.to_cols_array()),
+        let screen_center = glam::Vec2::new(
+            self.config.width as f32 / 2.0,
+            self.config.height as f32 / 2.0,
         );
+        let camera_view =
+            glam::Mat4::from_translation((screen_center - self.camera_position).extend(0.0));
 
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("render encoder"),
-            });
+        // y-sort: entities drawn in ascending order of baseline
+        // (bottom edge = position.y + half height), so entities with a
+        // lower baseline draw first and correctly end up behind
+        // entities with a higher one.
+        let mut order: Vec<usize> = (0..scene.entities.len()).collect();
+        order.sort_by(|&a, &b| {
+            let baseline_a = scene.entities[a].position.y + scene.entities[a].size.y / 2.0;
+            let baseline_b = scene.entities[b].position.y + scene.entities[b].size.y / 2.0;
+            baseline_a.partial_cmp(&baseline_b).unwrap()
+        });
 
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("clear pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.0,
-                            g: 1.0,
-                            b: 1.0,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-                multiview_mask: None,
-            });
-
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.sprite_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.transform_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+        // Full draw list: background first (always behind, never
+        // y-sorted), then entities in sorted order. Each entry is
+        // (bind group index, position, size).
+        let mut draws: Vec<(usize, glam::Vec2, glam::Vec2)> = Vec::new();
+        draws.push((
+            scene.background.0,
+            glam::Vec2::new(256.0, 256.0),
+            glam::Vec2::new(512.0, 512.0),
+        ));
+        for &idx in &order {
+            let entity = &scene.entities[idx];
+            if let Some(texture_id) = entity.texture_id {
+                draws.push((texture_id.0, entity.position, entity.size));
+            }
         }
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        // Each draw gets its own encoder and its own submit. See the
+        // explanation above the code block in this message: repeatedly
+        // calling write_buffer on the same buffer before a single
+        // shared submit() would let every draw see only the *last*
+        // written transform. Submitting per-draw guarantees each
+        // write_buffer lands before its own draw executes. The first
+        // draw clears the screen; every draw after it loads (paints
+        // over) what's already there instead of erasing it.
+        for (i, (bind_group_index, position, size)) in draws.iter().enumerate() {
+            let model = model_matrix(*position, *size);
+            let transform = projection * camera_view * model;
+            self.queue.write_buffer(
+                &self.transform_buffer,
+                0,
+                bytemuck::cast_slice(&transform.to_cols_array()),
+            );
+
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("draw encoder"),
+                });
+
+            {
+                let load_op = if i == 0 {
+                    wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.0,
+                        g: 1.0,
+                        b: 1.0,
+                        a: 1.0,
+                    })
+                } else {
+                    wgpu::LoadOp::Load
+                };
+
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("draw pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load: load_op,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                    multiview_mask: None,
+                });
+
+                render_pass.set_pipeline(&self.render_pipeline);
+                render_pass.set_bind_group(0, &self.bind_groups[*bind_group_index], &[]);
+                render_pass.set_bind_group(1, &self.transform_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                render_pass
+                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            }
+
+            self.queue.submit(std::iter::once(encoder.finish()));
+        }
+
         self.queue.present(output);
 
         Ok(())

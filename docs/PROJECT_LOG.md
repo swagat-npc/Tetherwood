@@ -489,6 +489,42 @@ camera-follow).
   in-editor rather than relying on memory. Flagged explicitly here so a
   future chat doesn't mistake "not yet built" for "not noticed."
 
+### ADR-036: Assets referenced by index into a scene-scoped store
+- **Context:** M3's multi-entity scene needs shared textures (two beds use one sprite). ADR-025 established indices-over-references for entities but never covered asset ownership.
+- **Decision:** Textures are owned exclusively by a `TextureStore` (`Vec<Texture>`), scene-scoped, loaded once at scene construction and never mutated during play. Entities/walls reference textures via `TextureId` (a `Copy` newtype wrapping `usize`), never by direct reference or `Rc`.
+- **Rationale:** Extends ADR-025's reasoning to assets — sharing must not require lifetimes or reference counting; an append-only `Vec` plus plain copyable indices is the cheapest correct mechanism.
+- **Consequences:** `TextureStore` must never remove/reorder entries during a scene's lifetime, or indices silently point at the wrong texture — this is a load-order *policy*, not a compiler-enforced guarantee. The renderer builds one `wgpu::BindGroup` per texture at scene-load (`prepare_scene`), indexed identically to `TextureId`.
+
+### ADR-037: Entities are deactivated, never removed, during a scene's lifetime
+- **Context:** Beats needing an entity to "go away" (defeated enemy, consumed key item, opened door) raised the question of shrinking `Scene.entities`, risking invalidation of `player_index` or any other stored index.
+- **Decision:** `Scene.entities` only ever grows during play. An entity that should disappear is deactivated instead: `texture_id: None` (invisible), `collider: None` (non-solid) if applicable. True removal (safe reindexing, stable handles) is deferred to the ECS re-evaluation already scheduled for Phase 1 (ADR-025).
+- **Rationale:** Mirrors the asset-store immutability policy (ADR-036) — a fixed-during-play `Vec` means any stored index stays valid for the scene's whole lifetime, at zero bookkeeping cost. Verified against two real slice cases (defeated cult initiate, Beat 1 keepsake pickup) without new machinery.
+- **Consequences:** Every entity's `Option` fields double as a small state machine. True deletion remains a named, deliberately parked problem, not a forgotten one.
+
+### ADR-038: Two-source AABB collision, resolved as sequential per-axis proposals
+- **Context:** M3 needed a concrete collision model spanning two data sources (scene walls, entity colliders) and a rule for diagonal movement against corners/edges.
+- **Decision:** Walls are plain `Vec<Rect>` in world-space; entity colliders are `Rect`s offset from `entity.position`. Both feed one `aabb_overlap` test, source-agnostic. Movement resolves by proposing the x-move alone, accepting/refusing it, then proposing the y-move from the resulting position — never as one combined 2D proposal.
+- **Rationale:** AABB overlap reduces to a per-axis center-distance-vs-summed-half-extents comparison (hand-derived and verified this session). Sequential per-axis resolution produces sliding along an edge on diagonal movement; hand-traced against inside-corner cases to confirm no ordering bug and no tunneling-through-unvalidated-position hole.
+- **Consequences:** Wall thickness is a tuned safety margin against tunneling (frame movement distance vs. thickness), not derived from entity size.
+
+### ADR-039: Y-sort by baseline, not entity center
+- **Context:** M3's y-sort needed a concrete key. Center-y was hand-tested against tall furniture (wardrobe) and found to produce wrong draw order.
+- **Decision:** Entities draw in ascending order of baseline = `position.y + size.y / 2.0` (the sprite's bottom edge).
+- **Rationale:** "In front of" is best modeled by where an entity touches the ground, not its visual center. Confirmed against both same-height (bed) and taller (wardrobe) cases.
+- **Consequences:** Feet-only collider boxes (deliberately smaller than sprite bounds) are designed to work *with* this rule — the two decisions produce the walk-behind-furniture effect together.
+
+### ADR-040: Per-draw command submission for multi-entity frames
+- **Context:** M2 wrote one transform and submitted once per frame — safe for exactly one sprite. M3 needed several independently-positioned entities drawn in one frame.
+- **Decision:** Each draw (background + every visible entity, y-sorted) gets its own command encoder and its own `queue.submit`, immediately following its own transform-buffer write. First draw clears; subsequent draws load (paint over).
+- **Rationale:** `queue.write_buffer` uploads independent of submission timing — multiple writes before one shared submit would let every draw in that submission read the last-written transform only, silently misplacing every sprite. Per-draw submission guarantees correctness. A shared uniform buffer with per-draw dynamic offsets is the more scalable fix, but is unjustified machinery at slice scale (~a dozen draws/frame).
+- **Consequences:** Revisit only if draw count or submission overhead becomes a measured cost (Phase 1+), same deferral pattern as ADR-032.
+
+### ADR-041: Camera mode is a per-scene, authored choice — static anchor vs. follow
+- **Context:** M2 shipped follow-camera as the only behavior. M3's indoor bedroom raised whether every scene should behave identically.
+- **Decision:** Camera behavior is chosen per scene, as design intent. Indoor scenes use a static camera anchored at an authored focal point (the bedroom anchors at its own center; a future multi-room house would anchor at its connecting corridor). Outdoor/large scenes use M2's follow-mode. No `CameraMode` abstraction exists yet — the bedroom's static camera is currently just `camera_position` set once at scene load, never updated per frame — deferred until a second concrete camera behavior is needed side-by-side with the first (same reasoning as ADR-035).
+- **Rationale:** Gives the indoor/outdoor distinction narrative weight (cozy, fully-visible interiors vs. vast, player-centered exteriors), rather than treating camera behavior as an incidental default.
+- **Consequences:** A real `CameraMode` type is expected, scoped for whenever the first outdoor/follow scene is built alongside the first static one — not before.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -503,14 +539,18 @@ camera-follow).
   coordinate system (ADR-031), transform chain (ADR-032), entity
   position-as-center convention (ADR-033), held-state input, working
   camera-follow. Definition of done met in full.
-- ⬜ **M3 (The Room)** ← next. Per DERIVATION.md §5: Beat 1 playable —
-  authored bedroom scene, player walks with collision, camera follows,
-  y-sort proven (walk behind furniture). Engine systems: E5 (entity
-  model, promoted from single-sprite scaffolding), E8 partial
-  (interaction/trigger), E10 (asset loading, beyond one embedded PNG).
-- Code written so far: renderer, texture module, input handling, one
-  hardcoded sprite. No entity model, no scene system, no content beyond
-  the test character sprite yet.
+- 🔶 **M3 (The Room), in progress:** entity model (E5), scene composition
+  (E4-adjacent), texture store (E10), AABB collision + sequential
+  per-axis resolution, y-sort by baseline, and a full renderer rewrite
+  (multi-entity draw via per-texture bind groups, one command
+  submission per draw) are all built and working — `cargo run` loads
+  a real bedroom scene (Beat 1) with six real textures, player movement
+  is collision-checked against both walls and furniture. Content is
+  currently at `multiplying_factor = 1.0` — raw layout numbers, pending
+  a visual-scale pass. Remaining before M3's DoD is fully proven:
+  debug collider visualization (in progress), furniture placement/size
+  tuning, and confirming the walk-behind-furniture y-sort effect is
+  actually visible on screen once real placements are dialed in.
 
 ### Open questions
 
