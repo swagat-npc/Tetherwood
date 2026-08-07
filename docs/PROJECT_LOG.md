@@ -276,6 +276,34 @@ through m3-06, each tied to a specific lesson (multi-entity render,
 factor scaling, debug overlay alone and combined with scaling, tuned
 collision, tuned y-sort).
 
+### Phase 12 — M4 Design Session: Scene Transitions & Persistence (in progress)
+
+Design pass completed before any M4 code was written, resolving five
+open questions the milestone's own agenda had flagged. Scene
+abstraction scope deliberately narrowed (ADR-044) rather than built to
+DERIVATION's original E4 description, following the same
+defer-until-second-consumer instinct as ADR-035/041. Door transitions
+settled as automatic zone-walkthrough, GBA/MMBN-style, no button
+prompt (ADR-045). Trigger system split into two flavors — existing
+interact triggers vs. new zone triggers — with dispatch kept to a
+single-variant enum rather than generalized callback machinery
+(ADR-046). Warp system adopted Pokémon-style paired-object identity
+rather than per-scene named spawn points, chosen specifically because
+it scales flat to N doors without combinatorial spawn-point tables
+(ADR-047). Scene persistence resolved by separating two previously
+conflated concerns — GPU resource lifetime vs. narrative state
+lifetime — reusing ADR-020's flag store rather than building new
+persistence machinery; scenes remain fully lazy-unloaded, reconstructed
+deterministically from flags on revisit (ADR-048). Aseprite native
+file loading (raised as a workflow-friction question) assessed as
+genuinely feasible but explicitly parked — no dependency from M4,
+revisit only when PNG-export friction becomes a real cost, not a
+curiosity (ADR-049).
+
+Code work for M4 (Scene struct changes, Trigger/TriggerKind,
+SceneId/WarpId, flag store, text rendering, dialogue machinery) not
+yet started as of this log revision.
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -613,6 +641,42 @@ collision, tuned y-sort).
 - **Rationale:** True constant-pixel-width borders, at any rect size, are only achievable by computing the border test against real dimensions at draw time — a texture's fixed pixel grid cannot represent this regardless of resolution. The pipeline reuses the existing quad geometry and `Vertex` layout entirely; only the shader and its bind group layout differ from the textured pipeline (group 0 holds `DebugRectUniform` instead of texture+sampler; group 1's transform binding is shared unchanged between both pipelines).
 - **Consequences:** A new uniform buffer + bind group is built per debug rect, per frame, while the overlay is active — an accepted, deliberate cost at slice-scale rect counts (a dozen or so), not the "cheap, rebuild every frame" territory ADR-032 justified for the transform buffer alone. Revisit (e.g., batch into one buffer) only if rect count or overlay-on frame cost becomes measurably relevant (village-scale content, Phase 1+). A third debug color (for interactable entities, e.g. the door) is deferred until an `Entity` field distinguishing interactables actually exists — coloring decisions follow data, not the reverse.
 
+### ADR-044: Scene stays a concrete struct for M4; trait + stack deferred to M6
+- **Context:** DERIVATION's E4 specifies "scene trait, stack (push battle over overworld)" — but M4 only needs a lateral room-to-room swap, not a push-with-preserved-underlying-state. Building the trait+stack now means designing it from one data point (lateral swap) and guessing whether that shape also serves M6's push case.
+- **Decision:** M4 implements transition as a single swap-slot: `App` holds one concrete `Scene`; transitioning replaces its value outright. No `Scene` trait, no `Box<dyn Scene>`, no stack. The trait + stack are deferred to M6, when the battle-over-overworld push provides a second real, concrete shape to design against.
+- **Rationale:** Same reasoning as ADR-035 (input abstraction) and ADR-041 (camera mode) — defer generalization until a second concrete consumer exists to teach the correct shape, rather than anticipating it from Beat 6's spec alone. A swap-slot is strictly simpler than and safely upgrades to a stack-of-one later.
+- **Consequences:** M6 is now explicitly scoped to include designing `Scene` as a trait with push/pop semantics, informed by two real consumers (overworld, battle) rather than one. Revisit only at M6, not before.
+
+### ADR-045: Room transitions are automatic zone-triggered, no button prompt
+- **Context:** Two viable models existed for room-to-room transition: button-gated ("Press X to exit," consistent with the existing interact-verb design) vs. automatic walk-through (GBA-era RPGs, Mega Man Battle Network).
+- **Decision:** Room transitions fire automatically on proximity alone — walking into a doorway triggers the transition, no button press required.
+- **Rationale:** Matches the developer's explicit MMBN-lineage instinct (ADR-009's design lineage) and reads smoother in the isometric-styled presentation; opens the door to creative exit visuals later (a shape sticking out of the room boundary marking the exit, Mega Man-style) without requiring separate button-prompt UI.
+- **Consequences:** Establishes a second trigger flavor distinct from the existing interact verb (see ADR-046). Creative exit-visual treatment is left open, not designed yet.
+
+### ADR-046: Two trigger flavors; trigger dispatch as single-variant enum
+- **Context:** ADR-045 created a proximity-only trigger, functionally different from the existing interact trigger (proximity + facing + button, E8). Separately, a "trigger points to an arbitrary function" dispatch mechanism was floated (brainstorm) and evaluated against building infrastructure for trigger kinds that don't exist yet.
+- **Decision:** Two trigger flavors coexist: **interact triggers** (existing — proximity + facing + button; examine, talk, pick up) and **zone triggers** (new — proximity alone; scene transitions, and later, ambient effects). Both share the same underlying `aabb_overlap` check; only the firing condition and the resulting action differ. Trigger dispatch is a single-variant enum — `TriggerKind::Warp { target_scene, target_warp_id }` — not a generic callback/function-pointer mechanism. `Trigger` wraps the existing `Rect` (offset + half-size), adding meaning rather than new geometry.
+- **Rationale:** Same defer-until-second-consumer instinct as ADR-025/035/041/044 — a generic dispatch shape designed from one use case (warp) risks guessing wrong about what a second trigger kind (cutscene start? music zone? M5 clue trigger? M6 encounter trigger) actually needs. A `Rect`-wrapping enum costs nothing to extend when that second case arrives.
+- **Consequences:** Not every `Rect` in a scene is a collider — `Scene` now conceptually separates solid geometry (walls, `Vec<Rect>`) from trigger geometry (`Vec<Trigger>`), never merged into one list. `TriggerKind` gains variants (and possibly a real dispatch shape) only once a second concrete trigger kind is being built, not before.
+
+### ADR-047: Warp pairs, not per-scene spawn points
+- **Context:** A transitioning player needs to land somewhere sensible in the destination scene — not its arbitrary default spawn, and specifically at the point corresponding to the door they used. The originally proposed model (named `SpawnPoint`s per scene, keyed by "came from X") requires every scene to anticipate every scene that might lead into it — an N² relationship as door count grows.
+- **Decision:** Adopt Pokémon-style warp pairs: a `Trigger` with `TriggerKind::Warp` carries a `(target_scene: SceneId, target_warp_id: WarpId)` pointer to its partner warp. Warps are placed as scene content, wired together as pairs; no scene needs to know about any other scene's structure beyond the pair it's directly connected to. `SceneId` is a plain enum (`Bedroom`, `Hallway`, …) per D-C's static-content approach; `WarpId` is a small unique-per-scene identifier.
+- **Rationale:** Scales flat — N doors is N warp pairs, not a combinatorial spawn-point table — and matches a proven genre pattern (Pokémon, MMBN) for exactly this problem. Simpler than the spawn-point alternative it replaces, not just different.
+- **Consequences:** Every scene construction function needs a way to place warp triggers as content, same as it already places entities and walls. `SceneId`/`WarpId` become the addressing scheme for cross-scene references, extending the indices-over-references principle (ADR-025, ADR-036) to scene/warp identity.
+
+### ADR-048: Scene persistence via the flag store; GPU resources lazy-unloaded and reloaded
+- **Context:** Two competing concerns: keeping every scene resident in memory (safe for narrative persistence — taken items, defeated enemies stay gone — but a real, avoidable GPU/memory cost at any scale beyond the slice) vs. fully lazy loading (cheap, but naively re-running scene construction on revisit would respawn everything, Zelda-dungeon-style — explicitly the wrong feel for this game).
+- **Decision:** Separate the two concerns instead of trading one for the other. GPU-heavy resources (`TextureStore`, bind groups, entities) are fully lazy: unloaded on scene exit, reconstructed fresh via the scene's construction function on re-entry. Narrative state (item taken, enemy defeated) is not stored on the scene at all — it lives in ADR-020's existing flag store, owned above individual scenes (at `App` level), which persists across transitions. Scene construction functions read relevant flags while placing entities and deactivate (ADR-037: never remove, only deactivate) anything the flags say should already be gone.
+- **Rationale:** The two concerns don't actually need to move together — GPU footprint is legitimately expensive and safe to discard; the state worth remembering is a handful of booleans. Reusing ADR-020's flag store means zero new persistence machinery — a defeated enemy or a taken item is the same kind of fact as `knows_about_masks`, just consumed by scene construction instead of dialogue conditions. Reconstruction is deterministic given the flags, avoiding the Zelda-respawn problem without keeping scenes resident.
+- **Consequences:** Scene construction functions (`new_bedroom`, `new_hallway`, …) grow a dependency on flag-store state, not just `multiplying_factor` and device/queue as today. The flag store's lifetime now spans the whole `App`, not any single scene — it must be constructed before the first scene and survive every subsequent transition.
+
+### ADR-049: Aseprite native file loading — parked, not scheduled
+- **Context:** Raised as a workflow-friction question (skip the PNG-export step, decode `.aseprite` directly). Evaluated as genuinely feasible via the `asefile` crate, fitting the existing loader machinery (`TextureStore`/`Texture::from_bytes` pattern) with no changes to `Entity`, `Scene`, or `TextureStore`'s shape for the single-frame case.
+- **Decision:** Not built now. Deferred until PNG-export friction becomes a real, recurring workflow cost rather than a curiosity — explicitly not scheduled for any current milestone.
+- **Rationale:** Zero dependency from M4 (scene trait/stack — now deferred per ADR-044 — text rendering, dialogue) or any milestone through at least M6. The full-featured version (pulling animation frames/layers directly via Aseprite's frame tags, e.g. future walk-cycles) is a genuinely bigger feature than a format swap and reopens frame/layer-selection questions not yet faced — worth its own design pass if/when pursued, not a silent default.
+- **Consequences:** Recorded here specifically so the parked state is discoverable in a future session rather than re-litigated from scratch. If picked up later, scope must be declared explicitly as either "single-frame format swap" or "multi-frame/layer animation loading" — the two have very different costs.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -646,6 +710,14 @@ collision, tuned y-sort).
   scene *transitions* exist yet (the bedroom is currently the only
   loadable scene, loaded once at startup); no dialogue, text
   rendering, or audio exists yet at all.
+- In progress. Design settled this session 
+  (ADR-044–048): concrete `Scene` swap-slot (trait+stack deferred to
+  M6), automatic zone-triggered room transitions, two trigger flavors
+  (interact vs. zone), Pokémon-style warp pairs (`SceneId`/`WarpId`),
+  scene persistence via the existing flag store (ADR-020) with lazy
+  GPU unload/reload. Code not yet started. Remaining per DERIVATION
+  §5: text rendering, dialogue machinery (E6), audio (E7), examine-bed
+  narrator text, typewriter + blips, inner-monologue frame.
 
 ### Open questions
 
