@@ -677,6 +677,12 @@ yet started as of this log revision.
 - **Rationale:** Zero dependency from M4 (scene trait/stack — now deferred per ADR-044 — text rendering, dialogue) or any milestone through at least M6. The full-featured version (pulling animation frames/layers directly via Aseprite's frame tags, e.g. future walk-cycles) is a genuinely bigger feature than a format swap and reopens frame/layer-selection questions not yet faced — worth its own design pass if/when pursued, not a silent default.
 - **Consequences:** Recorded here specifically so the parked state is discoverable in a future session rather than re-litigated from scratch. If picked up later, scope must be declared explicitly as either "single-frame format swap" or "multi-frame/layer animation loading" — the two have very different costs.
 
+### ADR-050: Aseprite native file loading — implemented (supersedes ADR-049)
+- **Context:** ADR-049 parked native `.aseprite` loading, deferring it until PNG-export friction became a real, recurring cost rather than a curiosity. That threshold was reached during M4 scene-content work.
+- **Decision:** `TextureStore::load` dispatches on file extension: `.aseprite`/`.ase` files decode via a new `Texture::from_aseprite` (using the `asefile` crate), everything else continues through the existing `Texture::from_bytes` path. Both converge on the same `from_image` GPU-upload code — no changes to `Texture`, `TextureStore`'s shape, or any downstream consumer. `from_aseprite` takes frame 0, fully composited across all visible layers (matching what manual PNG export already produced), and logs a warning naming the frame count when a loaded file has more than one frame, so a multi-frame file loaded as a static texture is never silently wrong.
+- **Rationale:** `asefile` was chosen over the alternative `aseprite-reader` crate after comparing maintenance signals: ~10x the downloads, actively versioned within the last ~2 years vs. ~4, and no coupling to a game engine (Bevy) this project doesn't use. Neither crate is authored by Aseprite itself, despite both crates' descriptions reading that way at a glance — the phrase refers to the file *format's* origin, not the crate's authorship.
+- **Consequences:** Content authored in `.aseprite` no longer requires a manual PNG export step before `cargo run` picks it up — confirmed end-to-end (edited a scene's `.aseprite` source directly, reloaded, updated art appeared with no export). Existing PNG-sourced assets are unaffected and continue to load via the original path; migrating them to `.aseprite` sources is optional, not required by this change. `asefile` is now a project dependency.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -710,14 +716,17 @@ yet started as of this log revision.
   scene *transitions* exist yet (the bedroom is currently the only
   loadable scene, loaded once at startup); no dialogue, text
   rendering, or audio exists yet at all.
-- In progress. Design settled this session 
-  (ADR-044–048): concrete `Scene` swap-slot (trait+stack deferred to
+- In progress. Design settled this session (ADR-044–048):
+  concrete `Scene` swap-slot (trait+stack deferred to
   M6), automatic zone-triggered room transitions, two trigger flavors
   (interact vs. zone), Pokémon-style warp pairs (`SceneId`/`WarpId`),
   scene persistence via the existing flag store (ADR-020) with lazy
   GPU unload/reload. Code not yet started. Remaining per DERIVATION
   §5: text rendering, dialogue machinery (E6), audio (E7), examine-bed
   narrator text, typewriter + blips, inner-monologue frame.
+- Aseprite native loading (ADR-049's parked status) was revisited and
+  implemented mid-milestone once PNG-export friction was felt directly
+  during scene-content work — see ADR-050.
 
 ### Open questions
 

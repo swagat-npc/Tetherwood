@@ -20,9 +20,14 @@ impl TextureStore {
         queue: &wgpu::Queue,
         path: &str,
     ) -> Result<TextureId> {
-        let bytes =
-            std::fs::read(path).with_context(|| format!("failed to read texture file: {path}"))?;
-        let texture = Texture::from_bytes(device, queue, &bytes, path)?;
+        let texture = if path.ends_with(".aseprite") || path.ends_with(".ase") {
+            Texture::from_aseprite(device, queue, path)?
+        } else {
+            let bytes = std::fs::read(path)
+                .with_context(|| format!("failed to read texture file: {path}"))?;
+            Texture::from_bytes(device, queue, &bytes, path)?
+        };
+
         let id = TextureId(self.textures.len());
         self.textures.push(texture);
         Ok(id)
@@ -117,5 +122,24 @@ impl Texture {
             width: dimensions.0,
             height: dimensions.1,
         })
+    }
+
+    pub fn from_aseprite(device: &wgpu::Device, queue: &wgpu::Queue, path: &str) -> Result<Self> {
+        let ase = asefile::AsepriteFile::read_file(std::path::Path::new(path))
+            .with_context(|| format!("failed to parse aseprite file: {path}"))?;
+
+        if ase.num_frames() > 1 {
+            log::warn!(
+                "{path}: loaded frame 0 of {} frames — extra frames ignored (static texture load)",
+                ase.num_frames()
+            );
+        }
+
+        // frame(0).image() returns a fully composited RGBA image — every
+        // visible layer flattened together, same result as Aseprite's own
+        // "export PNG" would have produced.
+        let rgba_image = ase.frame(0).image();
+        let dynamic_image = image::DynamicImage::ImageRgba8(rgba_image);
+        Self::from_image(device, queue, &dynamic_image, Some(path))
     }
 }

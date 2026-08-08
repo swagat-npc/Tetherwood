@@ -161,7 +161,7 @@ impl Scene {
         let mut triggers: Vec<Trigger> = Vec::new();
         let mut entities: Vec<Entity> = Vec::new();
 
-        let wardrobe_tex = texture_store.load(device, queue, "assets/wardrobe.png")?;
+        let wardrobe_tex = texture_store.load(device, queue, "assets/wardrobe.aseprite")?;
         entities.push(Entity {
             position: Vec2::new(16.0, 12.0) * multiplying_factor,
             size: Vec2::new(24.0, 40.0) * multiplying_factor,
@@ -174,7 +174,7 @@ impl Scene {
             texture_id: Some(wardrobe_tex),
         });
 
-        let bed_tex = texture_store.load(device, queue, "assets/bed.png")?;
+        let bed_tex = texture_store.load(device, queue, "assets/bed.aseprite")?;
 
         let bed_collider = Rect {
             center: Vec2::new(0.0, 5.0) * multiplying_factor,
@@ -204,7 +204,7 @@ impl Scene {
             texture_id: Some(bed_tex),
         });
 
-        let nightstand_tex = texture_store.load(device, queue, "assets/nightstand.png")?;
+        let nightstand_tex = texture_store.load(device, queue, "assets/nightstand.aseprite")?;
         entities.push(Entity {
             position: Vec2::new(64.0, 44.0) * multiplying_factor,
             size: Vec2::new(25.0, 16.0) * multiplying_factor,
@@ -217,7 +217,7 @@ impl Scene {
             texture_id: Some(nightstand_tex),
         });
 
-        let door_tex = texture_store.load(device, queue, "assets/door.png")?;
+        let door_tex = texture_store.load(device, queue, "assets/door.aseprite")?;
         entities.push(Entity {
             position: Vec2::new(64.0, 128.0) * multiplying_factor,
             size: Vec2::new(32.0, 16.0) * multiplying_factor,
