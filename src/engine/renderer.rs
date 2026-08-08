@@ -1,4 +1,4 @@
-use crate::engine::entity::TextureId;
+use crate::engine::ids::TextureId;
 use crate::engine::scene::Scene;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
@@ -461,8 +461,8 @@ impl Renderer {
 
             for wall in &scene.walls {
                 debug_rects.push(DebugRect {
-                    position: wall.offset,
-                    size: wall.half_size * 2.0,
+                    position: wall.rect.center,
+                    size: wall.rect.half_size * 2.0,
                     fill_color: WALL_FILL,
                     border_color: WALL_BORDER,
                 });
@@ -470,8 +470,8 @@ impl Renderer {
             for entity in &scene.entities {
                 if let Some(collider) = &entity.collider {
                     debug_rects.push(DebugRect {
-                        position: entity.position + collider.offset,
-                        size: collider.half_size * 2.0,
+                        position: entity.position + collider.rect.center,
+                        size: collider.rect.half_size * 2.0,
                         fill_color: ENTITY_FILL,
                         border_color: ENTITY_BORDER,
                     });

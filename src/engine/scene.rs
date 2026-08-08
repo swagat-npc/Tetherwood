@@ -1,15 +1,16 @@
 use anyhow::Result;
 use glam::Vec2;
-use wgpu::CompilationMessageType::Warning;
 
-use crate::engine::entity::{Entity, Rect, TextureId, aabb_overlap};
+use crate::engine::entity::{Collider, Entity, Rect, Trigger, aabb_overlap};
+use crate::engine::ids::TextureId;
 use crate::engine::texture::TextureStore;
 
 pub struct Scene {
     pub background: TextureId,
     pub background_position: Vec2,
     pub background_size: Vec2,
-    pub walls: Vec<Rect>,
+    pub walls: Vec<Collider>,
+    pub triggers: Vec<Trigger>,
     pub entities: Vec<Entity>,
     pub texture_store: TextureStore,
     pub player_index: usize,
@@ -30,7 +31,12 @@ impl Scene {
     /// with its own collider.
     fn collider_blocked(&self, world_center: Vec2, half_size: Vec2, skip_index: usize) -> bool {
         for wall in &self.walls {
-            if aabb_overlap(world_center, half_size, wall.offset, wall.half_size) {
+            if aabb_overlap(
+                world_center,
+                half_size,
+                wall.rect.center,
+                wall.rect.half_size,
+            ) {
                 return true;
             }
         }
@@ -40,8 +46,13 @@ impl Scene {
                 continue;
             }
             if let Some(collider) = &entity.collider {
-                let other_center = entity.position + collider.offset;
-                if aabb_overlap(world_center, half_size, other_center, collider.half_size) {
+                let other_center = entity.position + collider.rect.center;
+                if aabb_overlap(
+                    world_center,
+                    half_size,
+                    other_center,
+                    collider.rect.half_size,
+                ) {
                     return true;
                 }
             }
@@ -67,7 +78,7 @@ impl Scene {
             self.entities[idx].position += delta;
             return;
         };
-        let (offset, half_size) = (collider.offset, collider.half_size);
+        let (offset, half_size) = (collider.rect.center, collider.rect.half_size);
 
         // X axis
         let proposed = Vec2::new(
@@ -94,7 +105,7 @@ impl Scene {
     /// the door is a solid placeholder until M4 builds scene transitions).
     /// All sizes are at multiplying_factor = 1.0 — pure layout/collision
     /// verification content, not final visual scale (see M3 session notes).
-    pub fn new_bedroom(
+    pub fn new_home(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         multiplying_factor: f32,
@@ -105,45 +116,60 @@ impl Scene {
         let background_position = Vec2::new(64.0, 64.0) * multiplying_factor;
         let background_size = Vec2::new(128.0, 128.0) * multiplying_factor;
 
-        let left_edge = background_position.x - background_size.x / 2.0;
-        let right_edge = background_position.x + background_size.x / 2.0;
-        let top_edge = background_position.y - background_size.y / 2.0;
-        let bottom_edge = background_position.y + background_size.y / 2.0;
-        let long_edge = 64.0 * multiplying_factor; // wall thickness in pixels, scaled up to the factor
-        let short_edge = 8.0 * multiplying_factor; // wall thickness in pixels, scaled up to the factor
+        // Room half-extents, derived directly from the background — not
+        // separately hand-tuned, so a resized background can never silently
+        // desync from wall length again.
+        let room_half_width = background_size.x / 2.0;
+        let room_half_height = background_size.y / 2.0;
 
-        println!(
-            "Edges: left {}, right {}, top {}, bottom {}",
-            left_edge, right_edge, top_edge, bottom_edge
-        );
+        // The one genuinely independent value: walls are always 8px thick
+        // (half-extent on their thin axis), regardless of room size.
+        let wall_thickness = 8.0 * multiplying_factor;
+
+        let left_edge = background_position.x - room_half_width;
+        let right_edge = background_position.x + room_half_width;
+        let top_edge = background_position.y - room_half_height;
+        let bottom_edge = background_position.y + room_half_height;
+
         let walls = vec![
-            Rect {
-                offset: Vec2::new(left_edge + long_edge, top_edge - short_edge),
-                half_size: Vec2::new(long_edge, short_edge),
+            Collider {
+                rect: Rect {
+                    center: Vec2::new(background_position.x, top_edge - wall_thickness),
+                    half_size: Vec2::new(room_half_width, wall_thickness),
+                },
             }, // north
-            Rect {
-                offset: Vec2::new(left_edge + long_edge, bottom_edge + short_edge),
-                half_size: Vec2::new(long_edge, short_edge),
+            Collider {
+                rect: Rect {
+                    center: Vec2::new(background_position.x, bottom_edge + wall_thickness),
+                    half_size: Vec2::new(room_half_width, wall_thickness),
+                },
             }, // south
-            Rect {
-                offset: Vec2::new(left_edge - short_edge, top_edge + long_edge),
-                half_size: Vec2::new(short_edge, long_edge),
+            Collider {
+                rect: Rect {
+                    center: Vec2::new(left_edge - wall_thickness, background_position.y),
+                    half_size: Vec2::new(wall_thickness, room_half_height),
+                },
             }, // west
-            Rect {
-                offset: Vec2::new(right_edge + short_edge, top_edge + long_edge),
-                half_size: Vec2::new(short_edge, long_edge),
+            Collider {
+                rect: Rect {
+                    center: Vec2::new(right_edge + wall_thickness, background_position.y),
+                    half_size: Vec2::new(wall_thickness, room_half_height),
+                },
             }, // east
         ];
 
+        let mut triggers: Vec<Trigger> = Vec::new();
         let mut entities: Vec<Entity> = Vec::new();
 
         let wardrobe_tex = texture_store.load(device, queue, "assets/wardrobe.png")?;
         entities.push(Entity {
             position: Vec2::new(16.0, 12.0) * multiplying_factor,
             size: Vec2::new(24.0, 40.0) * multiplying_factor,
-            collider: Some(Rect {
-                offset: Vec2::new(0.0, 0.0) * multiplying_factor,
-                half_size: Vec2::new(12.0, 20.0) * multiplying_factor,
+            collider: Some(Collider {
+                rect: Rect {
+                    center: Vec2::new(0.0, 0.0) * multiplying_factor,
+                    half_size: Vec2::new(12.0, 20.0) * multiplying_factor,
+                },
             }),
             texture_id: Some(wardrobe_tex),
         });
@@ -151,15 +177,17 @@ impl Scene {
         let bed_tex = texture_store.load(device, queue, "assets/bed.png")?;
 
         let bed_collider = Rect {
-            offset: Vec2::new(0.0, 5.0) * multiplying_factor,
+            center: Vec2::new(0.0, 5.0) * multiplying_factor,
             half_size: Vec2::new(16.0, 22.0) * multiplying_factor,
         };
         entities.push(Entity {
             position: Vec2::new(16.0, 48.0) * multiplying_factor,
             size: Vec2::new(32.0, 64.0) * multiplying_factor,
-            collider: Some(Rect {
-                offset: bed_collider.offset,
-                half_size: bed_collider.half_size,
+            collider: Some(Collider {
+                rect: Rect {
+                    center: bed_collider.center,
+                    half_size: bed_collider.half_size,
+                },
             }),
             texture_id: Some(bed_tex),
         });
@@ -167,9 +195,11 @@ impl Scene {
         entities.push(Entity {
             position: Vec2::new(112.0, 48.0) * multiplying_factor,
             size: Vec2::new(32.0, 64.0) * multiplying_factor,
-            collider: Some(Rect {
-                offset: bed_collider.offset,
-                half_size: bed_collider.half_size,
+            collider: Some(Collider {
+                rect: Rect {
+                    center: bed_collider.center,
+                    half_size: bed_collider.half_size,
+                },
             }),
             texture_id: Some(bed_tex),
         });
@@ -178,9 +208,11 @@ impl Scene {
         entities.push(Entity {
             position: Vec2::new(64.0, 44.0) * multiplying_factor,
             size: Vec2::new(25.0, 16.0) * multiplying_factor,
-            collider: Some(Rect {
-                offset: Vec2::new(0.0, 4.0) * multiplying_factor,
-                half_size: Vec2::new(12.5, 4.0) * multiplying_factor,
+            collider: Some(Collider {
+                rect: Rect {
+                    center: Vec2::new(0.0, 4.0) * multiplying_factor,
+                    half_size: Vec2::new(12.5, 4.0) * multiplying_factor,
+                },
             }),
             texture_id: Some(nightstand_tex),
         });
@@ -189,9 +221,11 @@ impl Scene {
         entities.push(Entity {
             position: Vec2::new(64.0, 128.0) * multiplying_factor,
             size: Vec2::new(32.0, 16.0) * multiplying_factor,
-            collider: Some(Rect {
-                offset: Vec2::new(0.0, 0.0) * multiplying_factor,
-                half_size: Vec2::new(16.0, 4.0) * multiplying_factor,
+            collider: Some(Collider {
+                rect: Rect {
+                    center: Vec2::new(0.0, 0.0) * multiplying_factor,
+                    half_size: Vec2::new(16.0, 4.0) * multiplying_factor,
+                },
             }),
             texture_id: Some(door_tex),
         });
@@ -200,9 +234,11 @@ impl Scene {
         entities.push(Entity {
             position: Vec2::new(64.0, 87.5) * multiplying_factor,
             size: Vec2::new(14.0, 24.0) * multiplying_factor,
-            collider: Some(Rect {
-                offset: Vec2::new(0.0, 6.0) * multiplying_factor,
-                half_size: Vec2::new(7.0, 6.0) * multiplying_factor,
+            collider: Some(Collider {
+                rect: Rect {
+                    center: Vec2::new(0.0, 6.0) * multiplying_factor,
+                    half_size: Vec2::new(7.0, 6.0) * multiplying_factor,
+                },
             }),
             texture_id: Some(player_tex),
         });
@@ -213,6 +249,7 @@ impl Scene {
             background_position,
             background_size,
             walls,
+            triggers,
             entities,
             texture_store,
             player_index,

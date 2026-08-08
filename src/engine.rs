@@ -1,4 +1,5 @@
 mod entity;
+mod ids;
 mod platform;
 mod renderer;
 mod scene;

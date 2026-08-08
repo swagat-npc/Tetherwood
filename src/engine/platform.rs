@@ -55,9 +55,8 @@ impl ApplicationHandler for App {
         let mut renderer =
             block_on(Renderer::new(window.clone())).expect("failed to initialize renderer");
 
-        let scene =
-            Scene::new_bedroom(renderer.device(), renderer.queue(), self.multiplying_factor)
-                .expect("failed to build bedroom scene");
+        let scene = Scene::new_home(renderer.device(), renderer.queue(), self.multiplying_factor)
+            .expect("failed to build bedroom scene");
         renderer.prepare_scene(&scene);
 
         // Static indoor camera: anchored once at the room's own center,

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use image::GenericImageView;
 
-use crate::engine::entity::TextureId;
+use crate::engine::ids::TextureId;
 
 pub struct TextureStore {
     textures: Vec<Texture>,
