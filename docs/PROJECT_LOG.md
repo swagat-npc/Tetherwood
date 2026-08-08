@@ -300,9 +300,46 @@ genuinely feasible but explicitly parked — no dependency from M4,
 revisit only when PNG-export friction becomes a real cost, not a
 curiosity (ADR-049).
 
+Aseprite native loading (ADR-049's parked status) was revisited and
+implemented mid-milestone once PNG-export friction was felt directly
+during scene-content work — see ADR-050.
+
+A scope misunderstanding was caught and corrected: no "hallway" scene
+was ever part of the design — that term arose only in reference to the
+Village Chief's House wireframe, where it names ordinary walkable
+floor space connecting rooms *within one scene*, not a warp-mediated
+destination. M4's actual warp target is a minimal placeholder exterior
+scene (`new_outside`), alongside the player's house (renamed
+`new_bedroom` → `new_home`, since the constructed content is the whole
+house, not just the bedroom). Multi-room single-scene houses (Chief's
+House) are parked as M5+ content; they surface a real, separate design
+question — per-scene camera mode (ADR-041) would need to vary *within*
+a scene (static in a room, following through a connecting corridor,
+static again) rather than being fixed once at scene load. Not
+designed further now; noted for whenever the first such house is
+built.
+
+Trigger/warp identity design settled (ADR-051): WarpId changed from a
+u32 newtype to a `&'static str` newtype, since warps are always matched
+associatively rather than indexed into a Vec (unlike TextureId, which
+does need to be numeric) — this lets one authored value serve as both
+routing key and human-readable debug label with no separate registry
+to maintain. TriggerKind::Warp gained its own warp_id field (missing
+from the original design), needed for a resolved warp to find its
+named partner trigger inside a freshly-constructed destination scene.
+Re-trigger suppression after a warp is a per-trigger `recently_used`
+flag, not a scene- or App-wide flag, so only the door just used is
+suppressed. Scene gains a `pub id: SceneId` field for self-identifying
+debug output. A startup validation pass over all warp pairs was
+proposed and explicitly deferred (ADR-052) until warp count makes
+manual playtesting an unreliable way to catch a typo'd WarpId.
+
 Code work for M4 (Scene struct changes, Trigger/TriggerKind,
-SceneId/WarpId, flag store, text rendering, dialogue machinery) not
-yet started as of this log revision.
+SceneId/WarpId, flag store, text rendering, dialogue machinery) partly
+started: ids.rs consolidation, Collider/Trigger types, wall-geometry
+derivation, and native Aseprite loading are implemented and committed.
+Door/trigger content, new_outside, and the transition-handling code in
+platform.rs are not yet started as of this log revision.
 
 ---
 
@@ -683,6 +720,68 @@ yet started as of this log revision.
 - **Rationale:** `asefile` was chosen over the alternative `aseprite-reader` crate after comparing maintenance signals: ~10x the downloads, actively versioned within the last ~2 years vs. ~4, and no coupling to a game engine (Bevy) this project doesn't use. Neither crate is authored by Aseprite itself, despite both crates' descriptions reading that way at a glance — the phrase refers to the file *format's* origin, not the crate's authorship.
 - **Consequences:** Content authored in `.aseprite` no longer requires a manual PNG export step before `cargo run` picks it up — confirmed end-to-end (edited a scene's `.aseprite` source directly, reloaded, updated art appeared with no export). Existing PNG-sourced assets are unaffected and continue to load via the original path; migrating them to `.aseprite` sources is optional, not required by this change. `asefile` is now a project dependency.
 
+### ADR-051: Warp identity as named strings; per-trigger reentry suppression; Scene self-identity
+- **Context:** Building the actual door/warp mechanic surfaced three
+  related gaps the original Trigger design (ADR-046, ADR-047) hadn't
+  covered: (1) nothing prevented a trigger from re-firing the instant
+  the player spawned into the destination scene, still standing on the
+  arrival trigger; (2) nothing let a resolved warp find its named
+  partner trigger inside a freshly, lazily constructed destination
+  scene's trigger list — TriggerKind::Warp carried a target_warp_id but
+  no trigger declared its *own* warp_id to be matched against; (3) a
+  human-readable debug label (e.g. for a future "Home:door ->
+  Outside:door" print) either had to be duplicated across both ends of
+  a warp pair (rejected — a stale-copy risk) or resolved through a
+  separately maintained name registry (rejected — a decoupled,
+  forgettable second file for what should be one authoring step).
+- **Decision:** `WarpId` (engine/ids.rs) changes from a `u32` newtype
+  to `pub struct WarpId(pub &'static str)` — amending ADR-047's
+  original concrete type for WarpId, whose scene/pairing design is
+  otherwise unchanged. `TriggerKind::Warp` gains its own `warp_id`
+  field alongside `target_scene`/`target_warp_id`. `Trigger` gains
+  `recently_used: bool`, cleared once the player's center leaves that
+  specific trigger's rect (not a scene- or App-wide flag). `Scene`
+  gains `pub id: SceneId`.
+- **Rationale:** `WarpId` was always matched associatively (find the
+  trigger whose id equals X) never indexed into a Vec — unlike
+  `TextureId`, which genuinely needs to be numeric because it indexes
+  `TextureStore` directly. Treating `WarpId` as needing numeric
+  consistency with `TextureId` was a pattern-matched-on-the-wrong-
+  similarity mistake, corrected this session. A string identifier
+  authored once, at a trigger's own construction site, serves as both
+  the routing key and the debug label with a single source of truth —
+  no separate name registry, no field that can drift out of sync with
+  its counterpart. Per-trigger (not global) reentry suppression means
+  only the specific door just used is briefly inert, so a future scene
+  with two doors close together is correct by construction rather than
+  by a case someone has to remember to handle later.
+- **Consequences:** A typo'd `WarpId("doo")` still compiles and fails
+  silently at runtime (no compiler exhaustiveness check, same
+  limitation the prior `u32` form had) — accepted, see ADR-052.
+  `SceneId` variants (currently `Bedroom`/`Hallway` in code) still need
+  renaming to `Home`/`Outside` to match `new_home`/`new_outside` — not
+  yet done as of this entry, first step of the next implementation
+  session.
+
+### ADR-052: Startup warp-pair validation — proposed, explicitly deferred
+- **Context:** ADR-051's `WarpId` as a bare string has no compiler-
+  enforced exhaustiveness — a typo'd warp id compiles cleanly and fails
+  silently at runtime (the door simply does nothing), discoverable only
+  by manually walking through that exact doorway during play.
+- **Decision:** Not built now. A validation pass — at startup or as a
+  test, constructing every scene and confirming every `Warp` trigger's
+  `(target_scene, target_warp_id)` resolves to a real trigger somewhere
+  — is proposed but explicitly deferred until warp count is large
+  enough (a populated village, multiple houses) that manual playtesting
+  stops being a reliable way to catch this class of typo.
+- **Rationale:** At current content volume (two scenes, one warp pair),
+  the validator would cost real effort to catch a mistake trivially
+  caught by playing the game once. Matches the project's established
+  pattern (ADR-025, 035, 041, 044, 046, 049) of deferring machinery
+  until the problem it solves is real rather than anticipated.
+- **Consequences:** Recorded here specifically so it's discoverable
+  later rather than re-derived from scratch once warp count actually
+  makes it worth building.
 ---
 
 ## 5. Current State & Open Questions
@@ -704,29 +803,31 @@ yet started as of this log revision.
   permanent debug tooling (collider overlay, input logging) — all
   built and proven against tuned, real bedroom content. Definition
   of done met in full.
-- ⬜ **M4 (The Voice)** ← next. Per DERIVATION.md §5: Beat 2 playable
-  — room transition (scene trait + stack, E4), examine bed → narrator
-  text, typewriter + blips, inner-monologue frame visually distinct
-  from NPC dialogue. Engine systems: E4 (scene trait/stack/
-  transitions), E6 (dialogue machinery — typewriter, three registers,
-  flag-conditioned lines, advance/skip), E7 (audio — one music track,
-  blip playback via kira, not yet integrated).
-- Code written so far: entity/scene/asset layer, collision, y-sort,
-  full renderer, debug tooling — one scene (bedroom) as content. No
-  scene *transitions* exist yet (the bedroom is currently the only
-  loadable scene, loaded once at startup); no dialogue, text
-  rendering, or audio exists yet at all.
-- In progress. Design settled this session (ADR-044–048):
-  concrete `Scene` swap-slot (trait+stack deferred to
-  M6), automatic zone-triggered room transitions, two trigger flavors
-  (interact vs. zone), Pokémon-style warp pairs (`SceneId`/`WarpId`),
+- ⬜ **M4 (The Voice)** ← in progress. Design phase (Phase 12)
+  resolved scene transitions, trigger/warp identity, and scene
+  persistence before content work began: concrete `Scene` swap-slot,
+  trait+stack deferred to M6 (ADR-044); automatic zone-triggered door
+  transitions, no button prompt (ADR-045); two trigger flavors
+  (interact vs. zone), single-variant dispatch enum (ADR-046);
+  Pokémon-style warp pairs over per-scene spawn points (ADR-047);
   scene persistence via the existing flag store (ADR-020) with lazy
-  GPU unload/reload. Code not yet started. Remaining per DERIVATION
-  §5: text rendering, dialogue machinery (E6), audio (E7), examine-bed
-  narrator text, typewriter + blips, inner-monologue frame.
-- Aseprite native loading (ADR-049's parked status) was revisited and
-  implemented mid-milestone once PNG-export friction was felt directly
-  during scene-content work — see ADR-050.
+  GPU unload/reload (ADR-048); native Aseprite loading, parked at
+  ADR-049, implemented mid-milestone once PNG-export friction became
+  real (ADR-050); warp identity as a named-string WarpId with
+  per-trigger reentry suppression and Scene self-identity (ADR-051);
+  startup warp-pair validation proposed and deferred (ADR-052).
+  `SceneId` variant rename (`Bedroom`/`Hallway` → `Home`/`Outside`)
+  still pending in code. Remaining per DERIVATION §5: door/trigger
+  content in `new_home`, `new_outside` placeholder scene, the
+  transition-handling code in `platform.rs`, text rendering, dialogue
+  machinery (E6), audio (E7), examine-bed narrator text, typewriter +
+  blips, inner-monologue frame.
+- Code written so far: entity/scene/asset layer (now with
+  `Collider`/`Trigger` types and `engine/ids.rs` for shared
+  identifiers), collision, y-sort, full renderer, debug tooling,
+  native Aseprite texture loading alongside PNG — one scene
+  (`new_home`, née `new_bedroom`) as content. No scene transitions,
+  no second scene, no dialogue, text rendering, or audio exist yet.
 
 ### Open questions
 
