@@ -11,17 +11,17 @@
 /// are lazily constructed on entry, not kept resident).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SceneId {
-    Bedroom,
-    Hallway,
+    Home,
+    Outside,
 }
 
-/// Identifies a single warp point within one scene. Only needs to be
-/// unique within that scene — not globally — since a warp is always
-/// addressed as (SceneId, WarpId) together. Newtype over u32, matching
-/// TextureId's pattern (engine/texture.rs): prevents an arbitrary
-/// number from being passed where a warp identity is expected.
+/// Identifies a single warp point within one scene, and doubles as a
+/// human-readable debug label — both jobs from one authored value, no
+/// separate name registry to keep in sync (ADR-051). Uniqueness only
+/// needs to hold within one scene, since a warp is always addressed
+/// as (SceneId, WarpId) together.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WarpId(pub u32);
+pub struct WarpId(pub &'static str);
 
 /// Identifies a texture within a scene-scoped TextureStore (ADR-036).
 /// Simple newtype wrapper around a usize index, made distinct to avoid accidental mixup.

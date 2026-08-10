@@ -440,11 +440,10 @@ impl Renderer {
         // y-sorted), then entities in sorted order. Each entry is
         // (bind group index, position, size).
         let mut draws: Vec<(usize, glam::Vec2, glam::Vec2)> = Vec::new();
-        draws.push((
-            scene.background.0,
-            scene.background_position,
-            scene.background_size,
-        ));
+        for bg in &scene.background {
+            draws.push((bg.texture.0, bg.position, bg.size));
+        }
+
         for &idx in &order {
             let entity = &scene.entities[idx];
             if let Some(texture_id) = entity.texture_id {
@@ -458,6 +457,8 @@ impl Renderer {
             const WALL_BORDER: [f32; 4] = [0.7, 0.0, 0.0, 0.9];
             const ENTITY_FILL: [f32; 4] = [0.0, 0.4, 1.0, 0.15];
             const ENTITY_BORDER: [f32; 4] = [0.0, 0.2, 0.8, 0.9];
+            const TRIGGER_FILL: [f32; 4] = [0.0, 1.0, 0.0, 0.15];
+            const TRIGGER_BORDER: [f32; 4] = [0.0, 0.7, 0.0, 0.9];
 
             for wall in &scene.walls {
                 debug_rects.push(DebugRect {
@@ -476,6 +477,14 @@ impl Renderer {
                         border_color: ENTITY_BORDER,
                     });
                 }
+            }
+            for trigger in &scene.triggers {
+                debug_rects.push(DebugRect {
+                    position: trigger.rect.center,
+                    size: trigger.rect.half_size * 2.0,
+                    fill_color: TRIGGER_FILL,
+                    border_color: TRIGGER_BORDER,
+                });
             }
         }
 

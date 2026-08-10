@@ -23,6 +23,12 @@ pub struct Rect {
     pub half_size: Vec2,
 }
 
+pub struct Background {
+    pub texture: TextureId,
+    pub position: Vec2,
+    pub size: Vec2,
+}
+
 /// A solid region that blocks movement — walls, entity colliders.
 /// Wraps Rect, paired with Trigger: Collider blocks, Trigger fires.
 pub struct Collider {
@@ -31,11 +37,16 @@ pub struct Collider {
 
 /// A non-solid region that fires an effect on overlap, distinct from
 /// walls/colliders (which block movement). Reuses Rect for geometry —
-/// only the meaning differs (ADR-046). area is world-space, matching
+/// only the meaning differs (ADR-046). rect is world-space, matching
 /// the walls convention (ADR-038), not entity-relative.
 pub struct Trigger {
     pub rect: Rect,
     pub kind: TriggerKind,
+    /// True immediately after the player arrives via this trigger;
+    /// suppresses re-firing until the player's center leaves rect.
+    /// Transient play-session state, not content (parallel to
+    /// Entity's Option fields, ADR-037). (ADR-051)
+    pub recently_used: bool,
 }
 
 /// What a trigger does when the player's center enters it. Single
@@ -43,6 +54,10 @@ pub struct Trigger {
 /// second kind exists to compare against (ADR-046).
 pub enum TriggerKind {
     Warp {
+        /// This trigger's own identity — how a warp from elsewhere
+        /// finds *this* trigger inside the destination scene's
+        /// Vec<Trigger>. (ADR-051)
+        warp_id: WarpId,
         target_scene: SceneId,
         target_warp_id: WarpId,
     },

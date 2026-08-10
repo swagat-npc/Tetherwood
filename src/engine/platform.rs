@@ -9,6 +9,8 @@ use winit::{
     window::{Window, WindowId},
 };
 
+use crate::engine::entity::TriggerKind::{self, Warp};
+use crate::engine::ids::SceneId;
 use crate::engine::renderer::Renderer;
 use crate::engine::scene::Scene;
 
@@ -16,65 +18,99 @@ pub fn run() {
     let event_loop = EventLoop::new().expect("failed to create event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
 
+    let window_attributes = Window::default_attributes()
+        .with_title("Tetherwood")
+        .with_inner_size(winit::dpi::LogicalSize::new(800.0, 600.0))
+        .with_position(winit::dpi::LogicalPosition::new(0.0, 100.0));
+    let window = event_loop.create_window(window_attributes).unwrap();
+    let window = Arc::new(window);
+
+    let renderer = block_on(Renderer::new(window.clone())).expect("failed to initialize renderer");
+    let multiplying_factor = 5.0;
+
+    let scenes = Vec::new();
+
     let mut app = App {
-        window: None,
+        window: window,
         last_frame: Instant::now(),
         frame_count: 0,
-        renderer: None,
-        scene: None,
+        renderer: renderer,
+        scenes: scenes,
+        current_scene: 0,
         held_keys: HashSet::new(),
-        multiplying_factor: 5.0,
-        show_colliders: false,
+        multiplying_factor: multiplying_factor,
+        show_colliders: true, // TODO: set to true for debugging
         show_debug_info: false,
     };
+    app.change_scene(SceneId::Home);
     event_loop.run_app(&mut app).expect("event loop error");
 }
 
 struct App {
-    window: Option<Arc<Window>>,
+    window: Arc<Window>,
     last_frame: Instant,
     frame_count: u32,
-    renderer: Option<Renderer>,
-    scene: Option<Scene>,
+    renderer: Renderer,
+    scenes: Vec<Scene>,
+    current_scene: usize,
     held_keys: HashSet<KeyCode>,
-    multiplying_factor: f32,
+    multiplying_factor: f32, // TODO: migrate this to a config struct to supply everywhere
     show_colliders: bool,
     show_debug_info: bool,
 }
 
+impl App {
+    fn change_scene(&mut self, scene_id: SceneId) {
+        if let Some(existing_index) = self.scenes.iter().position(|scene| scene.id == scene_id) {
+            self.current_scene = existing_index;
+        } else {
+            let new_scene = match scene_id {
+                SceneId::Home => Scene::new_home(
+                    self.renderer.device(),
+                    self.renderer.queue(),
+                    self.multiplying_factor,
+                )
+                .expect("failed to build bedroom scene"),
+                SceneId::Outside => Scene::new_outside(
+                    self.renderer.device(),
+                    self.renderer.queue(),
+                    self.multiplying_factor,
+                )
+                .expect("failed to build outside scene"),
+            };
+            self.scenes.push(new_scene);
+            self.current_scene = self.scenes.len() - 1;
+        }
+        self.renderer
+            .prepare_scene(&self.scenes[self.current_scene]);
+    }
+
+    #[inline]
+    fn get_current_scene(&self) -> &Scene {
+        &self.scenes[self.current_scene]
+    }
+
+    #[inline]
+    fn get_current_scene_mut(&mut self) -> &mut Scene {
+        &mut self.scenes[self.current_scene]
+    }
+}
+
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let window_attributes = Window::default_attributes()
-            .with_title("Tetherwood")
-            .with_inner_size(winit::dpi::LogicalSize::new(800.0, 600.0))
-            .with_position(winit::dpi::LogicalPosition::new(0.0, 100.0));
-
-        let window = event_loop.create_window(window_attributes).unwrap();
-        let window = Arc::new(window);
-
-        let mut renderer =
-            block_on(Renderer::new(window.clone())).expect("failed to initialize renderer");
-
-        let scene = Scene::new_home(renderer.device(), renderer.queue(), self.multiplying_factor)
-            .expect("failed to build bedroom scene");
-        renderer.prepare_scene(&scene);
+        // TODO: Top level stuct to always be in memory, give it a hashmap of scene or anything that is needed everytime
+        // and just call it when needed
 
         // Static indoor camera: anchored once at the room's own center,
         // never updated per-frame. Follow-mode (M2's camera-tracks-
         // player behavior) is deferred until an outdoor/follow scene
         // needs it — no CameraMode abstraction built yet, since there's
         // only one real consumer so far (same reasoning as ADR-035).
-        renderer.camera_position = glam::Vec2::new(64.0, 64.0) * self.multiplying_factor;
-
-        self.scene = Some(scene);
-        self.renderer = Some(renderer);
-        self.window = Some(window);
+        self.renderer.camera_position = glam::Vec2::new(64.0, 64.0) * self.multiplying_factor;
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        if let Some(w) = &self.window {
-            w.request_redraw();
-        }
+        self.window.request_redraw();
     }
 
     fn window_event(
@@ -89,10 +125,7 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::Resized(size) => {
-                self.renderer
-                    .as_mut()
-                    .unwrap()
-                    .resize(size.width, size.height);
+                self.renderer.resize(size.width, size.height);
             }
             WindowEvent::RedrawRequested => {
                 let now = Instant::now();
@@ -109,7 +142,8 @@ impl ApplicationHandler for App {
                 }
 
                 // TODO(engine): raw KeyCode handling here is content, not machinery (ADR-035).
-                if let Some(scene) = self.scene.as_mut() {
+
+                {
                     let speed = 80.0 * self.multiplying_factor; // pixels per second scaled up to the factor
                     let mut movement = glam::Vec2::ZERO;
                     if self.held_keys.contains(&KeyCode::KeyW) {
@@ -126,20 +160,25 @@ impl ApplicationHandler for App {
                     }
                     if movement != glam::Vec2::ZERO {
                         let delta_move = movement.normalize() * speed * delta.as_secs_f32();
+                        let scene = self.get_current_scene_mut();
                         scene.try_move_player(delta_move);
+                        if let Some((target_scene, target_warp_id)) = scene.check_triggers() {
+                            self.change_scene(target_scene);
+                            self.get_current_scene_mut().activate_warp(target_warp_id);
+                        }
                     }
                 }
 
-                if let (Some(renderer), Some(scene)) = (self.renderer.as_mut(), self.scene.as_ref())
+                match self
+                    .renderer
+                    .render(&self.scenes[self.current_scene], self.show_colliders)
                 {
-                    match renderer.render(scene, self.show_colliders) {
-                        Ok(()) => {}
-                        Err(e) => {
-                            log::error!("render failed: {e}");
-                            event_loop.exit();
-                        }
-                    };
-                }
+                    Ok(()) => {}
+                    Err(e) => {
+                        log::error!("render failed: {e}");
+                        event_loop.exit();
+                    }
+                };
             }
             WindowEvent::KeyboardInput {
                 event:
