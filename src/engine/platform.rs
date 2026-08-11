@@ -11,7 +11,7 @@ use winit::{
 
 use crate::engine::ids::SceneId;
 use crate::engine::renderer::Renderer;
-use crate::engine::scene::Scene;
+use crate::engine::scene::{CameraMode, Scene};
 
 pub fn run() {
     let event_loop = EventLoop::new().expect("failed to create event loop");
@@ -49,7 +49,7 @@ impl AppState {
                     self.renderer.queue(),
                     self.multiplying_factor,
                 )
-                .expect("failed to build bedroom scene"),
+                .expect("failed to build home scene"),
                 SceneId::Outside => Scene::new_outside(
                     self.renderer.device(),
                     self.renderer.queue(),
@@ -63,9 +63,9 @@ impl AppState {
 
         let scene = &self.scenes[self.current_scene];
         self.renderer.prepare_scene(scene);
-        // Per-scene state camera anchor (ADR-041). Re-read on every
-        // switch, not just once at startup.
-        self.renderer.camera_position = scene.camera_anchor;
+        // Camera position is no longer set here — resolved fresh every
+        // frame in RedrawRequested, since Follow mode needs the player's
+        // current position, not a one-time value from scene load.
     }
 
     #[inline]
@@ -182,6 +182,12 @@ impl ApplicationHandler for App {
                 }
 
                 let scene = &state.scenes[state.current_scene];
+                let camera_target = match scene.camera_mode {
+                    CameraMode::Static(anchor) => anchor,
+                    CameraMode::Follow => scene.player().position,
+                };
+                state.renderer.camera_position = camera_target;
+
                 match state.renderer.render(scene, state.show_colliders) {
                     Ok(()) => {}
                     Err(e) => {

@@ -7,6 +7,15 @@ use crate::engine::entity::{
 use crate::engine::ids::{SceneId, WarpId};
 use crate::engine::texture::TextureStore;
 
+/// Per-scene camera behavior (ADR-041). Static holds its own fixed
+/// anchor point; Follow has no stored data — it reads the player's
+/// current position fresh every frame, in the render path, not here.
+#[derive(Debug, Clone, Copy)]
+pub enum CameraMode {
+    Static(Vec2),
+    Follow,
+}
+
 pub struct Scene {
     pub id: SceneId,
     pub background: Vec<Background>,
@@ -15,7 +24,7 @@ pub struct Scene {
     pub entities: Vec<Entity>,
     pub texture_store: TextureStore,
     pub player_index: usize,
-    pub camera_anchor: Vec2,
+    pub camera_mode: CameraMode,
 }
 
 impl Scene {
@@ -352,7 +361,7 @@ impl Scene {
             entities,
             texture_store,
             player_index,
-            camera_anchor: floor_position,
+            camera_mode: CameraMode::Static(floor_position),
         })
     }
 
@@ -456,7 +465,7 @@ impl Scene {
             entities,
             texture_store,
             player_index,
-            camera_anchor: village_position,
+            camera_mode: CameraMode::Follow,
         })
     }
 }
