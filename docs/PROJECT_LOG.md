@@ -341,6 +341,29 @@ derivation, and native Aseprite loading are implemented and committed.
 Door/trigger content, new_outside, and the transition-handling code in
 platform.rs are not yet started as of this log revision.
 
+Scene-transition implementation followed the design in full: the
+warp_id mismatch caught between Home's and Outside's paired triggers
+was corrected, and recently_used suppression was wired end to end
+(Scene::check_triggers clears stale flags and skips already-used
+triggers; Scene::activate_warp marks the destination trigger used on
+arrival) — confirmed via cargo run that walking through a doorway no
+longer re-fires the warp or repeatedly rebuilds renderer bind groups
+every frame spent standing in it.
+
+Implementation also surfaced two gaps the original design hadn't
+covered. First, App's window/renderer/scene fields, having drifted to
+eager construction in run() rather than resumed() during earlier
+scaffolding, were restructured into a single Option<AppState> guarded
+by resumed() — see ADR-053. Second, spawning the player exactly on a
+warp trigger's center produced a visually incorrect landing (standing
+on top of the door), and — separately — revealed that a scene's
+player position was previously left stale across repeat visits, since
+visited scenes are cached rather than reconstructed; TriggerKind::Warp
+gained a spawn_offset field to address both — see ADR-054.
+
+A main-menu / pause-menu need was raised and deliberately deferred —
+see ADR-055.
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -782,6 +805,96 @@ platform.rs are not yet started as of this log revision.
 - **Consequences:** Recorded here specifically so it's discoverable
   later rather than re-derived from scratch once warp count actually
   makes it worth building.
+
+### ADR-053: App state restructured to Option<AppState>, resumed()-driven
+- **Context:** Earlier scaffolding had drifted window/renderer/scene
+  construction out of resumed() and into run(), called before
+  event_loop.run_app() started — using EventLoop::create_window
+  directly, which triggered a deprecation warning
+  ("use ActiveEventLoop::create_window instead") and departed from the
+  winit ApplicationHandler lifecycle pattern this project committed to
+  at M1 (window creation via ActiveEventLoop, inside resumed()). The
+  original motivation was avoiding Option<Renderer>/Option<Scene>
+  unwrap ceremony scattered through every field access.
+- **Decision:** App holds a single `state: Option<AppState>`, where
+  AppState bundles every field that only exists once a window does
+  (window, renderer, scenes, current_scene, input state, settings).
+  resumed() is guarded (`if self.state.is_some() { return }`) and is
+  the sole place AppState is constructed, using
+  ActiveEventLoop::create_window. Every other handler starts with
+  `let Some(state) = &mut self.state else { return }`, then works with
+  bare, non-Option fields for the rest of the function body.
+- **Rationale:** Preserves the actual goal (no unwrap ceremony in the
+  hot path) while keeping resumed() as the correct, guarded entry
+  point for GPU/window setup — the guard costs one let-else per
+  handler, materially less than five separate per-field unwraps, and
+  remains correct if resumed() ever fires more than once (a real,
+  documented possibility on some platforms, e.g. Android's
+  window-reclaim-on-background, even though this project's
+  desktop-only target makes that case unlikely to ever fire in
+  practice).
+- **Consequences:** Resolves the EventLoop::create_window deprecation
+  warning. A parked idea from the same discussion — a persistent,
+  always-in-memory "top-level" struct holding cross-scene resources —
+  was evaluated and found to already be satisfied by AppState itself;
+  no further abstraction is needed until a concrete second consumer
+  (e.g. the flag store, ADR-020/048) actually requires one.
+
+### ADR-054: Warp spawn position decoupled from trigger detection geometry
+- **Context:** Implementing spawn positioning (Trigger's rect.center,
+  via the destination trigger found in Scene::activate_warp) landed
+  the player exactly on the trigger's center on every arrival — visibly
+  wrong (standing on top of the door sprite). Separately, before this
+  positioning existed at all, testing surfaced that a scene's player
+  position was left stale across repeat visits, producing
+  visit-count- and direction-dependent spawn locations — a consequence
+  of scenes being cached rather than reconstructed on re-entry (see
+  ADR-048; not yet resolved, see Current State).
+- **Decision:** TriggerKind::Warp gains a `spawn_offset: Vec2` field.
+  Scene::activate_warp returns `trigger.rect.center + spawn_offset`
+  rather than the bare center; the caller writes this into the
+  player's position unconditionally on every warp arrival.
+- **Rationale:** A trigger's rect already serves a specific, different
+  purpose (how large an overlap counts as "arrived") from where a
+  player should visually land — conflating them (e.g. by moving or
+  resizing the trigger rect itself) would fix one case at the expense
+  of the other, since detection and arrival need independent tuning
+  per door, in a direction specific to that scene's geometry. Writing
+  the position unconditionally on every arrival — not just once, at
+  scene construction — is what actually fixes the stale-position bug,
+  independent of what value is written.
+- **Consequences:** Every Warp trigger must now specify a spawn_offset
+  explicitly at construction (no default) — a small, deliberate
+  authoring cost per door. The stale-position bug this fix incidentally
+  resolved is a symptom of the still-open scenes-cached-forever
+  question (ADR-048); spawn_offset does not resolve that question, it
+  only ensures position is freshly written regardless of how it's
+  answered.
+
+### ADR-055: Main menu and pause menu — deferred, blocked on text rendering
+- **Context:** With scene transitions now working between two real
+  scenes, the lack of any menu (the game currently starts directly in
+  Home and exits only via Escape or killing the process) was raised as
+  a gap worth closing before more scenes accumulate.
+- **Decision:** Not built now. No beat, milestone, or prior ADR ever
+  scoped a main menu into the vertical slice — DERIVATION's slice
+  exclusions explicitly name pause-menu tabs as out of scope, and a
+  main menu was never mentioned at all. Both remain deferred until
+  text rendering (E6) exists, since a menu's minimum viable form
+  (selectable text options) depends on the same subsystem M4's dialogue
+  work already requires.
+- **Rationale:** Building placeholder menu art now would either fake
+  real text or duplicate work text rendering is about to make trivial;
+  better to build both together. A real open question — whether a menu
+  screen is a Scene in the current sense (which assumes a player,
+  walls, entities) or a distinct concept — is also better answered once
+  there's an actual text-rendering-capable scene to design it against,
+  rather than guessed at now.
+- **Consequences:** Recorded here so the need is discoverable and not
+  rediscovered from scratch once text rendering lands — at that point,
+  a main menu (and pause menu) become natural, low-risk additions to
+  design alongside dialogue's own text needs.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -817,11 +930,23 @@ platform.rs are not yet started as of this log revision.
   per-trigger reentry suppression and Scene self-identity (ADR-051);
   startup warp-pair validation proposed and deferred (ADR-052).
   `SceneId` variant rename (`Bedroom`/`Hallway` → `Home`/`Outside`)
-  still pending in code. Remaining per DERIVATION §5: door/trigger
+  still pending in code. 
+- Remaining per DERIVATION §5: door/trigger
   content in `new_home`, `new_outside` placeholder scene, the
   transition-handling code in `platform.rs`, text rendering, dialogue
   machinery (E6), audio (E7), examine-bed narrator text, typewriter +
-  blips, inner-monologue frame.
+  blips, inner-monologue frame. Scene-transition mechanism (trigger firing, warp-pair resolution,
+    reentry suppression, spawn positioning) is now fully implemented and
+    verified working end to end between Home and Outside — see ADR-053,
+    054. Camera currently uses only the static-anchor mode (ADR-041);
+    Outside needs a follow-camera, since its content already exceeds a
+    single static screen — CameraMode (static vs. follow, chosen per
+    scene) is the immediate next task. Scenes-cached-forever vs.
+    ADR-048's lazy-unload-and-rebuild-from-flags remains an open,
+    undecided architectural question — current behavior (Vec<Scene>,
+    reused once visited) has not been reconciled with ADR-048 either
+    way. Main menu / pause menu deferred per ADR-055, blocked on text
+    rendering.
 - Code written so far: entity/scene/asset layer (now with
   `Collider`/`Trigger` types and `engine/ids.rs` for shared
   identifiers), collision, y-sort, full renderer, debug tooling,
