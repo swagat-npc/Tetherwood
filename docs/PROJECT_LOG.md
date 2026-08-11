@@ -845,6 +845,43 @@ platform.rs are not yet started as of this log revision.
    migrate to an entity model in M3 — not a question of *whether*, but
    the concrete shape is M3's problem to solve, not to anticipate here.
 
+### Parked — Combat design: Z-axis attacks & essence economy
+
+Sketched in a design session (pre-M4), not mechanically finalized. Not
+an ADR — nothing here is settled.
+
+- **Z-axis attacks bypass 2D combat rules.** Vertical/"downward" attacks
+  ignore lane-blocking and telegraphs entirely — a 2D enemy has no
+  sensory access to a Z-axis threat, so it cannot be telegraphed to
+  them. Resolves against a column regardless of lane occupancy
+  (multi-target), vs. normal 2D attacks which stop at the first body
+  in a lane.
+- **Player never becomes a "4D" being.** The tree may grant abilities
+  *flavored* as reaching beyond 3D, but the player's own arc stays
+  strictly 2D→3D. Cultists can structurally never ascend at all —
+  their identity is the rejection of a dimension, which forecloses
+  the move permanently (rhymes with ADR-006's reject/inherit
+  juxtaposition).
+- **Essence-absorption cutscene, structure sketched:** consensual
+  prompt (E-press on a downed enemy, not automatic pickup) → narrator
+  explains via conservation-of-energy framing → explicit in-fiction
+  warning against over-accumulation → tech tree UI partially unlocks
+  (early nodes only).
+- **Open / unresolved:** concrete failure state for hoarding unspent
+  z-essence (mechanic undefined — soft cap? damage over time? hard
+  block?); dialogue lines unwritten; register assignment (narrator vs.
+  inner monologue vs. plain shown text) undecided per-line.
+- **Reserve idea, explicitly not scoped:** a tier beyond 3D as a
+  genuine player state (as opposed to a tree-granted flavored
+  ability) — tonally risky (pulls toward cosmic scale, away from the
+  sibling story), parked alongside ADR-007's replacement-sacrifice
+  reserve. Not designed, not built into any node list.
+- **Likely narrative payoff (unconfirmed):** the climax may resolve
+  by the player transferring accumulated z-essence *back* to the
+  sister rather than keeping it — ties the resource sink to the
+  ending and forecloses an endgame power-fantasy loophole by
+  construction. Not committed; flagged as the leading candidate.
+
 ### Next session agenda (Milestone Chat #3: The Room / M3)
 
 1. Design the `Scene` trait and scene stack (E4) — M3's `Scene` is
