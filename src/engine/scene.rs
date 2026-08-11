@@ -1,4 +1,4 @@
-use anyhow::{Ok, Result};
+use anyhow::Result;
 use glam::Vec2;
 
 use crate::engine::entity::{
@@ -15,6 +15,7 @@ pub struct Scene {
     pub entities: Vec<Entity>,
     pub texture_store: TextureStore,
     pub player_index: usize,
+    pub camera_anchor: Vec2,
 }
 
 impl Scene {
@@ -78,36 +79,40 @@ impl Scene {
                 continue;
             }
             if point_in_rect(player_center, &trigger.rect) {
-                if let TriggerKind::Warp {
+                let TriggerKind::Warp {
                     warp_id,
                     target_scene,
                     target_warp_id,
-                } = trigger.kind
-                {
-                    println!(
-                        "{:?}:{} -> {:?}:{}",
-                        self.id, warp_id.0, target_scene, target_warp_id.0
-                    );
-                    return Some((target_scene, target_warp_id));
-                }
+                    ..
+                } = trigger.kind;
+                println!(
+                    "{:?}:{} -> {:?}:{}",
+                    self.id, warp_id.0, target_scene, target_warp_id.0
+                );
+                return Some((target_scene, target_warp_id));
             }
         }
         None
     }
 
-    pub fn activate_warp(&mut self, warp_id: WarpId) {
+    /// Marks the trigger matching `warp_id` as just-arrived-at (recently_used),
+    /// and returns its position — the caller spawns the player there. Runs
+    /// every time a warp is used, overwriting whatever stale position the
+    /// player happened to have left in this scene from a previous visit
+    /// (scenes are currently cached, not reconstructed, once visited).
+    pub fn activate_warp(&mut self, warp_id: WarpId) -> Option<Vec2> {
         for trigger in self.triggers.iter_mut() {
-            if let TriggerKind::Warp {
+            let TriggerKind::Warp {
                 warp_id: this_warp_id,
+                spawn_offset,
                 ..
-            } = trigger.kind
-            {
-                if this_warp_id == warp_id {
-                    trigger.recently_used = true;
-                    return;
-                }
+            } = trigger.kind;
+            if this_warp_id == warp_id {
+                trigger.recently_used = true;
+                return Some(trigger.rect.center + spawn_offset);
             }
         }
+        None
     }
 
     /// Attempts to move the player by `delta`. Resolves collisions
@@ -262,6 +267,7 @@ impl Scene {
                 warp_id: WarpId("door"),
                 target_scene: SceneId::Outside,
                 target_warp_id: WarpId("door"),
+                spawn_offset: Vec2::new(0.0, -20.0 * multiplying_factor), // up, into the room
             },
         }];
 
@@ -346,6 +352,7 @@ impl Scene {
             entities,
             texture_store,
             player_index,
+            camera_anchor: floor_position,
         })
     }
 
@@ -420,6 +427,7 @@ impl Scene {
                 warp_id: WarpId("door"),
                 target_scene: SceneId::Home,
                 target_warp_id: WarpId("door"),
+                spawn_offset: Vec2::new(0.0, 20.0 * multiplying_factor), // down, into the patio
             },
         });
 
@@ -448,6 +456,7 @@ impl Scene {
             entities,
             texture_store,
             player_index,
+            camera_anchor: village_position,
         })
     }
 }

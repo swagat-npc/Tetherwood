@@ -60,6 +60,14 @@ pub enum TriggerKind {
         warp_id: WarpId,
         target_scene: SceneId,
         target_warp_id: WarpId,
+        /// Offset from this trigger's rect.center where an arriving
+        /// player actually spawns — kept separate from the trigger's
+        /// detection geometry (rect), since "how big is the doorway
+        /// overlap zone" and "how far into the room do you land" are
+        /// independently tunable. Direction is scene-specific: a door
+        /// in a south wall wants a different offset than one in a
+        /// north wall.
+        spawn_offset: Vec2,
     },
 }
 
