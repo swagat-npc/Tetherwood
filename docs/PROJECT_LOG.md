@@ -4,7 +4,7 @@
 **Document type:** Living project record (docs-as-code)
 **Started:** July 2026
 **Revision:** v4
-**Status:** Design phase complete → Toolchain setup & M0/M1 next. Companion document: `docs/DERIVATION.md` (feature inventory, engine split, Rust map, milestones, 45-day plan).
+**Status:** M1–M3 complete; M4 (The Voice) in progress — scene transitions, camera modes, and lazy scene reload built; text rendering and dialogue machinery next. Companion document: `docs/DERIVATION.md` (feature inventory, engine split, Rust map, milestones, 45-day plan).
 **Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated when decisions accumulate, not on a timer.
 
 ---
