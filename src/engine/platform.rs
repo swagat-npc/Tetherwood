@@ -10,7 +10,7 @@ use winit::{
 };
 
 use crate::engine::ids::SceneId;
-use crate::engine::renderer::Renderer;
+use crate::engine::renderer::{self, Renderer};
 use crate::engine::scene::{CameraMode, Scene};
 
 pub fn run() {
@@ -28,8 +28,7 @@ struct App {
 struct AppState {
     window: Arc<Window>,
     renderer: Renderer,
-    scenes: Vec<Scene>,
-    current_scene: usize,
+    scene: Scene,
     last_frame: Instant,
     frame_count: u32,
     held_keys: HashSet<KeyCode>,
@@ -39,43 +38,26 @@ struct AppState {
 }
 
 impl AppState {
+    /// Builds and GPU-prepares a scene. Free of `self` so it can run
+    /// before AppState exists (resumed()'s first scene) as well as
+    /// from change_scene, which just assigns the result afterward.
+    fn build_scene(renderer: &mut Renderer, scene_id: SceneId, multiplying_factor: f32) -> Scene {
+        let new_scene = match scene_id {
+            SceneId::Home => {
+                Scene::new_home(renderer.device(), renderer.queue(), multiplying_factor)
+                    .expect("failed to build home scene")
+            }
+            SceneId::Outside => {
+                Scene::new_outside(renderer.device(), renderer.queue(), multiplying_factor)
+                    .expect("failed to build outside scene")
+            }
+        };
+        renderer.prepare_scene(&new_scene);
+        new_scene
+    }
+
     fn change_scene(&mut self, scene_id: SceneId) {
-        if let Some(existing_index) = self.scenes.iter().position(|scene| scene.id == scene_id) {
-            self.current_scene = existing_index;
-        } else {
-            let new_scene = match scene_id {
-                SceneId::Home => Scene::new_home(
-                    self.renderer.device(),
-                    self.renderer.queue(),
-                    self.multiplying_factor,
-                )
-                .expect("failed to build home scene"),
-                SceneId::Outside => Scene::new_outside(
-                    self.renderer.device(),
-                    self.renderer.queue(),
-                    self.multiplying_factor,
-                )
-                .expect("failed to build outside scene"),
-            };
-            self.scenes.push(new_scene);
-            self.current_scene = self.scenes.len() - 1;
-        }
-
-        let scene = &self.scenes[self.current_scene];
-        self.renderer.prepare_scene(scene);
-        // Camera position is no longer set here — resolved fresh every
-        // frame in RedrawRequested, since Follow mode needs the player's
-        // current position, not a one-time value from scene load.
-    }
-
-    #[inline]
-    fn get_current_scene(&self) -> &Scene {
-        &self.scenes[self.current_scene]
-    }
-
-    #[inline]
-    fn get_current_scene_mut(&mut self) -> &mut Scene {
-        &mut self.scenes[self.current_scene]
+        self.scene = Self::build_scene(&mut self.renderer, scene_id, self.multiplying_factor);
     }
 }
 
@@ -97,15 +79,16 @@ impl ApplicationHandler for App {
         let window = event_loop.create_window(window_attributes).unwrap();
         let window = Arc::new(window);
 
-        let renderer =
+        let mut renderer =
             block_on(Renderer::new(window.clone())).expect("failed to initialize renderer");
         let multiplying_factor = 5.0;
 
-        let mut state = AppState {
+        let initial_scene = AppState::build_scene(&mut renderer, SceneId::Home, multiplying_factor);
+
+        let state = AppState {
             window,
             renderer,
-            scenes: Vec::new(),
-            current_scene: 0,
+            scene: initial_scene,
             last_frame: Instant::now(),
             frame_count: 0,
             held_keys: HashSet::new(),
@@ -113,7 +96,6 @@ impl ApplicationHandler for App {
             show_colliders: true, // DEBUG: set to true for debugging
             show_debug_info: false,
         };
-        state.change_scene(SceneId::Home);
 
         self.state = Some(state);
     }
@@ -170,25 +152,22 @@ impl ApplicationHandler for App {
                 }
                 if movement != glam::Vec2::ZERO {
                     let delta_move = movement.normalize() * speed * delta.as_secs_f32();
-                    let scene = state.get_current_scene_mut();
-                    scene.try_move_player(delta_move);
-                    if let Some((target_scene, target_warp_id)) = scene.check_triggers() {
+                    state.scene.try_move_player(delta_move);
+                    if let Some((target_scene, target_warp_id)) = state.scene.check_triggers() {
                         state.change_scene(target_scene);
-                        let new_scene = state.get_current_scene_mut();
-                        if let Some(spawn_position) = new_scene.activate_warp(target_warp_id) {
-                            new_scene.player_mut().position = spawn_position;
+                        if let Some(spawn_position) = state.scene.activate_warp(target_warp_id) {
+                            state.scene.player_mut().position = spawn_position;
                         }
                     }
                 }
 
-                let scene = &state.scenes[state.current_scene];
-                let camera_target = match scene.camera_mode {
+                let camera_target = match state.scene.camera_mode {
                     CameraMode::Static(anchor) => anchor,
-                    CameraMode::Follow => scene.player().position,
+                    CameraMode::Follow => state.scene.player().position,
                 };
                 state.renderer.camera_position = camera_target;
 
-                match state.renderer.render(scene, state.show_colliders) {
+                match state.renderer.render(&state.scene, state.show_colliders) {
                     Ok(()) => {}
                     Err(e) => {
                         log::error!("render failed: {e}");
