@@ -45,10 +45,19 @@ impl TextureStore {
 }
 
 pub struct Texture {
+    // texture, width, and height are read by wgpu internally (the
+    // texture handle backs the view; dimensions were needed only at
+    // upload time in from_image) but never read back out on the Rust
+    // side afterward — everything downstream goes through view/sampler.
+    // Kept for potential future use (e.g. querying size at runtime)
+    // rather than discarded.
+    #[allow(dead_code)]
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
+    #[allow(dead_code)]
     pub width: u32,
+    #[allow(dead_code)]
     pub height: u32,
 }
 

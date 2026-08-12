@@ -1,8 +1,10 @@
-use crate::engine::ids::TextureId;
-use crate::engine::scene::Scene;
+use anyhow::Result;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
+
+use crate::engine::ids::TextureId;
+use crate::engine::scene::Scene;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -24,6 +26,13 @@ struct DebugRectUniform {
     fill_color: [f32; 4],
     border_color: [f32; 4],
     border_thickness: [f32; 4], // x, y used; z, w are padding
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct GlyphUniform {
+    uv_offset: [f32; 2],
+    uv_scale: [f32; 2],
 }
 
 impl Vertex {
@@ -77,6 +86,17 @@ fn model_matrix(position: glam::Vec2, size: glam::Vec2) -> glam::Mat4 {
     translate * scale
 }
 
+/// A GPU-acquired frame buffer, ready to be drawn into one or more
+/// times before being shown on screen. Bundles the swapchain texture
+/// with its view, so render_scene/render_text can share one frame
+/// instead of each acquiring (and presenting) their own — which would
+/// cause flickering, since the swapchain is double/triple-buffered
+/// and two separate acquisitions would land on two different buffers.
+pub struct Frame {
+    output: wgpu::SurfaceTexture,
+    view: wgpu::TextureView,
+}
+
 pub struct Renderer {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -93,6 +113,14 @@ pub struct Renderer {
     bind_groups: Vec<wgpu::BindGroup>,
     debug_bind_group_layout: wgpu::BindGroupLayout,
     debug_pipeline: wgpu::RenderPipeline,
+    glyph_bind_group_layout: wgpu::BindGroupLayout,
+    text_pipeline: wgpu::RenderPipeline,
+    // Held only to keep its GPU resources alive for as long as
+    // glyph_atlas_bind_group borrows from them — never read again after
+    // construction, since the bind group is what render_text actually uses.
+    #[allow(dead_code)]
+    font_atlas: crate::engine::texture::Texture,
+    glyph_atlas_bind_group: wgpu::BindGroup,
     pub camera_position: glam::Vec2,
 }
 
@@ -250,6 +278,95 @@ impl Renderer {
             }],
         });
 
+        let font_atlas_bytes =
+            std::fs::read("assets/good_neighbors_font.png").expect("failed to read font atlas");
+        let font_atlas = crate::engine::texture::Texture::from_bytes(
+            &device,
+            &queue,
+            &font_atlas_bytes,
+            "good_neighbors_font.png",
+        )?;
+
+        let glyph_atlas_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("glyph atlas bind group"),
+            layout: &texture_bind_group_layout, // reused — same shape as any sprite texture
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&font_atlas.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&font_atlas.sampler),
+                },
+            ],
+        });
+
+        let glyph_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("glyph bind group layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let text_shader = device.create_shader_module(wgpu::include_wgsl!("text_shader.wgsl"));
+
+        let text_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("text pipeline layout"),
+            bind_group_layouts: &[
+                Some(&texture_bind_group_layout),   // reused — same shape as sprites
+                Some(&transform_bind_group_layout), // reused — same shared transform uniform
+                Some(&glyph_bind_group_layout),     // new
+            ],
+            immediate_size: 0,
+        });
+
+        let text_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("text pipeline"),
+            layout: Some(&text_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &text_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Some(Vertex::desc())],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &text_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview_mask: None,
+            cache: None,
+        });
+
         let debug_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("debug rect bind group layout"),
@@ -344,6 +461,10 @@ impl Renderer {
             texture_bind_group_layout,
             debug_bind_group_layout,
             debug_pipeline,
+            glyph_bind_group_layout,
+            text_pipeline,
+            font_atlas,
+            glyph_atlas_bind_group,
             bind_groups: Vec::new(),
             camera_position: glam::Vec2::ZERO,
         })
@@ -357,34 +478,13 @@ impl Renderer {
         &self.queue
     }
 
-    /// Builds one bind group per texture currently in the scene's
-    /// TextureStore, indexed identically to TextureId — call once,
-    /// right after a scene is constructed, before the first render().
-    pub fn prepare_scene(&mut self, scene: &Scene) {
-        self.bind_groups.clear();
-        for i in 0..scene.texture_store.len() {
-            let texture = scene.texture_store.get(TextureId(i));
-            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("scene texture bind group"),
-                layout: &self.texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&texture.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&texture.sampler),
-                    },
-                ],
-            });
-            self.bind_groups.push(bind_group);
-        }
-    }
-
-    pub fn render(&mut self, scene: &Scene, show_colliders: bool) -> anyhow::Result<()> {
+    /// Acquires the next frame to draw into. Returns Ok(None) for the
+    /// same transient cases render() previously handled by silently
+    /// returning early (Outdated reconfigures and retries next frame;
+    /// Occluded/Timeout/Validation just skip this frame).
+    pub fn acquire_frame(&mut self) -> Result<Option<Frame>> {
         if !self.is_surface_configured {
-            return Ok(());
+            return Ok(None);
         }
 
         let output = match self.surface.get_current_texture() {
@@ -392,10 +492,10 @@ impl Renderer {
             | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
             wgpu::CurrentSurfaceTexture::Timeout
             | wgpu::CurrentSurfaceTexture::Occluded
-            | wgpu::CurrentSurfaceTexture::Validation => return Ok(()),
+            | wgpu::CurrentSurfaceTexture::Validation => return Ok(None),
             wgpu::CurrentSurfaceTexture::Outdated => {
                 self.surface.configure(&self.device, &self.config);
-                return Ok(());
+                return Ok(None);
             }
             wgpu::CurrentSurfaceTexture::Lost => anyhow::bail!("surface lost"),
         };
@@ -404,6 +504,10 @@ impl Renderer {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
+        Ok(Some(Frame { output, view }))
+    }
+
+    pub fn render_scene(&mut self, frame: &Frame, scene: &Scene, show_colliders: bool) {
         let projection = glam::Mat4::orthographic_rh(
             0.0,
             self.config.width as f32,
@@ -526,7 +630,7 @@ impl Renderer {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("draw pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
+                        view: &frame.view,
                         resolve_target: None,
                         depth_slice: None,
                         ops: wgpu::Operations {
@@ -594,7 +698,7 @@ impl Renderer {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("debug rect pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
+                        view: &frame.view,
                         resolve_target: None,
                         depth_slice: None,
                         ops: wgpu::Operations {
@@ -617,10 +721,120 @@ impl Renderer {
             }
             self.queue.submit(std::iter::once(encoder.finish()));
         }
+    }
 
-        self.queue.present(output);
+    pub fn render_text(&mut self, frame: &Frame, glyphs: &[crate::engine::text::PositionedGlyph]) {
+        // Screen-space only — no camera_view term, so text stays fixed
+        // to the window regardless of camera position or mode.
+        let projection = glam::Mat4::orthographic_rh(
+            0.0,
+            self.config.width as f32,
+            self.config.height as f32,
+            0.0,
+            -1.0,
+            1.0,
+        );
 
-        Ok(())
+        for glyph in glyphs {
+            let (uv_min, uv_max) = crate::engine::text::glyph_uv(glyph.cell.0, glyph.cell.1);
+            let uv_scale = uv_max - uv_min;
+
+            let uniform = GlyphUniform {
+                uv_offset: uv_min.into(),
+                uv_scale: uv_scale.into(),
+            };
+            let glyph_uniform_buffer =
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("glyph uniform"),
+                        contents: bytemuck::cast_slice(&[uniform]),
+                        usage: wgpu::BufferUsages::UNIFORM,
+                    });
+            let glyph_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("glyph bind group"),
+                layout: &self.glyph_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: glyph_uniform_buffer.as_entire_binding(),
+                }],
+            });
+
+            // layout_text produces top-left positions (natural for cursor
+            // advance); model_matrix expects center (ADR-033's convention,
+            // built for entities). Converted here, at the drawing boundary
+            // — text.rs keeps its own natural top-left frame, renderer.rs
+            // adapts it to the shared drawing convention.
+            let center = glyph.position + crate::engine::text::GLYPH_SIZE / 2.0;
+            let model = model_matrix(center, crate::engine::text::GLYPH_SIZE);
+            let transform = projection * model;
+            self.queue.write_buffer(
+                &self.transform_buffer,
+                0,
+                bytemuck::cast_slice(&transform.to_cols_array()),
+            );
+
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("text draw encoder"),
+                });
+            {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("text draw pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &frame.view,
+                        resolve_target: None,
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load, // always paint over — scene already drew this frame
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                    multiview_mask: None,
+                });
+                render_pass.set_pipeline(&self.text_pipeline);
+                render_pass.set_bind_group(0, &self.glyph_atlas_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.transform_bind_group, &[]);
+                render_pass.set_bind_group(2, &glyph_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                render_pass
+                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            }
+            self.queue.submit(std::iter::once(encoder.finish()));
+        }
+    }
+
+    pub fn present_frame(&mut self, frame: Frame) {
+        self.queue.present(frame.output);
+    }
+
+    /// Builds one bind group per texture currently in the scene's
+    /// TextureStore, indexed identically to TextureId — call once,
+    /// right after a scene is constructed, before the first render().
+    pub fn prepare_scene(&mut self, scene: &Scene) {
+        self.bind_groups.clear();
+        for i in 0..scene.texture_store.len() {
+            let texture = scene.texture_store.get(TextureId(i));
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("scene texture bind group"),
+                layout: &self.texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&texture.sampler),
+                    },
+                ],
+            });
+            self.bind_groups.push(bind_group);
+        }
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {

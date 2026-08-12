@@ -10,7 +10,7 @@ use winit::{
 };
 
 use crate::engine::ids::SceneId;
-use crate::engine::renderer::{self, Renderer};
+use crate::engine::renderer::Renderer;
 use crate::engine::scene::{CameraMode, Scene};
 
 pub fn run() {
@@ -35,6 +35,7 @@ struct AppState {
     multiplying_factor: f32, // TODO: migrate this to a config struct to supply everywhere
     show_colliders: bool,
     show_debug_info: bool,
+    show_test_text: bool,
 }
 
 impl AppState {
@@ -95,6 +96,7 @@ impl ApplicationHandler for App {
             multiplying_factor,
             show_colliders: true, // DEBUG: set to true for debugging
             show_debug_info: false,
+            show_test_text: false,
         };
 
         self.state = Some(state);
@@ -167,13 +169,26 @@ impl ApplicationHandler for App {
                 };
                 state.renderer.camera_position = camera_target;
 
-                match state.renderer.render(&state.scene, state.show_colliders) {
-                    Ok(()) => {}
+                match state.renderer.acquire_frame() {
+                    Ok(Some(frame)) => {
+                        state
+                            .renderer
+                            .render_scene(&frame, &state.scene, state.show_colliders);
+                        if state.show_test_text {
+                            let glyphs = crate::engine::text::layout_text(
+                                "The Quick Brown Fox, Jumped Over the Lazy Dog! With the new font @ == estäblished*",
+                                glam::Vec2::new(20.0, 500.0),
+                            );
+                            state.renderer.render_text(&frame, &glyphs);
+                        }
+                        state.renderer.present_frame(frame);
+                    }
+                    Ok(None) => {} // surface not ready yet, skip this frame
                     Err(e) => {
                         log::error!("render failed: {e}");
                         event_loop.exit();
                     }
-                };
+                }
             }
             WindowEvent::KeyboardInput {
                 event:
@@ -204,6 +219,12 @@ impl ApplicationHandler for App {
                             } else {
                                 "Hide"
                             }
+                        );
+                    } else if code == KeyCode::F3 {
+                        state.show_test_text = !state.show_test_text;
+                        println!(
+                            "{} Test Text",
+                            if state.show_test_text { "Show" } else { "Hide" }
                         );
                     }
                     if state.show_debug_info {
