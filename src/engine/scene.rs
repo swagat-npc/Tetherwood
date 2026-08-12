@@ -72,7 +72,7 @@ impl Scene {
         false
     }
 
-    pub fn check_triggers(&mut self) -> Option<(SceneId, WarpId)> {
+    pub fn check_triggers(&mut self, show_debug_info: bool) -> Option<(SceneId, WarpId)> {
         let player_center = self.player().position;
 
         // Clear recently_used for any trigger the player has now left and
@@ -94,10 +94,12 @@ impl Scene {
                     target_warp_id,
                     ..
                 } = trigger.kind;
-                println!(
-                    "{:?}:{} -> {:?}:{}",
-                    self.id, warp_id.0, target_scene, target_warp_id.0
-                );
+                if show_debug_info {
+                    println!(
+                        "{:?}:{} -> {:?}:{}",
+                        self.id, warp_id.0, target_scene, target_warp_id.0
+                    );
+                }
                 return Some((target_scene, target_warp_id));
             }
         }
@@ -106,9 +108,8 @@ impl Scene {
 
     /// Marks the trigger matching `warp_id` as just-arrived-at (recently_used),
     /// and returns its position — the caller spawns the player there. Runs
-    /// every time a warp is used, overwriting whatever stale position the
-    /// player happened to have left in this scene from a previous visit
-    /// (scenes are currently cached, not reconstructed, once visited).
+    /// every time a warp is used, so position is always freshly set
+    /// rather than left over from wherever the player was on a previous visit.
     pub fn activate_warp(&mut self, warp_id: WarpId) -> Option<Vec2> {
         for trigger in self.triggers.iter_mut() {
             let TriggerKind::Warp {

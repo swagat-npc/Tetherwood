@@ -155,7 +155,9 @@ impl ApplicationHandler for App {
                 if movement != glam::Vec2::ZERO {
                     let delta_move = movement.normalize() * speed * delta.as_secs_f32();
                     state.scene.try_move_player(delta_move);
-                    if let Some((target_scene, target_warp_id)) = state.scene.check_triggers() {
+                    if let Some((target_scene, target_warp_id)) =
+                        state.scene.check_triggers(state.show_debug_info)
+                    {
                         state.change_scene(target_scene);
                         if let Some(spawn_position) = state.scene.activate_warp(target_warp_id) {
                             state.scene.player_mut().position = spawn_position;
