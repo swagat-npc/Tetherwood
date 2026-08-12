@@ -3,9 +3,10 @@
 
 **Document type:** Living project record (docs-as-code)
 **Started:** July 2026
-**Revision:** v4
-**Status:** M1–M3 complete; M4 (The Voice) in progress — scene transitions, camera modes, and lazy scene reload built; text rendering and dialogue machinery next. Companion document: `docs/DERIVATION.md` (feature inventory, engine split, Rust map, milestones, 45-day plan).
+**Revision:** v5
+**Status:** M1–M3 complete; M4 (The Voice) in progress — scene transitions, camera modes, lazy scene reload, and text rendering foundation all built and verified; dialogue machinery (typewriter, registers, blips) and Beat 2 content next. Companion document: `docs/DERIVATION.md` (feature inventory, engine split, Rust map, milestones, 45-day plan).
 **Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated when decisions accumulate, not on a timer.
+**Screenshots at each visual milestone** are part of this ritual, not an afterthought — historically the step most likely to be skipped (M4's first two phases shipped with none until caught retroactively); a phase isn't fully closed until its screenshots exist and are named.
 
 ---
 
@@ -276,7 +277,7 @@ through m3-06, each tied to a specific lesson (multi-entity render,
 factor scaling, debug overlay alone and combined with scaling, tuned
 collision, tuned y-sort).
 
-### Phase 12 — M4 Design Session: Scene Transitions & Persistence (in progress)
+### Phase 12 — M4 Design Session: Scene Transitions & Persistence (completed)
 
 Design pass completed before any M4 code was written, resolving five
 open questions the milestone's own agenda had flagged. Scene
@@ -334,13 +335,6 @@ debug output. A startup validation pass over all warp pairs was
 proposed and explicitly deferred (ADR-052) until warp count makes
 manual playtesting an unreliable way to catch a typo'd WarpId.
 
-Code work for M4 (Scene struct changes, Trigger/TriggerKind,
-SceneId/WarpId, flag store, text rendering, dialogue machinery) partly
-started: ids.rs consolidation, Collider/Trigger types, wall-geometry
-derivation, and native Aseprite loading are implemented and committed.
-Door/trigger content, new_outside, and the transition-handling code in
-platform.rs are not yet started as of this log revision.
-
 Scene-transition implementation followed the design in full: the
 warp_id mismatch caught between Home's and Outside's paired triggers
 was corrected, and recently_used suppression was wired end to end
@@ -363,6 +357,71 @@ gained a spawn_offset field to address both — see ADR-054.
 
 A main-menu / pause-menu need was raised and deliberately deferred —
 see ADR-055.
+
+Docs-as-code extended: docs/screenshots/ now covers m4-01 through
+m4-05, each tied to a specific confirmed behavior rather than general
+progress — the new green trigger-debug color in Home (m4-01) and
+Outside (m4-02) under the existing F1 overlay, correct off-trigger
+spawn positioning after a warp (m4-03), and a deliberate before/after
+pair proving CameraMode::Follow actually tracks the player at a scene
+boundary rather than merely differing from Static by coincidence
+(m4-04 static, m4-05 follow).
+
+### Phase 13 — M4: Text Rendering Foundation (completed)
+
+E6's low-level foundation — the engine's ability to draw a string of
+text on screen at all — built from scratch. DERIVATION's own M4
+agenda had flagged this as the milestone's likely "wgpu wall," a new
+real subsystem rather than a small addition; that held true (a new
+shader, a new pipeline, a genuine restructuring of Renderer's frame
+lifecycle), but is now cleared.
+
+A pre-rendered bitmap font atlas was chosen over runtime glyph
+rasterization, given the project's committed pixel-art visual identity
+and the absence of any localization/arbitrary-font requirement — see
+ADR-056. The Good Neighbors font (CC0, OpenGameArt) was hand-arranged
+in Aseprite into a uniform 10x9 grid (9x15 glyph cells, 10x16 pitch,
+1px gaps against texture bleeding), chosen deliberately over the
+font's original packed/variable-width release specifically to avoid
+needing an external metadata file — glyph position becomes pure
+arithmetic from an explicit char-to-cell lookup table
+(engine/text.rs::glyph_cell), since the grid's character ordering
+doesn't follow any contiguous range.
+
+Renderer::render() — a single method since M2 — was split into
+acquire_frame / render_scene / render_text / present_frame, since
+drawing text requires a second draw pass into the *same* acquired
+swapchain frame as the scene; two independent acquire+present calls
+would each land on a different buffer and flicker — see ADR-057. Text
+rendering was scoped to screen-space only (no camera_view term),
+since dialogue/narrator text needs to stay fixed to the window
+regardless of camera position or CameraMode — see ADR-058.
+
+A new text_shader.wgsl + text_pipeline reuses the existing
+textured-quad vertex layout and the shared transform uniform bind
+group unchanged from the sprite pipeline, adding one new bind group
+(GlyphUniform: uv_offset, uv_scale) that remaps a quad's 0..1 UVs
+onto a single glyph's sub-rectangle of the shared atlas texture, done
+per-vertex rather than per-fragment. The atlas texture itself is
+loaded once in Renderer::new, independent of any scene's TextureStore,
+since text is not per-scene content and shouldn't reload on scene
+transitions.
+
+An F3 debug toggle renders a hardcoded test string end to end,
+confirming correct glyph lookup, UV sampling, monospace spacing
+(including the expected wide trailing gap after narrow glyphs), and
+silent-skip-with-warning behavior for unsupported characters — before
+any real dialogue content exists to exercise the pipeline.
+
+Not yet built: dialogue machinery (typewriter reveal, three registers,
+blip playback, advance/skip input), the dialogue panel/avatar frame,
+and any actual Beat 2 content (examine-bed narrator text). Text
+rendering is foundation these will be built on top of, not itself.
+
+Docs-as-code extended: docs/screenshots/ now covers m4-06, the F3
+debug toggle rendering a full test string through the new bitmap font
+pipeline — the first confirmed on-screen text this engine has ever
+produced.
 
 ---
 
@@ -895,6 +954,24 @@ see ADR-055.
   a main menu (and pause menu) become natural, low-risk additions to
   design alongside dialogue's own text needs.
 
+### ADR-056: Pre-rendered bitmap font atlas over runtime glyph rasterization
+- **Context:** Text rendering needed a way to get glyphs from a font onto the GPU. Two broad approaches exist: pre-rendered bitmap atlas (one texture, every glyph baked in, sliced by fixed or metadata-driven coordinates) vs. runtime rasterization of vector fonts (e.g. via fontdue/ab_glyph, parsing .ttf and rasterizing to a dynamic atlas at load or first-use).
+- **Decision:** Pre-rendered bitmap atlas. Specifically, a hand-arranged uniform grid (Good Neighbors font, CC0, sourced from OpenGameArt) with no accompanying metadata file — glyph position computed by arithmetic from an explicit character-to-cell lookup table, not read from a packed atlas's `.fnt`/similar format.
+- **Rationale:** The project's committed visual identity (GBA/SNES-era pixel art, ADR-008) doesn't call for arbitrary fonts, sizes, or localization into scripts a fixed bitmap couldn't cover — runtime rasterization solves problems this game doesn't have, the same reasoning pattern behind every other deferred-abstraction ADR this project has made (025, 035, 041, 044, 046). A uniform grid specifically (over the font's originally-released packed/variable-width layout) was chosen to avoid writing and maintaining a `.fnt`-format parser — a real, avoidable subsystem — in exchange for a small, one-time authoring cost (redrawing the font into a fixed grid) and slightly higher texture memory (empty padding around narrow glyphs).
+- **Consequences:** Every glyph occupies an identical cell regardless of its actual width — correct, expected monospace behavior, not a bug (visibly confirmed via the F3 test string's wider gap after narrow characters like ','). Adding a font with proportional/variable-width glyphs later, or supporting a script this grid doesn't cover, would need new work; not anticipated or designed for now.
+
+### ADR-057: Renderer::render() split into acquire/render_scene/render_text/present
+- **Context:** Text needs to draw as a second, later pass into the exact same on-screen frame the scene just drew into. The prior single `render()` method acquired a swapchain frame, drew the scene, and presented it as one atomic unit — calling it twice per game-frame (once for the scene, once for text) would acquire two *different* swapchain buffers (the surface is double/triple-buffered), causing one buffer to show the scene without text and the next to show text without the scene, flickering between them.
+- **Decision:** `Renderer::render()` is replaced by four methods: `acquire_frame` (returns a `Frame` bundling the acquired `SurfaceTexture` and its `TextureView`, or `None` for transient not-ready cases), `render_scene` and `render_text` (each take `&Frame` and draw into it, order-dependent — text draws after and paints over the scene), and `present_frame` (consumes the `Frame`, presents it). The caller (`platform.rs`) orchestrates: acquire once, draw scene, draw text (when there's text to draw), present once.
+- **Rationale:** Splitting frame *acquisition* from frame *drawing* is the standard fix for "multiple draw passes, one presented frame" — draw calls become composable (any number of passes can target one `Frame`) without each needing its own acquire/present pair. `render_scene`/`render_text` no longer return `Result`, since the only fallible step (surface acquisition) now lives solely in `acquire_frame` — drawing into an already-acquired frame can't itself fail in any case this codebase currently handles.
+- **Consequences:** Any future draw pass (e.g. a pause menu overlay, once built) follows the same pattern — take `&Frame`, draw into it, let the caller sequence and present. `platform.rs`'s `RedrawRequested` handler is now the single place frame ordering is decided.
+
+### ADR-058: Text rendering is screen-space only
+- **Context:** The existing sprite transform chain (`projection * camera_view * model`, ADR-032) shifts every drawn position by the camera's current offset — correct for anything that exists *in* the game world, but dialogue/narrator text is a UI element that should stay fixed to the window regardless of where the camera is looking or which CameraMode (ADR-041/per-scene) is active.
+- **Decision:** `render_text` composes its transform as `projection * model` only — no `camera_view` term. Text coordinates are always relative to the screen, never the game world.
+- **Rationale:** This is the real, current need (Beat 2's narrator/dialogue text); a hypothetical future need for world-anchored text (e.g. a floating damage number over an enemy) would be a genuinely different consumer with different requirements, worth its own method or mode flag if and when it's real — not something to design speculatively now, matching this project's consistent pattern.
+- **Consequences:** `render_text` cannot currently be used to draw text that should move with the camera. If that need arises, it would need a second code path or a mode parameter, not a change to this one.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -953,6 +1030,12 @@ see ADR-055.
   native Aseprite texture loading alongside PNG — one scene
   (`new_home`, née `new_bedroom`) as content. No scene transitions,
   no second scene, no dialogue, text rendering, or audio exist yet.
+- Text rendering foundation now built and verified (ADR-056–058):
+  screen-space bitmap font pipeline, F3 debug toggle confirms correct
+  glyph lookup/UV sampling/spacing end to end. Still not built:
+  dialogue machinery (typewriter, registers, blip audio, advance/skip
+  input), the dialogue panel/avatar frame, and Beat 2's actual
+  narrator-text content.
 
 ### Open questions
 
@@ -1006,6 +1089,12 @@ an ADR — nothing here is settled.
   sister rather than keeping it — ties the resource sink to the
   ending and forecloses an endgame power-fantasy loophole by
   construction. Not committed; flagged as the leading candidate.
+
+### Parked — Documentation: a screenshot-narrated project history
+
+Raised when auditing the screenshot gap across Phases 12–13. `PROJECT_LOG.md`'s existing convention (name a screenshot in prose — e.g. "docs/screenshots/ now covers m3-01 through m3-06") serves the log's actual purpose well: a technical, ADR-anchored continuity record for resuming work across sessions. It gives a casual GitHub visitor no rendered images and no narrative thread connecting them, however.
+
+A separate document — screenshots embedded inline, written for an outside reader rather than a resuming collaborator, telling the project's visual progression from blank window to current state — would serve a genuinely different audience (portfolio viewers, casual repo browsers) than PROJECT_LOG.md does. Not built now: mixing the two purposes would dilute both. Worth building whenever there's a real audience for it (nearing a shareable/portfolio moment), not speculatively now.
 
 ### Next session agenda (Milestone Chat #3: The Room / M3)
 
