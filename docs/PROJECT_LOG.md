@@ -423,6 +423,78 @@ debug toggle rendering a full test string through the new bitmap font
 pipeline — the first confirmed on-screen text this engine has ever
 produced.
 
+### Phase 14 — M4: Interact Triggers & Debug Tooling (completed)
+
+E8's second trigger flavor — interact (proximity + facing + button) —
+built and proven against real content for the first time, alongside
+new debug tooling that made hand-placing that content practical.
+
+Entity gained facing: Direction, a four-way enum rather than a raw
+Vec2, chosen so call sites read as Direction::Right rather than
+memorizing which unit vector means which cardinal direction — see
+ADR-059. TriggerKind grew its second variant, Interact, the genuine
+second consumer ADR-046 had been waiting on; a plain match remained
+sufficient, no callback dispatch machinery earned. Proximity (icon
+visibility) and proximity+facing+button (the actual interaction) share
+one Rect per approach side rather than one Rect with a facing list,
+after tracing through why a single shared box couldn't distinguish
+"standing north, facing away" from "standing north, facing toward" —
+an object reachable from two sides needs two Triggers, one prompt
+Entity shared between them, not one Trigger with both directions
+listed — see ADR-060. EntityId (engine/ids.rs) extends the
+indices-over-references principle (ADR-025) from textures/scenes/warps
+to entities, needed once a Trigger had to reference a specific prompt
+icon Entity by identity.
+
+game/dialogue.rs opened as the project's first real src/game/ content
+module — a minimal static lookup (line_for), matching D-C's no-data-
+files approach. The bed's real interact content landed: examine text
+dropping Beat 2's central lore beat, gated to a single required
+facing (Right) matching its physically-constrained approach zone
+(confirmed against a reference mockup image, not guessed). The
+necklace's equivalent content — a two-sided approach, testing the
+opposite (multi-direction) case of the same mechanism — is sketched
+in code but commented out, not yet finished.
+
+Two rounds of new debug tooling followed directly from the difficulty
+of hand-placing this content blind. A world-space mouse position
+readout (Renderer::screen_to_world, shown via F2) inverts camera_view's
+translation, recomputed fresh every frame — not just on CursorMoved —
+so it stays live even when the camera pans under a stationary cursor
+in CameraMode::Follow. It was further adjusted to display
+authoring-space coordinates (world_pos / multiplying_factor) rather
+than raw world-space ones, after a real false alarm: a trigger placed
+at literal (94, 40) read back as (469, 200) under the readout's first
+version — not a bug, just world-space already reflecting
+multiplying_factor's scale, confirmed and then fixed for direct
+comparability against source literals — see ADR-061. A center-position
+crosshair marker (push_center_marker), reusing the existing debug-rect
+pipeline with no new shader, now draws at the world origin and at
+every wall/collider/trigger's center under the F1 overlay, making
+Rect placement visually verifiable rather than trusted blind. Trigger
+debug rects are now color-coded by kind (green Warp, yellow Interact),
+derived fresh from trigger.kind rather than stored as a redundant
+field.
+
+The added crosshairs roughly tripled per-frame debug-rect count,
+making the pre-existing per-rect draw-call cost (ADR-043's accepted
+cost at "a dozen or so" rects) measurably worse — F1 became genuinely
+unusable at the resulting frame rate. Text rendering hit the
+equivalent wall independently: a full dialogue-length string (~83
+glyphs) at one draw call per glyph dropped the game from ~60fps to
+~18fps. Both are the same underlying cost (one GPU buffer + bind group
++ encoder + submit per drawn primitive) crossing from "tolerable at
+slice scale" to "actively blocking work" — batching (one shared
+vertex/index buffer, one draw call per whole string or whole overlay
+pass) is the identified fix for both, deferred as its own focused task
+— see Open Questions.
+
+Docs-as-code extended: docs/screenshots/ now covers m4-07 through
+m4-10 — the interact prompt icon's proximity-gated visibility and the
+bed's dialogue text rendering after a successful interaction (m4-07,
+m4-08), and the world-space mouse readout confirmed correct before
+(m4-09) and after (m4-10) its authoring-space unit correction.
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -972,6 +1044,24 @@ produced.
 - **Rationale:** This is the real, current need (Beat 2's narrator/dialogue text); a hypothetical future need for world-anchored text (e.g. a floating damage number over an enemy) would be a genuinely different consumer with different requirements, worth its own method or mode flag if and when it's real — not something to design speculatively now, matching this project's consistent pattern.
 - **Consequences:** `render_text` cannot currently be used to draw text that should move with the camera. If that need arises, it would need a second code path or a mode parameter, not a change to this one.
 
+### ADR-059: Facing as a four-way enum, not a raw Vec2
+- **Context:** Interact triggers (the bed's directional examine requirement) needed a way to check "is the player looking the right way." A raw Vec2 (e.g. the last nonzero movement vector, normalized) would work mathematically but requires memorizing which vector means which direction at every call and content-authoring site.
+- **Decision:** `Entity.facing: Direction`, a plain `enum { Up, Down, Left, Right }`. `Direction::from_movement(Vec2) -> Option<Direction>` picks the dominant axis of a movement vector (diagonal input has no corresponding sprite direction), returning `None` for zero movement so callers preserve the entity's last facing while idle rather than resetting to a default.
+- **Rationale:** Matches how directional pixel-art sprites actually work — separate up/down/left/right frame sets, not continuous angles — so this is also the data shape a future animation system will want, not just a readability convenience now. `required_facing: &[Direction]` reads directly as intent (`&[Direction::Right]`) at every trigger's construction site, rather than a vector a reader has to mentally decode.
+- **Consequences:** Facing is inherently coarse (four directions, no diagonals) — acceptable and expected for this game's visual style; would need revisiting only if 8-directional sprites were ever adopted, not currently planned.
+
+### ADR-060: Multi-approach interactables use one Trigger per side, not one Trigger with a facing list
+- **Context:** The necklace (later, once built) needs to be interactable from two opposite sides — approach from north facing south, or approach from south facing north — but not from east or west. An initial design put both acceptable directions in one Trigger's `required_facing` list, sharing one Rect for both approaches.
+- **Decision:** A shared Rect with a multi-entry `required_facing` list is only correct when *every point in that Rect* has the same correct facing (true for the bed's single-approach case). For a genuinely two-sided object, two separate `Trigger`s are used instead — one per approach zone, each with its own single-direction `required_facing` — sharing one `prompt_entity`/`prompt_texture` so the visual icon is one object even though detection is two.
+- **Rationale:** A single Rect with `&[Down, Up]` cannot distinguish "standing north of the object, facing south (correct)" from "standing south of it, facing south (incorrect, facing away)" — both satisfy `required_facing.contains(&player.facing)` if the box straddles both zones. Correct facing is a property of *where the player is relative to the object*, not a property of one shared box.
+- **Consequences:** `Scene::update_interact_prompts` must OR proximity across every trigger sharing a `prompt_entity` (via a `HashMap<EntityId, bool>` keyed by the shared entity, not a per-trigger overwrite) — a naive last-checked-trigger-wins loop would incorrectly hide the icon depending on trigger iteration order. `required_facing` as a slice remains correct and useful for its actual case (one box, one-or-more equally-valid facings within that single box) — this ADR narrows when to reach for it, it doesn't deprecate it.
+
+### ADR-061: Mouse-position debug readout shows authoring-space, not raw world-space
+- **Context:** `Renderer::screen_to_world` correctly converts a screen pixel to world-space coordinates. Displayed directly, this produced a real false alarm: a trigger authored as `Vec2::new(94.0, 40.0) * multiplying_factor` in source read back as `(469, 200)` under the mouse readout — briefly suspected as a bug before recognizing that world-space coordinates have always included `multiplying_factor`'s scale (ADR-042); the raw literal `(94, 40)` was never a world-space value to begin with, only the pre-scale input to one.
+- **Decision:** The F2 debug readout divides `world_pos` by `multiplying_factor` before display, so the number shown matches what a developer would actually type into a `Vec2::new(...)` literal at a scene's construction site.
+- **Rationale:** The tool's purpose is to speed up hand-placing content — it's more useful reporting "what to type" than "the true final scaled value," since the former is the number actually compared against source code during authoring. `screen_to_world` itself is unchanged (still returns true world-space, needed elsewhere); the division is display-only, at the one call site that renders this specific debug text.
+- **Consequences:** Recorded explicitly so the same false alarm doesn't recur — any raw literal in scene-construction code is pre-scale/authoring-space; any position read from a live `Entity`/`Rect`/mouse-readout is post-scale/world-space; the two are only numerically equal when `multiplying_factor == 1.0`.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -1036,6 +1126,15 @@ produced.
   dialogue machinery (typewriter, registers, blip audio, advance/skip
   input), the dialogue panel/avatar frame, and Beat 2's actual
   narrator-text content.
+- Interact triggers (facing-gated, proximity + button) now built and
+  content-tested against a real beat (the bed's lore-drop examine
+  text) — see Phase 14, ADR-059–061. Debug tooling extended: world-
+  space mouse readout, center-position crosshair markers, trigger
+  color-coding by kind. Both text rendering (~83 glyphs) and the
+  expanded debug overlay now measurably tank frame rate (per-primitive
+  buffer/bind-group/draw-call cost, ADR-043's originally-accepted cost
+  crossed its stated revisit threshold) — batching is the identified
+  fix for both, not yet built, tracked as an open item.
 
 ### Open questions
 
@@ -1052,6 +1151,15 @@ produced.
    (`sprite_position`, `camera_position`, `transform_buffer`) needs to
    migrate to an entity model in M3 — not a question of *whether*, but
    the concrete shape is M3's problem to solve, not to anticipate here.
+8. **Draw-call batching (text and debug overlay):** both `render_text`
+   (one draw call per glyph) and the debug-rect overlay (one draw call
+   per rect, now tripled by center markers) pay real, now-measured
+   per-primitive GPU cost — confirmed via frame-rate drops (~60fps to
+   ~18fps for text at real dialogue-length strings; F1 currently
+   unusable with center markers on). Fix identified for both: one
+   shared vertex/index buffer, one draw call per whole batch, UV/color
+   data baked per-vertex instead of via a per-primitive uniform. Not
+   yet built — next concrete task once content/log work settles.
 
 ### Parked — Combat design: Z-axis attacks & essence economy
 
@@ -1095,6 +1203,12 @@ an ADR — nothing here is settled.
 Raised when auditing the screenshot gap across Phases 12–13. `PROJECT_LOG.md`'s existing convention (name a screenshot in prose — e.g. "docs/screenshots/ now covers m3-01 through m3-06") serves the log's actual purpose well: a technical, ADR-anchored continuity record for resuming work across sessions. It gives a casual GitHub visitor no rendered images and no narrative thread connecting them, however.
 
 A separate document — screenshots embedded inline, written for an outside reader rather than a resuming collaborator, telling the project's visual progression from blank window to current state — would serve a genuinely different audience (portfolio viewers, casual repo browsers) than PROJECT_LOG.md does. Not built now: mixing the two purposes would dilute both. Worth building whenever there's a real audience for it (nearing a shareable/portfolio moment), not speculatively now.
+
+### Parked — Interact triggers: separate notice-radius vs. interact-radius
+
+Raised while designing TriggerKind::Interact (M4, the necklace/nightstand case). A single Rect, tested via point_in_rect, currently governs both "show the interact prompt icon" (proximity only) and "the interaction may fire" (proximity + facing + button) — confirmed as mathematically sufficient for every case designed so far (point-in-rect and aabb-overlap were shown to be the same test, just parameterized by rect size — not a source of the "notice vs. touch" distinction on their own).
+
+A genuinely different, currently unbuilt idea: two separately-sized rects per interactable — a wider one governing "the player can tell something's here" (icon visibility) and a tighter one governing "the player may actually interact" (e.g. a glowing altar visible from across a room, but only interactable up close). Not built now — no current beat needs it, and building it speculatively risks guessing radii against no real content. Revisit when a real case demands the distinction; if none ever does, this parked idea should simply be removed rather than built for its own sake.
 
 ### Next session agenda (Milestone Chat #3: The Room / M3)
 
