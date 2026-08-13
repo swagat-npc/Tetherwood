@@ -37,6 +37,7 @@ struct AppState {
     show_debug_info: bool,
     show_test_text: bool,
     displayed_text: Option<String>,
+    screen_mouse_position: (f64, f64),
 }
 
 impl AppState {
@@ -99,6 +100,7 @@ impl ApplicationHandler for App {
             show_debug_info: false,
             show_test_text: false,
             displayed_text: None,
+            screen_mouse_position: (0.0, 0.0),
         };
 
         self.state = Some(state);
@@ -196,6 +198,22 @@ impl ApplicationHandler for App {
                             );
                             state.renderer.render_text(&frame, &glyphs);
                         }
+                        if state.show_debug_info {
+                            let screen_pos = glam::Vec2::new(
+                                state.screen_mouse_position.0 as f32,
+                                state.screen_mouse_position.1 as f32,
+                            );
+                            let world_pos = state.renderer.screen_to_world(screen_pos);
+                            let authoring_pos = world_pos / state.multiplying_factor;
+                            let line = crate::game::dialogue::line_for("mouse_coordinate");
+                            let mouse_text =
+                                format!("{}{:.0}, {:.0}", line, authoring_pos.x, authoring_pos.y);
+                            let glyphs = crate::engine::text::layout_text(
+                                &mouse_text,
+                                glam::Vec2::new(20.0, 570.0),
+                            );
+                            state.renderer.render_text(&frame, &glyphs);
+                        }
                         state.renderer.present_frame(frame);
                     }
                     Ok(None) => {} // surface not ready yet, skip this frame
@@ -257,6 +275,9 @@ impl ApplicationHandler for App {
                     state.held_keys.remove(&code);
                 }
             },
+            WindowEvent::CursorMoved { position, .. } => {
+                state.screen_mouse_position = (position.x, position.y);
+            }
             _ => {}
         }
     }

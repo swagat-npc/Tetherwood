@@ -478,6 +478,21 @@ impl Renderer {
         &self.queue
     }
 
+    /// Converts a screen-space pixel position (e.g. CursorMoved's
+    /// position — top-left origin, y-down, same axis convention as world
+    /// space per ADR-031) into world-space coordinates, by inverting the
+    /// same translation render_scene's camera_view applies going the
+    /// other direction: world = screen - screen_center + camera_position.
+    /// Always reads self.camera_position fresh, so results stay correct
+    /// across CameraMode::Follow's per-frame camera movement.
+    pub fn screen_to_world(&self, screen_pos: glam::Vec2) -> glam::Vec2 {
+        let screen_center = glam::Vec2::new(
+            self.config.width as f32 / 2.0,
+            self.config.height as f32 / 2.0,
+        );
+        screen_pos - screen_center + self.camera_position
+    }
+
     /// Acquires the next frame to draw into. Returns Ok(None) for the
     /// same transient cases render() previously handled by silently
     /// returning early (Outdated reconfigures and retries next frame;
