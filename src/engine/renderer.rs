@@ -464,6 +464,10 @@ impl Renderer {
         &self.queue
     }
 
+    pub fn screen_size(&self) -> glam::Vec2 {
+        glam::Vec2::new(self.config.width as f32, self.config.height as f32)
+    }
+
     /// Converts a screen-space pixel position (e.g. CursorMoved's
     /// position — top-left origin, y-down, same axis convention as world
     /// space per ADR-031) into world-space coordinates, by inverting the

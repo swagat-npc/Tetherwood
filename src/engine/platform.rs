@@ -230,10 +230,10 @@ impl ApplicationHandler for App {
                             let line = crate::game::dialogue::line_for("mouse_coordinate");
                             let mouse_text =
                                 format!("{}{:.0}, {:.0}", line, authoring_pos.x, authoring_pos.y);
-                            let glyphs = crate::engine::text::layout_text(
-                                &mouse_text,
-                                glam::Vec2::new(20.0, 570.0),
-                            );
+                            let screen_size = state.renderer.screen_size();
+                            let mouse_text_pos = glam::Vec2::new(20.0, screen_size.y - 30.0);
+                            let glyphs =
+                                crate::engine::text::layout_text(&mouse_text, mouse_text_pos);
                             state.renderer.render_text(&frame, &glyphs);
                         }
                         state.renderer.present_frame(frame);
