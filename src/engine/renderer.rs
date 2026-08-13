@@ -3,6 +3,7 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
+use crate::engine::entity::TriggerKind;
 use crate::engine::ids::TextureId;
 use crate::engine::scene::Scene;
 
@@ -84,6 +85,26 @@ fn model_matrix(position: glam::Vec2, size: glam::Vec2) -> glam::Mat4 {
     let scale = glam::Mat4::from_scale(size.extend(1.0));
     let translate = glam::Mat4::from_translation((position - half_size).extend(0.0));
     translate * scale
+}
+
+fn push_center_marker(debug_rects: &mut Vec<DebugRect>, center: glam::Vec2, scale: f32) {
+    const ARM_LENGTH: f32 = 8.0;
+    const THICKNESS: f32 = 2.0;
+    const X_COLOR: [f32; 4] = [1.0, 0.15, 0.15, 1.0]; // X-Axis
+    const Y_COLOR: [f32; 4] = [0.15, 1.0, 0.15, 1.0]; // Y-Axis
+
+    debug_rects.push(DebugRect {
+        position: center,
+        size: glam::Vec2::new(ARM_LENGTH * scale, THICKNESS * scale),
+        fill_color: X_COLOR,
+        border_color: X_COLOR,
+    });
+    debug_rects.push(DebugRect {
+        position: center,
+        size: glam::Vec2::new(THICKNESS * scale, ARM_LENGTH * scale),
+        fill_color: Y_COLOR,
+        border_color: Y_COLOR,
+    });
 }
 
 /// A GPU-acquired frame buffer, ready to be drawn into one or more
@@ -574,6 +595,10 @@ impl Renderer {
             const ENTITY_BORDER: [f32; 4] = [0.0, 0.2, 0.8, 0.9];
             const TRIGGER_FILL: [f32; 4] = [0.0, 1.0, 0.0, 0.15];
             const TRIGGER_BORDER: [f32; 4] = [0.0, 0.7, 0.0, 0.9];
+            const INTERACT_FILL: [f32; 4] = [1.0, 1.0, 0.0, 0.15];
+            const INTERACT_BORDER: [f32; 4] = [0.7, 0.7, 0.0, 0.9];
+
+            push_center_marker(&mut debug_rects, glam::Vec2::ZERO, 1.0);
 
             for wall in &scene.walls {
                 debug_rects.push(DebugRect {
@@ -582,6 +607,7 @@ impl Renderer {
                     fill_color: WALL_FILL,
                     border_color: WALL_BORDER,
                 });
+                push_center_marker(&mut debug_rects, wall.rect.center, 1.0);
             }
             for entity in &scene.entities {
                 if let Some(collider) = &entity.collider {
@@ -591,15 +617,34 @@ impl Renderer {
                         fill_color: ENTITY_FILL,
                         border_color: ENTITY_BORDER,
                     });
+                    push_center_marker(
+                        &mut debug_rects,
+                        entity.position + collider.rect.center,
+                        1.0,
+                    );
                 }
             }
             for trigger in &scene.triggers {
+                let interactive: bool = match trigger.kind {
+                    TriggerKind::Warp { .. } => false,
+                    TriggerKind::Interact { .. } => true,
+                };
+
                 debug_rects.push(DebugRect {
                     position: trigger.rect.center,
                     size: trigger.rect.half_size * 2.0,
-                    fill_color: TRIGGER_FILL,
-                    border_color: TRIGGER_BORDER,
+                    fill_color: if interactive {
+                        INTERACT_FILL
+                    } else {
+                        TRIGGER_FILL
+                    },
+                    border_color: if interactive {
+                        INTERACT_BORDER
+                    } else {
+                        TRIGGER_BORDER
+                    },
                 });
+                push_center_marker(&mut debug_rects, trigger.rect.center, 1.0);
             }
         }
 
