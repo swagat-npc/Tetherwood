@@ -1,10 +1,12 @@
 use anyhow::Result;
 use glam::Vec2;
+use std::collections::HashMap;
 
 use crate::engine::entity::{
-    Background, Collider, Entity, Rect, Trigger, TriggerKind, aabb_overlap, point_in_rect,
+    Background, Collider, Direction, Entity, Rect, Trigger, TriggerKind, aabb_overlap,
+    point_in_rect,
 };
-use crate::engine::ids::{SceneId, WarpId};
+use crate::engine::ids::{EntityId, SceneId, WarpId};
 use crate::engine::texture::TextureStore;
 
 /// Per-scene camera behavior (ADR-041). Static holds its own fixed
@@ -87,13 +89,16 @@ impl Scene {
             if trigger.recently_used {
                 continue;
             }
+            let TriggerKind::Warp {
+                warp_id,
+                target_scene,
+                target_warp_id,
+                ..
+            } = trigger.kind
+            else {
+                continue; // not a warp trigger — check_triggers only resolves warps
+            };
             if point_in_rect(player_center, &trigger.rect) {
-                let TriggerKind::Warp {
-                    warp_id,
-                    target_scene,
-                    target_warp_id,
-                    ..
-                } = trigger.kind;
                 if show_debug_info {
                     println!(
                         "{:?}:{} -> {:?}:{}",
@@ -116,7 +121,10 @@ impl Scene {
                 warp_id: this_warp_id,
                 spawn_offset,
                 ..
-            } = trigger.kind;
+            } = trigger.kind
+            else {
+                continue;
+            };
             if this_warp_id == warp_id {
                 trigger.recently_used = true;
                 return Some(trigger.rect.center + spawn_offset);
@@ -295,6 +303,7 @@ impl Scene {
                 },
             }),
             texture_id: Some(wardrobe_tex),
+            facing: Direction::Down,
         });
 
         let bed_tex = texture_store.load(device, queue, "assets/bed.aseprite")?;
@@ -313,6 +322,7 @@ impl Scene {
                 },
             }),
             texture_id: Some(bed_tex),
+            facing: Direction::Down,
         });
 
         entities.push(Entity {
@@ -325,6 +335,7 @@ impl Scene {
                 },
             }),
             texture_id: Some(bed_tex),
+            facing: Direction::Down,
         });
 
         let nightstand_tex = texture_store.load(device, queue, "assets/nightstand.aseprite")?;
@@ -338,6 +349,7 @@ impl Scene {
                 },
             }),
             texture_id: Some(nightstand_tex),
+            facing: Direction::Down,
         });
 
         let player_tex = texture_store.load(device, queue, "assets/player.png")?;
@@ -351,6 +363,7 @@ impl Scene {
                 },
             }),
             texture_id: Some(player_tex),
+            facing: Direction::Down,
         });
         let player_index = entities.len() - 1;
 
@@ -455,6 +468,7 @@ impl Scene {
                 },
             }),
             texture_id: Some(player_tex),
+            facing: Direction::Down,
         });
         let player_index = entities.len() - 1;
 

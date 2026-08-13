@@ -27,3 +27,10 @@ pub struct WarpId(pub &'static str);
 /// Simple newtype wrapper around a usize index, made distinct to avoid accidental mixup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextureId(pub usize);
+
+/// Indexes into a Scene's entities Vec (ADR-025). Stays valid for the
+/// scene's whole lifetime — entities are only ever appended, never
+/// removed or reordered (ADR-037), same guarantee TextureId already
+/// relies on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EntityId(pub usize);

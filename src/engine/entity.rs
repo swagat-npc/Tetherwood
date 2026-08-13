@@ -1,6 +1,6 @@
 use glam::Vec2;
 
-use crate::engine::ids::{SceneId, TextureId, WarpId};
+use crate::engine::ids::{EntityId, SceneId, TextureId, WarpId};
 
 pub struct Entity {
     /// World-space center, in pixels (ADR-033).
@@ -11,6 +11,8 @@ pub struct Entity {
     pub collider: Option<Collider>,
     /// Which texture to render for this entity, if any. If `None`, the entity is invisible.
     pub texture_id: Option<TextureId>,
+    /// Last non-idle movement direction. Defaults to Down at construction; updated only when movement is nonzero.
+    pub facing: Direction,
 }
 
 /// Axis-aligned rectangle (AABB): center offset + half-extents.
@@ -49,9 +51,10 @@ pub struct Trigger {
     pub recently_used: bool,
 }
 
-/// What a trigger does when the player's center enters it. Single
-/// variant for now, deliberately — dispatch shape is decided once a
-/// second kind exists to compare against (ADR-046).
+/// What a trigger does when the player's center enters it. Two
+/// variants: Warp (scene transition) and Interact (proximity +
+/// facing + button). A single-variant enum was sufficient until
+/// Interact arrived as the second real consumer (ADR-046).
 pub enum TriggerKind {
     Warp {
         /// This trigger's own identity — how a warp from elsewhere
@@ -69,6 +72,59 @@ pub enum TriggerKind {
         /// north wall.
         spawn_offset: Vec2,
     },
+    Interact {
+        /// Content identifier, resolved by game::dialogue::line_for.
+        id: &'static str,
+        /// The floating prompt-icon entity, shown/hidden by proximity
+        /// alone. Multiple triggers may share one prompt_entity (e.g.
+        /// an object reachable from two sides) — see
+        /// Scene::update_interact_prompts for how that's resolved.
+        prompt_entity: EntityId,
+        prompt_texture: TextureId,
+        /// Facing direction(s) that make this specific trigger's rect
+        /// valid. A slice because one rect can accept more than one
+        /// facing (e.g. a straight-on approach from either side of a
+        /// symmetric object) — but each rect still only knows about
+        /// facings correct for *that* rect's position; an object
+        /// reachable from multiple distinct sides needs one Trigger
+        /// per side, not one Trigger with every direction listed.
+        required_facing: &'static [Direction],
+    },
+}
+
+/// Four-directional facing — matches how pixel-art directional sprites
+/// actually work (separate up/down/left/right frame sets, not
+/// continuous angles). Diagonal movement still picks one dominant
+/// cardinal direction, standard for GBA/SNES-era games.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+impl Direction {
+    /// Picks the dominant axis of a movement vector. Diagonal input
+    /// has no corresponding sprite direction, so whichever axis is
+    /// larger wins. Returns None for zero movement — caller keeps
+    /// whatever facing was already set (facing persists while idle).
+    pub fn from_movement(movement: Vec2) -> Option<Direction> {
+        if movement == Vec2::ZERO {
+            return None;
+        }
+        Some(if movement.x.abs() > movement.y.abs() {
+            if movement.x > 0.0 {
+                Direction::Right
+            } else {
+                Direction::Left
+            }
+        } else if movement.y > 0.0 {
+            Direction::Down
+        } else {
+            Direction::Up
+        })
+    }
 }
 
 /// Returns true if two axis-aligned rectangles — each given as a
