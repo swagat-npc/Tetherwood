@@ -12,6 +12,7 @@ use crate::engine::scene::Scene;
 struct Vertex {
     position: [f32; 3],
     tex_coords: [f32; 2],
+    tint: [f32; 4],
 }
 
 impl Vertex {
@@ -23,28 +24,34 @@ impl Vertex {
                 wgpu::VertexAttribute {
                     offset: 0,
                     shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
+                    format: wgpu::VertexFormat::Float32x3, // Position
                 },
                 wgpu::VertexAttribute {
                     offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x2,
+                    format: wgpu::VertexFormat::Float32x2, // UV coordinates
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3 + 2]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x4, // Tint color
                 },
             ],
         }
     }
 }
 
-struct DebugRect {
-    position: glam::Vec2,
-    size: glam::Vec2,
-    fill_color: [f32; 4],
-    border_color: [f32; 4],
+pub struct SolidRect {
+    pub position: glam::Vec2,
+    pub size: glam::Vec2,
+    pub fill_color: [f32; 4],
+    pub border_color: [f32; 4],
+    pub border_thickness_px: f32,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct DebugVertex {
+struct SolidVertex {
     position: [f32; 3],
     /// 0..1 position within this specific rect — same role tex_coords
     /// played before (which corner of the unit quad this is), just
@@ -60,10 +67,10 @@ struct DebugVertex {
     border_thickness: [f32; 2],
 }
 
-impl DebugVertex {
+impl SolidVertex {
     fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<DebugVertex>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<SolidVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
                 wgpu::VertexAttribute {
@@ -100,18 +107,22 @@ const VERTICES: &[Vertex] = &[
     Vertex {
         position: [0.0, 0.0, 0.0],
         tex_coords: [0.0, 0.0],
+        tint: [1.0, 1.0, 1.0, 1.0],
     },
     Vertex {
         position: [0.0, 1.0, 0.0],
         tex_coords: [0.0, 1.0],
+        tint: [1.0, 1.0, 1.0, 1.0],
     },
     Vertex {
         position: [1.0, 1.0, 0.0],
         tex_coords: [1.0, 1.0],
+        tint: [1.0, 1.0, 1.0, 1.0],
     },
     Vertex {
         position: [1.0, 0.0, 0.0],
         tex_coords: [1.0, 0.0],
+        tint: [1.0, 1.0, 1.0, 1.0],
     },
 ];
 
@@ -126,23 +137,25 @@ fn model_matrix(position: glam::Vec2, size: glam::Vec2) -> glam::Mat4 {
     translate * scale
 }
 
-fn push_center_marker(debug_rects: &mut Vec<DebugRect>, center: glam::Vec2, scale: f32) {
+fn push_center_marker(debug_rects: &mut Vec<SolidRect>, center: glam::Vec2, scale: f32) {
     const ARM_LENGTH: f32 = 8.0;
     const THICKNESS: f32 = 2.0;
     const X_COLOR: [f32; 4] = [1.0, 0.15, 0.15, 1.0]; // X-Axis
     const Y_COLOR: [f32; 4] = [0.15, 1.0, 0.15, 1.0]; // Y-Axis
 
-    debug_rects.push(DebugRect {
+    debug_rects.push(SolidRect {
         position: center,
         size: glam::Vec2::new(ARM_LENGTH * scale, THICKNESS * scale),
         fill_color: X_COLOR,
         border_color: X_COLOR,
+        border_thickness_px: 3.0,
     });
-    debug_rects.push(DebugRect {
+    debug_rects.push(SolidRect {
         position: center,
         size: glam::Vec2::new(THICKNESS * scale, ARM_LENGTH * scale),
         fill_color: Y_COLOR,
         border_color: Y_COLOR,
+        border_thickness_px: 3.0,
     });
 }
 
@@ -165,18 +178,22 @@ fn build_text_mesh(glyphs: &[crate::engine::text::PositionedGlyph]) -> (Vec<Vert
         vertices.push(Vertex {
             position: [top_left.x, top_left.y, 0.0],
             tex_coords: [uv_min.x, uv_min.y],
+            tint: glyph.color,
         });
         vertices.push(Vertex {
             position: [top_left.x, bottom_right.y, 0.0],
             tex_coords: [uv_min.x, uv_max.y],
+            tint: glyph.color,
         });
         vertices.push(Vertex {
             position: [bottom_right.x, bottom_right.y, 0.0],
             tex_coords: [uv_max.x, uv_max.y],
+            tint: glyph.color,
         });
         vertices.push(Vertex {
             position: [bottom_right.x, top_left.y, 0.0],
             tex_coords: [uv_max.x, uv_min.y],
+            tint: glyph.color,
         });
 
         // Same 0,1,2,0,3,2 winding as the existing static VERTICES/
@@ -187,40 +204,41 @@ fn build_text_mesh(glyphs: &[crate::engine::text::PositionedGlyph]) -> (Vec<Vert
     (vertices, indices)
 }
 
-fn build_debug_mesh(rects: &[DebugRect]) -> (Vec<DebugVertex>, Vec<u16>) {
-    const BORDER_PX: f32 = 3.0;
-
+fn build_solid_rect_mesh(rects: &[SolidRect]) -> (Vec<SolidVertex>, Vec<u16>) {
     let mut vertices = Vec::with_capacity(rects.len() * 4);
     let mut indices = Vec::with_capacity(rects.len() * 6);
     for rect in rects {
         let half_size = rect.size / 2.0;
         let top_left = rect.position - half_size;
         let bottom_right = rect.position + half_size;
-        let thickness = [BORDER_PX / rect.size.x, BORDER_PX / rect.size.y];
+        let thickness = [
+            rect.border_thickness_px / rect.size.x,
+            rect.border_thickness_px / rect.size.y,
+        ];
 
         let base = vertices.len() as u16;
-        vertices.push(DebugVertex {
+        vertices.push(SolidVertex {
             position: [top_left.x, top_left.y, 0.0],
             local_uv: [0.0, 0.0],
             fill_color: rect.fill_color,
             border_color: rect.border_color,
             border_thickness: thickness,
         });
-        vertices.push(DebugVertex {
+        vertices.push(SolidVertex {
             position: [top_left.x, bottom_right.y, 0.0],
             local_uv: [0.0, 1.0],
             fill_color: rect.fill_color,
             border_color: rect.border_color,
             border_thickness: thickness,
         });
-        vertices.push(DebugVertex {
+        vertices.push(SolidVertex {
             position: [bottom_right.x, bottom_right.y, 0.0],
             local_uv: [1.0, 1.0],
             fill_color: rect.fill_color,
             border_color: rect.border_color,
             border_thickness: thickness,
         });
-        vertices.push(DebugVertex {
+        vertices.push(SolidVertex {
             position: [bottom_right.x, top_left.y, 0.0],
             local_uv: [1.0, 0.0],
             fill_color: rect.fill_color,
@@ -456,7 +474,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &debug_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Some(DebugVertex::desc())],
+                buffers: &[Some(SolidVertex::desc())],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -533,6 +551,15 @@ impl Renderer {
 
     pub fn screen_size(&self) -> glam::Vec2 {
         glam::Vec2::new(self.config.width as f32, self.config.height as f32)
+    }
+
+    pub fn dialogue_text_position(&self) -> glam::Vec2 {
+        const MARGIN: f32 = 20.0;
+        const TEXT_PADDING: f32 = 16.0; // inset from the panel's own edges
+        let screen = self.screen_size();
+        let panel_height = screen.y / 3.0 - MARGIN;
+        let panel_top = screen.y - panel_height - MARGIN;
+        glam::Vec2::new(MARGIN + TEXT_PADDING, panel_top + TEXT_PADDING)
     }
 
     /// Converts a screen-space pixel position (e.g. CursorMoved's
@@ -623,7 +650,7 @@ impl Renderer {
             }
         }
 
-        let mut debug_rects: Vec<DebugRect> = Vec::new();
+        let mut debug_rects: Vec<SolidRect> = Vec::new();
         if show_colliders {
             const WALL_FILL: [f32; 4] = [1.0, 0.0, 0.0, 0.15];
             const WALL_BORDER: [f32; 4] = [0.7, 0.0, 0.0, 0.9];
@@ -637,21 +664,23 @@ impl Renderer {
             push_center_marker(&mut debug_rects, glam::Vec2::ZERO, 1.0);
 
             for wall in &scene.walls {
-                debug_rects.push(DebugRect {
+                debug_rects.push(SolidRect {
                     position: wall.rect.center,
                     size: wall.rect.half_size * 2.0,
                     fill_color: WALL_FILL,
                     border_color: WALL_BORDER,
+                    border_thickness_px: 3.0,
                 });
                 push_center_marker(&mut debug_rects, wall.rect.center, 1.0);
             }
             for entity in &scene.entities {
                 if let Some(collider) = &entity.collider {
-                    debug_rects.push(DebugRect {
+                    debug_rects.push(SolidRect {
                         position: entity.position + collider.rect.center,
                         size: collider.rect.half_size * 2.0,
                         fill_color: ENTITY_FILL,
                         border_color: ENTITY_BORDER,
+                        border_thickness_px: 3.0,
                     });
                     push_center_marker(
                         &mut debug_rects,
@@ -666,7 +695,7 @@ impl Renderer {
                     TriggerKind::Interact { .. } => true,
                 };
 
-                debug_rects.push(DebugRect {
+                debug_rects.push(SolidRect {
                     position: trigger.rect.center,
                     size: trigger.rect.half_size * 2.0,
                     fill_color: if interactive {
@@ -679,6 +708,7 @@ impl Renderer {
                     } else {
                         TRIGGER_BORDER
                     },
+                    border_thickness_px: 3.0,
                 });
                 push_center_marker(&mut debug_rects, trigger.rect.center, 1.0);
             }
@@ -749,64 +779,118 @@ impl Renderer {
         }
 
         if !debug_rects.is_empty() {
-            let (vertices, indices) = build_debug_mesh(&debug_rects);
-            let debug_vertex_buffer =
-                self.device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("debug vertex buffer"),
-                        contents: bytemuck::cast_slice(&vertices),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    });
-            let debug_index_buffer =
-                self.device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("debug index buffer"),
-                        contents: bytemuck::cast_slice(&indices),
-                        usage: wgpu::BufferUsages::INDEX,
-                    });
-
-            // Positions are already world-space (baked from each rect's real
-            // center/size), so only projection*camera_view is needed here —
-            // no per-rect model matrix, same simplification build_text_mesh
-            // already applies for screen-space text.
-            let transform = projection * camera_view;
-            self.queue.write_buffer(
-                &self.transform_buffer,
-                0,
-                bytemuck::cast_slice(&transform.to_cols_array()),
-            );
-
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("debug rects encoder"),
-                });
-            {
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("debug rects pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &frame.view,
-                        resolve_target: None,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                    multiview_mask: None,
-                });
-                render_pass.set_pipeline(&self.debug_pipeline);
-                render_pass.set_bind_group(0, &self.transform_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, debug_vertex_buffer.slice(..));
-                render_pass
-                    .set_index_buffer(debug_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
-            }
-            self.queue.submit(std::iter::once(encoder.finish()));
+            self.render_solid_rects(frame, &debug_rects, projection, camera_view);
         }
+    }
+
+    /// Draws a batch of solid-colored rects — used by both the F1 debug
+    /// overlay (gated behind show_colliders) and permanent UI like the
+    /// dialogue panel. Takes projection/view as parameters rather than
+    /// assuming one, since callers need genuinely different transforms:
+    /// debug rects are world-space (render_scene's projection*camera_view),
+    /// the dialogue panel is screen-space (an identity view, matching
+    /// render_text's ADR-058 convention).
+    pub fn render_solid_rects(
+        &mut self,
+        frame: &Frame,
+        rects: &[SolidRect],
+        projection: glam::Mat4,
+        view: glam::Mat4,
+    ) {
+        if rects.is_empty() {
+            return;
+        }
+        let (vertices, indices) = build_solid_rect_mesh(rects);
+        let solid_vertex_buffer =
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("solid vertex buffer"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+        let solid_index_buffer =
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("solid index buffer"),
+                    contents: bytemuck::cast_slice(&indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
+
+        // Positions are already world-space (baked from each rect's real
+        // center/size), so only projection*camera_view is needed here —
+        // no per-rect model matrix, same simplification build_text_mesh
+        // already applies for screen-space text.
+        let transform = projection * view;
+        self.queue.write_buffer(
+            &self.transform_buffer,
+            0,
+            bytemuck::cast_slice(&transform.to_cols_array()),
+        );
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("solid vertex encoder"),
+            });
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("solid vertex pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &frame.view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            render_pass.set_pipeline(&self.debug_pipeline);
+            render_pass.set_bind_group(0, &self.transform_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, solid_vertex_buffer.slice(..));
+            render_pass.set_index_buffer(solid_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+        }
+        self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
+    pub fn render_dialogue_panel(
+        &mut self,
+        frame: &Frame,
+        register: Option<&crate::game::dialogue::Register>,
+    ) {
+        const MARGIN: f32 = 20.0;
+        const NARRATOR_BORDER: [f32; 4] = [1.0, 1.0, 1.0, 0.6]; // Neutral gray border for narrator
+        const MONOLOGUE_BORDER: [f32; 4] = [0.6, 0.6, 1.0, 0.9]; // Blue border for inner monologue
+
+        let border_color = match register {
+            Some(crate::game::dialogue::Register::InnerMonologue) => MONOLOGUE_BORDER,
+            _ => NARRATOR_BORDER, // Narrator or not active lines
+        };
+
+        let screen = self.screen_size();
+        let panel_height = screen.y / 3.0 - MARGIN;
+        let panel = SolidRect {
+            position: glam::Vec2::new(screen.x / 2.0, screen.y - panel_height / 2.0 - MARGIN),
+            size: glam::Vec2::new(screen.x - MARGIN * 2.0, panel_height),
+            fill_color: [0.0, 0.0, 0.0, 0.85], // near-opaque black, per your earlier "legible over noise" ask
+            border_color,
+            border_thickness_px: 10.0,
+        };
+
+        let projection = glam::Mat4::orthographic_rh(
+            0.0,
+            self.config.width as f32,
+            self.config.height as f32,
+            0.0,
+            -1.0,
+            1.0,
+        );
+        self.render_solid_rects(frame, &[panel], projection, glam::Mat4::IDENTITY);
     }
 
     pub fn render_text(&mut self, frame: &Frame, glyphs: &[crate::engine::text::PositionedGlyph]) {

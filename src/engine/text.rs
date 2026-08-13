@@ -141,16 +141,25 @@ pub fn glyph_uv(column: u32, row: u32) -> (Vec2, Vec2) {
 pub struct PositionedGlyph {
     pub cell: (u32, u32),
     pub position: Vec2,
+    pub color: [f32; 4],
 }
+
+/// Plain &str convenience wrapper for callers
+/// (F3, FPS counter, mouse position) that don't need color.
+pub fn layout_text(text: &str, origin: Vec2) -> Vec<PositionedGlyph> {
+    let colored: Vec<(char, [f32; 4])> = text.chars().map(|c| (c, [1.0, 1.0, 1.0, 1.0])).collect();
+    layout_colored_text(&colored, origin)
+}
+
 /// Lays out a string starting at `origin` (top-left of the first
 /// character), advancing left to right by GLYPH_PITCH.x per
-/// character. No wrapping, no multi-line handling yet — single-line
-/// layout only, since nothing has needed more than that so far.
-pub fn layout_text(text: &str, origin: Vec2) -> Vec<PositionedGlyph> {
+/// character. Takes pre-colored characters instead of a plain
+/// &str — used for dialogue's per-span coloring.
+pub fn layout_colored_text(chars: &[(char, [f32; 4])], origin: Vec2) -> Vec<PositionedGlyph> {
     let mut glyphs = Vec::new();
     let mut cursor = origin;
 
-    for c in text.chars() {
+    for &(c, color) in chars {
         if c == ' ' {
             cursor.x += GLYPH_PITCH.x;
             continue;
@@ -160,15 +169,20 @@ pub fn layout_text(text: &str, origin: Vec2) -> Vec<PositionedGlyph> {
                 glyphs.push(PositionedGlyph {
                     cell,
                     position: cursor,
+                    color,
                 });
                 cursor.x += GLYPH_PITCH.x;
             }
             None => {
-                log::warn!("no glyph for character {c:?} in Good Neighbors font — skipped");
+                // TODO: add font name to something like environment variables to be used
+                // for warning. Environment variables also has the potential of being used
+                // for making the entity properties' default values configurable through engine GUI
+                log::warn!(
+                    "no glyph for character {c:?} - in <CURRENTLY_USED_FONT> font — skipped"
+                );
                 cursor.x += GLYPH_PITCH.x; // still advance, so later characters don't overlap the gap
             }
         }
     }
-
     glyphs
 }

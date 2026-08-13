@@ -13,6 +13,108 @@ use crate::engine::ids::SceneId;
 use crate::engine::renderer::Renderer;
 use crate::engine::scene::{CameraMode, Scene};
 
+struct DialogueState {
+    lines: Vec<crate::game::dialogue::DialogueLine>,
+    current_line: usize,
+    /// How many bytes of the current line's text are currently
+    /// visible. Grows over time (typewriter); jumping straight to
+    /// the line's full length is what "skip" does.
+    revealed_chars: usize,
+    /// Accumulates delta time; a new character reveals once this
+    /// crosses REVEAL_INTERVAL.
+    reveal_timer: f32,
+}
+
+const REVEAL_INTERVAL: f32 = 0.03;
+
+/// A single revealed character, paired with the color it should
+/// render in — flattened from DialogueLine's spans, so the renderer
+/// doesn't need to know about span boundaries at all, just a flat
+/// per-character color sequence.
+struct RevealedChar {
+    ch: char,
+    color: [f32; 4],
+}
+
+impl DialogueState {
+    fn new(lines: Vec<crate::game::dialogue::DialogueLine>) -> Self {
+        Self {
+            lines,
+            current_line: 0,
+            revealed_chars: 0,
+            reveal_timer: 0.0,
+        }
+    }
+
+    fn full_len(&self) -> usize {
+        self.lines
+            .get(self.current_line)
+            .map(|line| line.spans.iter().map(|s| s.text.chars().count()).sum())
+            .unwrap_or(0)
+    }
+
+    /// Advances the typewriter reveal by `delta` seconds. Call once
+    /// per frame while dialogue is active, regardless of input.
+    fn tick(&mut self, delta: f32) {
+        if self.lines.get(self.current_line).is_none() {
+            return; // no active lines, nothing to reveal
+        };
+        let full_len = self.full_len();
+        if self.revealed_chars >= full_len {
+            return; // line is fully revealed, nothing to do
+        }
+
+        self.reveal_timer += delta;
+        while self.reveal_timer >= REVEAL_INTERVAL && self.revealed_chars < full_len {
+            self.reveal_timer -= REVEAL_INTERVAL;
+            self.revealed_chars += 1;
+        }
+    }
+
+    /// The E/Space press handler. Skips to full reveal if the current
+    /// line isn't done typing; otherwise advances to the next line.
+    /// Returns false once there are no more lines — the caller closes
+    /// the dialogue on that signal.
+    fn advance_or_skip(&mut self) -> bool {
+        if self.lines.get(self.current_line).is_none() {
+            return false; // no active lines, nothing to reveal
+        };
+        let full_len = self.full_len();
+
+        if self.revealed_chars < full_len {
+            self.revealed_chars = full_len; // skip to full reveal
+            return true;
+        }
+
+        self.current_line += 1;
+        self.revealed_chars = 0;
+        self.reveal_timer = 0.0;
+        self.current_line < self.lines.len()
+    }
+
+    /// Flattens the current line's spans into one per-character list,
+    /// truncated to however many characters are currently revealed.
+    fn visible_chars(&self) -> Vec<RevealedChar> {
+        let Some(line) = self.lines.get(self.current_line) else {
+            return Vec::new();
+        };
+        line.spans
+            .iter()
+            .flat_map(|span| {
+                span.text.chars().map(move |ch| RevealedChar {
+                    ch,
+                    color: span.color,
+                })
+            })
+            .take(self.revealed_chars)
+            .collect()
+    }
+
+    fn current_register(&self) -> Option<&crate::game::dialogue::Register> {
+        self.lines.get(self.current_line).map(|l| &l.register)
+    }
+}
+
 pub fn run() {
     let event_loop = EventLoop::new().expect("failed to create event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -36,7 +138,7 @@ struct AppState {
     show_colliders: bool,
     show_debug_info: bool,
     show_test_text: bool,
-    displayed_text: Option<String>,
+    dialogue: Option<DialogueState>,
     screen_mouse_position: (f64, f64),
     smoothed_fps: f32,
 }
@@ -100,7 +202,7 @@ impl ApplicationHandler for App {
             show_colliders: true, // DEBUG: set to true for debugging
             show_debug_info: false,
             show_test_text: false,
-            displayed_text: None,
+            dialogue: None,
             screen_mouse_position: (0.0, 0.0),
             smoothed_fps: 60.0,
         };
@@ -148,6 +250,10 @@ impl ApplicationHandler for App {
                         delta,
                         1.0 / delta.as_secs_f32()
                     );
+                }
+
+                if let Some(dialogue) = &mut state.dialogue {
+                    dialogue.tick(delta.as_secs_f32());
                 }
 
                 // TODO(engine): raw KeyCode handling here is content, not machinery (ADR-035).
@@ -212,11 +318,18 @@ impl ApplicationHandler for App {
                             state.renderer.render_text(&frame, &glyphs);
                         }
                         // HUD::Displayed Text
-                        if let Some(text) = &state.displayed_text {
-                            let glyphs = crate::engine::text::layout_text(
-                                text,
-                                glam::Vec2::new(20.0, 540.0),
-                            );
+                        if let Some(dialogue) = &state.dialogue {
+                            state
+                                .renderer
+                                .render_dialogue_panel(&frame, dialogue.current_register());
+                            let text_pos = state.renderer.dialogue_text_position();
+                            let colored_chars: Vec<(char, [f32; 4])> = dialogue
+                                .visible_chars()
+                                .into_iter()
+                                .map(|rc| (rc.ch, rc.color))
+                                .collect();
+                            let glyphs =
+                                crate::engine::text::layout_colored_text(&colored_chars, text_pos);
                             state.renderer.render_text(&frame, &glyphs);
                         }
                         // DEBUG::Mouse Position
@@ -227,9 +340,10 @@ impl ApplicationHandler for App {
                             );
                             let world_pos = state.renderer.screen_to_world(screen_pos);
                             let authoring_pos = world_pos / state.multiplying_factor;
-                            let line = crate::game::dialogue::line_for("mouse_coordinate");
-                            let mouse_text =
-                                format!("{}{:.0}, {:.0}", line, authoring_pos.x, authoring_pos.y);
+                            let mouse_text = format!(
+                                "Mouse Pos: {:.0}, {:.0}",
+                                authoring_pos.x, authoring_pos.y
+                            );
                             let screen_size = state.renderer.screen_size();
                             let mouse_text_pos = glam::Vec2::new(20.0, screen_size.y - 30.0);
                             let glyphs =
@@ -281,11 +395,19 @@ impl ApplicationHandler for App {
                             "{} Test Text",
                             if state.show_test_text { "Show" } else { "Hide" }
                         );
-                    } else if code == KeyCode::KeyE {
-                        if let Some(id) = state.scene.try_interact() {
-                            let line = crate::game::dialogue::line_for(id);
-                            println!("Interacted: {id} -> {line}");
-                            state.displayed_text = Some(line.to_string());
+                    } else if code == KeyCode::KeyE || code == KeyCode::Space {
+                        if let Some(dialogue) = &mut state.dialogue {
+                            // Dialogue already active — this press advances/skips.
+                            if !dialogue.advance_or_skip() {
+                                state.dialogue = None; // dialogue finished
+                            }
+                        } else if code == KeyCode::KeyE {
+                            // No dialogue active — only KeyE attempts a new interaction
+                            // (Space alone shouldn't trigger examine/interact).
+                            if let Some(id) = state.scene.try_interact() {
+                                let lines = crate::game::dialogue::line_for(id);
+                                state.dialogue = Some(DialogueState::new(lines));
+                            }
                         }
                     }
                     if state.show_debug_info {
