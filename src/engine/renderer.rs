@@ -29,13 +29,6 @@ struct DebugRectUniform {
     border_thickness: [f32; 4], // x, y used; z, w are padding
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct GlyphUniform {
-    uv_offset: [f32; 2],
-    uv_scale: [f32; 2],
-}
-
 impl Vertex {
     fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
@@ -107,6 +100,47 @@ fn push_center_marker(debug_rects: &mut Vec<DebugRect>, center: glam::Vec2, scal
     });
 }
 
+/// Builds one vertex+index buffer for an entire string — 4 vertices
+/// and 6 indices per glyph, with each glyph's final screen position
+/// and atlas UV baked directly into its vertices. Unlike the earlier
+/// per-glyph-uniform approach, no per-draw remapping is needed: the
+/// vertex data already is the answer, so the whole string draws in
+/// one draw call instead of one per glyph.
+fn build_text_mesh(glyphs: &[crate::engine::text::PositionedGlyph]) -> (Vec<Vertex>, Vec<u16>) {
+    let mut vertices = Vec::with_capacity(glyphs.len() * 4);
+    let mut indices = Vec::with_capacity(glyphs.len() * 6);
+
+    for glyph in glyphs {
+        let (uv_min, uv_max) = crate::engine::text::glyph_uv(glyph.cell.0, glyph.cell.1);
+        let top_left = glyph.position;
+        let bottom_right = glyph.position + crate::engine::text::GLYPH_SIZE;
+
+        let base = vertices.len() as u16;
+        vertices.push(Vertex {
+            position: [top_left.x, top_left.y, 0.0],
+            tex_coords: [uv_min.x, uv_min.y],
+        });
+        vertices.push(Vertex {
+            position: [top_left.x, bottom_right.y, 0.0],
+            tex_coords: [uv_min.x, uv_max.y],
+        });
+        vertices.push(Vertex {
+            position: [bottom_right.x, bottom_right.y, 0.0],
+            tex_coords: [uv_max.x, uv_max.y],
+        });
+        vertices.push(Vertex {
+            position: [bottom_right.x, top_left.y, 0.0],
+            tex_coords: [uv_max.x, uv_min.y],
+        });
+
+        // Same 0,1,2,0,3,2 winding as the existing static VERTICES/
+        // INDICES pair, just offset per glyph via `base`.
+        indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 3, base + 2]);
+    }
+
+    (vertices, indices)
+}
+
 /// A GPU-acquired frame buffer, ready to be drawn into one or more
 /// times before being shown on screen. Bundles the swapchain texture
 /// with its view, so render_scene/render_text can share one frame
@@ -134,8 +168,6 @@ pub struct Renderer {
     bind_groups: Vec<wgpu::BindGroup>,
     debug_bind_group_layout: wgpu::BindGroupLayout,
     debug_pipeline: wgpu::RenderPipeline,
-    glyph_bind_group_layout: wgpu::BindGroupLayout,
-    text_pipeline: wgpu::RenderPipeline,
     // Held only to keep its GPU resources alive for as long as
     // glyph_atlas_bind_group borrows from them — never read again after
     // construction, since the bind group is what render_text actually uses.
@@ -323,71 +355,6 @@ impl Renderer {
             ],
         });
 
-        let glyph_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("glyph bind group layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
-        let text_shader = device.create_shader_module(wgpu::include_wgsl!("text_shader.wgsl"));
-
-        let text_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("text pipeline layout"),
-            bind_group_layouts: &[
-                Some(&texture_bind_group_layout),   // reused — same shape as sprites
-                Some(&transform_bind_group_layout), // reused — same shared transform uniform
-                Some(&glyph_bind_group_layout),     // new
-            ],
-            immediate_size: 0,
-        });
-
-        let text_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("text pipeline"),
-            layout: Some(&text_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &text_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Some(Vertex::desc())],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &text_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview_mask: None,
-            cache: None,
-        });
-
         let debug_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("debug rect bind group layout"),
@@ -482,8 +449,6 @@ impl Renderer {
             texture_bind_group_layout,
             debug_bind_group_layout,
             debug_pipeline,
-            glyph_bind_group_layout,
-            text_pipeline,
             font_atlas,
             glyph_atlas_bind_group,
             bind_groups: Vec::new(),
@@ -781,7 +746,29 @@ impl Renderer {
 
     pub fn render_text(&mut self, frame: &Frame, glyphs: &[crate::engine::text::PositionedGlyph]) {
         // Screen-space only — no camera_view term, so text stays fixed
-        // to the window regardless of camera position or mode.
+        // to the window regardless of camera position or mode (HUD).
+        if glyphs.is_empty() {
+            return;
+        }
+
+        let (vertices, indices) = build_text_mesh(glyphs);
+        let vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("text vertex buffer"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let index_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("text index buffer"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+
+        // Screen=space only (ADR-058) - no camera_view term, so text stays fixed
+        // to the window regardless of camera position or mode (HUD).
         let projection = glam::Mat4::orthographic_rh(
             0.0,
             self.config.width as f32,
@@ -790,78 +777,43 @@ impl Renderer {
             -1.0,
             1.0,
         );
+        self.queue.write_buffer(
+            &self.transform_buffer,
+            0,
+            bytemuck::cast_slice(&projection.to_cols_array()),
+        );
 
-        for glyph in glyphs {
-            let (uv_min, uv_max) = crate::engine::text::glyph_uv(glyph.cell.0, glyph.cell.1);
-            let uv_scale = uv_max - uv_min;
-
-            let uniform = GlyphUniform {
-                uv_offset: uv_min.into(),
-                uv_scale: uv_scale.into(),
-            };
-            let glyph_uniform_buffer =
-                self.device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("glyph uniform"),
-                        contents: bytemuck::cast_slice(&[uniform]),
-                        usage: wgpu::BufferUsages::UNIFORM,
-                    });
-            let glyph_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("glyph bind group"),
-                layout: &self.glyph_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: glyph_uniform_buffer.as_entire_binding(),
-                }],
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("text render encoder"),
             });
 
-            // layout_text produces top-left positions (natural for cursor
-            // advance); model_matrix expects center (ADR-033's convention,
-            // built for entities). Converted here, at the drawing boundary
-            // — text.rs keeps its own natural top-left frame, renderer.rs
-            // adapts it to the shared drawing convention.
-            let center = glyph.position + crate::engine::text::GLYPH_SIZE / 2.0;
-            let model = model_matrix(center, crate::engine::text::GLYPH_SIZE);
-            let transform = projection * model;
-            self.queue.write_buffer(
-                &self.transform_buffer,
-                0,
-                bytemuck::cast_slice(&transform.to_cols_array()),
-            );
-
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("text draw encoder"),
-                });
-            {
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("text draw pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &frame.view,
-                        resolve_target: None,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load, // always paint over — scene already drew this frame
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                    multiview_mask: None,
-                });
-                render_pass.set_pipeline(&self.text_pipeline);
-                render_pass.set_bind_group(0, &self.glyph_atlas_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.transform_bind_group, &[]);
-                render_pass.set_bind_group(2, &glyph_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                render_pass
-                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
-            }
-            self.queue.submit(std::iter::once(encoder.finish()));
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("text draw pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &frame.view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load, // always paint over — scene already drew this frame
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.glyph_atlas_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.transform_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
         }
+        self.queue.submit(std::iter::once(encoder.finish()));
     }
 
     pub fn present_frame(&mut self, frame: Frame) {
