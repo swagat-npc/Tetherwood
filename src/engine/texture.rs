@@ -37,6 +37,16 @@ impl TextureStore {
         &self.textures[id.0]
     }
 
+    // removes and returns ownership; only sound to call when nothing
+    // else still needs indices into this store to stay valid, since
+    // it changes indices after the removed slot — fine for a
+    // throwaway, single-texture store, not fine for a real scene's
+    // TextureStore (which promises stable indices for its lifetime,
+    // ADR-036)
+    pub fn take(&mut self, id: TextureId) -> Texture {
+        self.textures.swap_remove(id.0)
+    }
+
     /// How many textures are currently loaded. Used by the renderer to
     /// walk every texture in order when building bind groups.
     pub fn len(&self) -> usize {

@@ -331,14 +331,10 @@ impl Renderer {
             }],
         });
 
-        let font_atlas_bytes =
-            std::fs::read("assets/good_neighbors_font.png").expect("failed to read font atlas");
-        let font_atlas = crate::engine::texture::Texture::from_bytes(
-            &device,
-            &queue,
-            &font_atlas_bytes,
-            "good_neighbors_font.png",
-        )?;
+        let mut font_store = crate::engine::texture::TextureStore::new();
+        let font_atlas_id =
+            font_store.load(&device, &queue, "assets/good_neighbors_font.aseprite")?;
+        let font_atlas = font_store.take(font_atlas_id);
 
         let glyph_atlas_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("glyph atlas bind group"),
