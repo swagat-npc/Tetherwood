@@ -38,6 +38,7 @@ struct AppState {
     show_test_text: bool,
     displayed_text: Option<String>,
     screen_mouse_position: (f64, f64),
+    smoothed_fps: f32,
 }
 
 impl AppState {
@@ -101,6 +102,7 @@ impl ApplicationHandler for App {
             show_test_text: false,
             displayed_text: None,
             screen_mouse_position: (0.0, 0.0),
+            smoothed_fps: 60.0,
         };
 
         self.state = Some(state);
@@ -131,6 +133,13 @@ impl ApplicationHandler for App {
                 let now = Instant::now();
                 let delta = now - state.last_frame;
                 state.last_frame = now;
+
+                let instantaneous_fps = 1.0 / delta.as_secs_f32();
+                // Exponential moving average — each new sample nudges the displayed
+                // value rather than replacing it outright, smoothing out single-frame
+                // jitter (OS scheduling noise, etc.) without the update-lag of a
+                // fixed skip-interval.
+                state.smoothed_fps = state.smoothed_fps * 0.9 + instantaneous_fps * 0.1;
 
                 state.frame_count += 1;
                 if state.frame_count.is_multiple_of(60) {
@@ -184,6 +193,17 @@ impl ApplicationHandler for App {
                         state
                             .renderer
                             .render_scene(&frame, &state.scene, state.show_colliders);
+
+                        // DEBUG::FPS Counter
+                        if state.show_debug_info {
+                            let fps_text = format!("FPS: {:.0}", state.smoothed_fps);
+                            let glyphs = crate::engine::text::layout_text(
+                                &fps_text,
+                                glam::Vec2::new(8.0, 8.0),
+                            );
+                            state.renderer.render_text(&frame, &glyphs);
+                        }
+                        // DEBUG::Screen Text
                         if state.show_test_text {
                             let glyphs = crate::engine::text::layout_text(
                                 "The Quick Brown Fox, Jumped Over the Lazy Dog! With the new font @ == estäblished*",
@@ -191,6 +211,7 @@ impl ApplicationHandler for App {
                             );
                             state.renderer.render_text(&frame, &glyphs);
                         }
+                        // HUD::Displayed Text
                         if let Some(text) = &state.displayed_text {
                             let glyphs = crate::engine::text::layout_text(
                                 text,
@@ -198,6 +219,7 @@ impl ApplicationHandler for App {
                             );
                             state.renderer.render_text(&frame, &glyphs);
                         }
+                        // DEBUG::Mouse Position
                         if state.show_debug_info {
                             let screen_pos = glam::Vec2::new(
                                 state.screen_mouse_position.0 as f32,
