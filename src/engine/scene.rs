@@ -111,6 +111,61 @@ impl Scene {
         None
     }
 
+    /// Checks whether the player is currently in range of, and correctly
+    /// facing, an Interact trigger. Called from the interact-button press
+    /// handler — correctness only matters at the instant of the press.
+    pub fn try_interact(&self) -> Option<&'static str> {
+        let player = self.player();
+
+        for trigger in &self.triggers {
+            let TriggerKind::Interact {
+                id,
+                required_facing,
+                ..
+            } = trigger.kind
+            else {
+                continue;
+            };
+            if !point_in_rect(player.position, &trigger.rect) {
+                continue;
+            }
+            if required_facing.contains(&player.facing) {
+                return Some(id);
+            }
+        }
+        None
+    }
+
+    /// Shows/hides every interact prompt icon based on proximity alone —
+    /// no facing check, since the icon is a "something's here" cue,
+    /// distinct from the facing-gated action. Call unconditionally, every
+    /// frame. Multiple triggers can share one prompt_entity (e.g. two
+    /// approach sides for one object); visibility is true if the player
+    /// is in range of *any* of them, not just whichever was checked last.
+    pub fn update_interact_prompts(&mut self) {
+        let player_position = self.player().position;
+        let mut visible: HashMap<EntityId, (bool, crate::engine::ids::TextureId)> = HashMap::new();
+
+        for trigger in &self.triggers {
+            if let TriggerKind::Interact {
+                prompt_entity,
+                prompt_texture,
+                ..
+            } = trigger.kind
+            {
+                let in_range = point_in_rect(player_position, &trigger.rect);
+                let entry = visible
+                    .entry(prompt_entity)
+                    .or_insert((false, prompt_texture));
+                entry.0 = entry.0 || in_range;
+            }
+        }
+
+        for (entity_id, (is_visible, texture)) in visible {
+            self.entities[entity_id.0].texture_id = if is_visible { Some(texture) } else { None };
+        }
+    }
+
     /// Marks the trigger matching `warp_id` as just-arrived-at (recently_used),
     /// and returns its position — the caller spawns the player there. Runs
     /// every time a warp is used, so position is always freshly set
@@ -275,7 +330,9 @@ impl Scene {
         let door_trigger_depth = wall_thickness; // how far past the wall the trigger extends
         let door_trigger_center_y = bottom_edge + 2.0 * wall_thickness;
 
-        let triggers = vec![Trigger {
+        let mut triggers: Vec<Trigger> = Vec::new();
+
+        triggers.push(Trigger {
             rect: Rect {
                 center: Vec2::new(door_center_x, door_trigger_center_y),
                 half_size: Vec2::new(door_half_width, door_trigger_depth),
@@ -287,7 +344,7 @@ impl Scene {
                 target_warp_id: WarpId("door"),
                 spawn_offset: Vec2::new(0.0, -20.0 * multiplying_factor), // up, into the room
             },
-        }];
+        });
 
         // Create Entities
         let mut entities: Vec<Entity> = Vec::new();
@@ -338,6 +395,30 @@ impl Scene {
             facing: Direction::Down,
         });
 
+        let bed_prompt_tex = texture_store.load(device, queue, "assets/prompt.aseprite")?;
+        entities.push(Entity {
+            position: Vec2::new(94.0, 25.0) * multiplying_factor,
+            size: Vec2::new(8.0, 8.0) * multiplying_factor,
+            collider: None,
+            texture_id: Some(bed_prompt_tex),
+            facing: Direction::Down,
+        });
+        let bed_prompt = EntityId(entities.len() - 1);
+
+        triggers.push(Trigger {
+            rect: Rect {
+                center: Vec2::new(94.0, 40.0) * multiplying_factor,
+                half_size: Vec2::new(7.0, 8.0) * multiplying_factor,
+            },
+            recently_used: false,
+            kind: TriggerKind::Interact {
+                id: "bed_examine",
+                prompt_entity: bed_prompt,
+                prompt_texture: bed_prompt_tex,
+                required_facing: &[Direction::Right],
+            },
+        });
+
         let nightstand_tex = texture_store.load(device, queue, "assets/nightstand.aseprite")?;
         entities.push(Entity {
             position: Vec2::new(64.0, 44.0) * multiplying_factor,
@@ -352,7 +433,7 @@ impl Scene {
             facing: Direction::Down,
         });
 
-        let player_tex = texture_store.load(device, queue, "assets/player.png")?;
+        let player_tex = texture_store.load(device, queue, "assets/player.aseprite")?;
         entities.push(Entity {
             position: Vec2::new(64.0, 87.5) * multiplying_factor,
             size: Vec2::new(14.0, 24.0) * multiplying_factor,
@@ -366,6 +447,44 @@ impl Scene {
             facing: Direction::Down,
         });
         let player_index = entities.len() - 1;
+
+        let necklace_prompt_tex = texture_store.load(device, queue, "assets/prompt.aseprite")?;
+        entities.push(Entity {
+            position: Vec2::new(112.0, -5.0) * multiplying_factor,
+            size: Vec2::new(8.0, 8.0) * multiplying_factor,
+            collider: None,
+            texture_id: Some(necklace_prompt_tex),
+            facing: Direction::Down,
+        });
+        let necklace_prompt = EntityId(entities.len() - 1);
+
+        let necklace_tex = texture_store.load(device, queue, "assets/necklace.aseprite")?;
+        entities.push(Entity {
+            position: Vec2::new(112.0, 10.0) * multiplying_factor,
+            size: Vec2::new(20.0, 20.0) * multiplying_factor,
+            collider: Some(Collider {
+                rect: Rect {
+                    center: Vec2::new(0.0, 4.0) * multiplying_factor,
+                    half_size: Vec2::new(4.0, 8.0) * multiplying_factor,
+                },
+            }),
+            texture_id: Some(necklace_tex),
+            facing: Direction::Down,
+        });
+
+        triggers.push(Trigger {
+            rect: Rect {
+                center: Vec2::new(112.0, 10.0) * multiplying_factor,
+                half_size: Vec2::new(12.0, 12.0) * multiplying_factor,
+            },
+            recently_used: false,
+            kind: TriggerKind::Interact {
+                id: "necklace_examine",
+                prompt_entity: necklace_prompt,
+                prompt_texture: necklace_prompt_tex,
+                required_facing: &[Direction::Right],
+            },
+        });
 
         Ok(Scene {
             id: SceneId::Home,
@@ -457,7 +576,7 @@ impl Scene {
         // Create Entities
         let mut entities = Vec::new();
 
-        let player_tex = texture_store.load(device, queue, "assets/player.png")?;
+        let player_tex = texture_store.load(device, queue, "assets/player.aseprite")?;
         entities.push(Entity {
             position: Vec2::new(64.0, 87.5) * multiplying_factor,
             size: Vec2::new(14.0, 24.0) * multiplying_factor,

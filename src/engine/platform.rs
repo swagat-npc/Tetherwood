@@ -36,6 +36,7 @@ struct AppState {
     show_colliders: bool,
     show_debug_info: bool,
     show_test_text: bool,
+    displayed_text: Option<String>,
 }
 
 impl AppState {
@@ -97,6 +98,7 @@ impl ApplicationHandler for App {
             show_colliders: true, // DEBUG: set to true for debugging
             show_debug_info: false,
             show_test_text: false,
+            displayed_text: None,
         };
 
         self.state = Some(state);
@@ -153,6 +155,9 @@ impl ApplicationHandler for App {
                     movement.x += 1.0;
                 }
                 if movement != glam::Vec2::ZERO {
+                    if let Some(dir) = crate::engine::entity::Direction::from_movement(movement) {
+                        state.scene.player_mut().facing = dir;
+                    }
                     let delta_move = movement.normalize() * speed * delta.as_secs_f32();
                     state.scene.try_move_player(delta_move);
                     if let Some((target_scene, target_warp_id)) =
@@ -164,6 +169,7 @@ impl ApplicationHandler for App {
                         }
                     }
                 }
+                state.scene.update_interact_prompts();
 
                 let camera_target = match state.scene.camera_mode {
                     CameraMode::Static(anchor) => anchor,
@@ -180,6 +186,13 @@ impl ApplicationHandler for App {
                             let glyphs = crate::engine::text::layout_text(
                                 "The Quick Brown Fox, Jumped Over the Lazy Dog! With the new font @ == estäblished*",
                                 glam::Vec2::new(20.0, 500.0),
+                            );
+                            state.renderer.render_text(&frame, &glyphs);
+                        }
+                        if let Some(text) = &state.displayed_text {
+                            let glyphs = crate::engine::text::layout_text(
+                                text,
+                                glam::Vec2::new(20.0, 540.0),
                             );
                             state.renderer.render_text(&frame, &glyphs);
                         }
@@ -228,6 +241,12 @@ impl ApplicationHandler for App {
                             "{} Test Text",
                             if state.show_test_text { "Show" } else { "Hide" }
                         );
+                    } else if code == KeyCode::KeyE {
+                        if let Some(id) = state.scene.try_interact() {
+                            let line = crate::game::dialogue::line_for(id);
+                            println!("Interacted: {id} -> {line}");
+                            state.displayed_text = Some(line.to_string());
+                        }
                     }
                     if state.show_debug_info {
                         println!("{code:?} pressed");
