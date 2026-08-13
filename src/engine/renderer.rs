@@ -14,21 +14,6 @@ struct Vertex {
     tex_coords: [f32; 2],
 }
 
-struct DebugRect {
-    position: glam::Vec2,
-    size: glam::Vec2,
-    fill_color: [f32; 4],
-    border_color: [f32; 4],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct DebugRectUniform {
-    fill_color: [f32; 4],
-    border_color: [f32; 4],
-    border_thickness: [f32; 4], // x, y used; z, w are padding
-}
-
 impl Vertex {
     fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
@@ -44,6 +29,67 @@ impl Vertex {
                     offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x2,
+                },
+            ],
+        }
+    }
+}
+
+struct DebugRect {
+    position: glam::Vec2,
+    size: glam::Vec2,
+    fill_color: [f32; 4],
+    border_color: [f32; 4],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct DebugVertex {
+    position: [f32; 3],
+    /// 0..1 position within this specific rect — same role tex_coords
+    /// played before (which corner of the unit quad this is), just
+    /// renamed since there's no texture being sampled here. The
+    /// fragment shader still needs this to know "how close to an
+    /// edge am I" for the border test.
+    local_uv: [f32; 2],
+    fill_color: [f32; 4],
+    border_color: [f32; 4],
+    /// Per-axis thickness in local_uv space — same calculation
+    /// ADR-043 already does (pixels / rect_width, pixels / rect_height),
+    /// just baked into each vertex now instead of a per-draw uniform.
+    border_thickness: [f32; 2],
+}
+
+impl DebugVertex {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<DebugVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3, // position
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x2, // local_uv
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3 + 2]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x4, // fill_color
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3 + 2 + 4]>() as wgpu::BufferAddress,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32x4, // border_color
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3 + 2 + 4 + 4]>() as wgpu::BufferAddress,
+                    shader_location: 4,
+                    format: wgpu::VertexFormat::Float32x2, // border_thickness
                 },
             ],
         }
@@ -141,6 +187,51 @@ fn build_text_mesh(glyphs: &[crate::engine::text::PositionedGlyph]) -> (Vec<Vert
     (vertices, indices)
 }
 
+fn build_debug_mesh(rects: &[DebugRect]) -> (Vec<DebugVertex>, Vec<u16>) {
+    const BORDER_PX: f32 = 3.0;
+
+    let mut vertices = Vec::with_capacity(rects.len() * 4);
+    let mut indices = Vec::with_capacity(rects.len() * 6);
+    for rect in rects {
+        let half_size = rect.size / 2.0;
+        let top_left = rect.position - half_size;
+        let bottom_right = rect.position + half_size;
+        let thickness = [BORDER_PX / rect.size.x, BORDER_PX / rect.size.y];
+
+        let base = vertices.len() as u16;
+        vertices.push(DebugVertex {
+            position: [top_left.x, top_left.y, 0.0],
+            local_uv: [0.0, 0.0],
+            fill_color: rect.fill_color,
+            border_color: rect.border_color,
+            border_thickness: thickness,
+        });
+        vertices.push(DebugVertex {
+            position: [top_left.x, bottom_right.y, 0.0],
+            local_uv: [0.0, 1.0],
+            fill_color: rect.fill_color,
+            border_color: rect.border_color,
+            border_thickness: thickness,
+        });
+        vertices.push(DebugVertex {
+            position: [bottom_right.x, bottom_right.y, 0.0],
+            local_uv: [1.0, 1.0],
+            fill_color: rect.fill_color,
+            border_color: rect.border_color,
+            border_thickness: thickness,
+        });
+        vertices.push(DebugVertex {
+            position: [bottom_right.x, top_left.y, 0.0],
+            local_uv: [1.0, 0.0],
+            fill_color: rect.fill_color,
+            border_color: rect.border_color,
+            border_thickness: thickness,
+        });
+        indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 3, base + 2]);
+    }
+    (vertices, indices)
+}
+
 /// A GPU-acquired frame buffer, ready to be drawn into one or more
 /// times before being shown on screen. Bundles the swapchain texture
 /// with its view, so render_scene/render_text can share one frame
@@ -166,7 +257,6 @@ pub struct Renderer {
     num_indices: u32,
     texture_bind_group_layout: wgpu::BindGroupLayout,
     bind_groups: Vec<wgpu::BindGroup>,
-    debug_bind_group_layout: wgpu::BindGroupLayout,
     debug_pipeline: wgpu::RenderPipeline,
     // Held only to keep its GPU resources alive for as long as
     // glyph_atlas_bind_group borrows from them — never read again after
@@ -351,30 +441,12 @@ impl Renderer {
             ],
         });
 
-        let debug_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("debug rect bind group layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
         let debug_shader = device.create_shader_module(wgpu::include_wgsl!("debug_shader.wgsl"));
 
         let debug_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("debug pipeline layout"),
-                bind_group_layouts: &[
-                    Some(&debug_bind_group_layout),
-                    Some(&transform_bind_group_layout),
-                ],
+                bind_group_layouts: &[Some(&transform_bind_group_layout)],
                 immediate_size: 0,
             });
 
@@ -384,7 +456,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &debug_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Some(Vertex::desc())],
+                buffers: &[Some(DebugVertex::desc())],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -443,7 +515,6 @@ impl Renderer {
             transform_bind_group,
             num_indices,
             texture_bind_group_layout,
-            debug_bind_group_layout,
             debug_pipeline,
             font_atlas,
             glyph_atlas_bind_group,
@@ -677,33 +748,28 @@ impl Renderer {
             self.queue.submit(std::iter::once(encoder.finish()));
         }
 
-        const BORDER_PX: f32 = 3.0;
-
-        for rect in &debug_rects {
-            let uniform = DebugRectUniform {
-                fill_color: rect.fill_color,
-                border_color: rect.border_color,
-                border_thickness: [BORDER_PX / rect.size.x, BORDER_PX / rect.size.y, 0.0, 0.0],
-            };
-
-            let debug_uniform_buffer =
+        if !debug_rects.is_empty() {
+            let (vertices, indices) = build_debug_mesh(&debug_rects);
+            let debug_vertex_buffer =
                 self.device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("debug rect uniform"),
-                        contents: bytemuck::cast_slice(&[uniform]),
-                        usage: wgpu::BufferUsages::UNIFORM,
+                        label: Some("debug vertex buffer"),
+                        contents: bytemuck::cast_slice(&vertices),
+                        usage: wgpu::BufferUsages::VERTEX,
                     });
-            let debug_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("debug rect bind group"),
-                layout: &self.debug_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: debug_uniform_buffer.as_entire_binding(),
-                }],
-            });
+            let debug_index_buffer =
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("debug index buffer"),
+                        contents: bytemuck::cast_slice(&indices),
+                        usage: wgpu::BufferUsages::INDEX,
+                    });
 
-            let model = model_matrix(rect.position, rect.size);
-            let transform = projection * camera_view * model;
+            // Positions are already world-space (baked from each rect's real
+            // center/size), so only projection*camera_view is needed here —
+            // no per-rect model matrix, same simplification build_text_mesh
+            // already applies for screen-space text.
+            let transform = projection * camera_view;
             self.queue.write_buffer(
                 &self.transform_buffer,
                 0,
@@ -713,11 +779,11 @@ impl Renderer {
             let mut encoder = self
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("debug rect encoder"),
+                    label: Some("debug rects encoder"),
                 });
             {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("debug rect pass"),
+                    label: Some("debug rects pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &frame.view,
                         resolve_target: None,
@@ -733,12 +799,11 @@ impl Renderer {
                     multiview_mask: None,
                 });
                 render_pass.set_pipeline(&self.debug_pipeline);
-                render_pass.set_bind_group(0, &debug_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.transform_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                render_pass.set_bind_group(0, &self.transform_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, debug_vertex_buffer.slice(..));
                 render_pass
-                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+                    .set_index_buffer(debug_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
             }
             self.queue.submit(std::iter::once(encoder.finish()));
         }

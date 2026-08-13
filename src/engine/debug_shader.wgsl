@@ -9,7 +9,10 @@
 // share Rust's type definitions.
 struct VertexInput {
     @location(0) position: vec3<f32>,
-    @location(1) tex_coords: vec2<f32>,
+    @location(1) local_uv: vec2<f32>,
+    @location(2) fill_color: vec4<f32>,
+    @location(3) border_color: vec4<f32>,
+    @location(4) border_thickness: vec2<f32>,
 }
 
 // What the vertex shader hands off to the fragment shader.
@@ -18,6 +21,9 @@ struct VertexInput {
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
+    @location(1) fill_color: vec4<f32>,
+    @location(2) border_color: vec4<f32>,
+    @location(3) border_thickness: vec2<f32>,
 }
 
 // Same transform uniform (projection * view * model) the textured
@@ -26,32 +32,23 @@ struct VertexOutput {
 struct TransformUniform {
     transform: mat4x4<f32>,
 }
-@group(1) @binding(0) var<uniform> transform: TransformUniform;
-
-// New: per-draw debug-rect parameters. fill_color/border_color are
-// vec4 (r,g,b,a). border_thickness holds thickness_x, thickness_y
-// in UV units (as derived by hand last message), packed into a vec4
-// because uniform buffers want 16-byte-aligned fields — the unused
-// z/w components are just padding, ignored in the shader.
-struct DebugRectUniform {
-    fill_color: vec4<f32>,
-    border_color: vec4<f32>,
-    border_thickness: vec4<f32>,
-}
-@group(0) @binding(0) var<uniform> debug_rect: DebugRectUniform;
+@group(0) @binding(0) var<uniform> transform: TransformUniform;
 
 @vertex
 fn vs_main(model: VertexInput) -> VertexOutput {
     var out: VertexOutput;
     out.clip_position = transform.transform * vec4<f32>(model.position, 1.0);
-    out.uv = model.tex_coords;
+    out.uv = model.local_uv;
+    out.fill_color = model.fill_color;
+    out.border_color = model.border_color;
+    out.border_thickness = model.border_thickness;
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let tx = debug_rect.border_thickness.x;
-    let ty = debug_rect.border_thickness.y;
+    let tx = in.border_thickness.x;
+    let ty = in.border_thickness.y;
 
     let near_left = in.uv.x < tx;
     let near_right = in.uv.x > (1.0 - tx);
@@ -59,7 +56,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let near_bottom = in.uv.y > (1.0 - ty);
 
     if (near_left || near_right || near_top || near_bottom) {
-        return debug_rect.border_color;
+        return in.border_color;
     }
-    return debug_rect.fill_color;
+    return in.fill_color;
 }
