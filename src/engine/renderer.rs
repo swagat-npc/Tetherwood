@@ -171,8 +171,9 @@ fn build_text_mesh(glyphs: &[crate::engine::text::PositionedGlyph]) -> (Vec<Vert
 
     for glyph in glyphs {
         let (uv_min, uv_max) = crate::engine::text::glyph_uv(glyph.cell.0, glyph.cell.1);
+
         let top_left = glyph.position;
-        let bottom_right = glyph.position + crate::engine::text::GLYPH_SIZE;
+        let bottom_right = glyph.position + crate::engine::text::GLYPH_SIZE * glyph.scale;
 
         let base = vertices.len() as u16;
         vertices.push(Vertex {
@@ -555,7 +556,7 @@ impl Renderer {
 
     pub fn dialogue_text_position(&self) -> glam::Vec2 {
         const MARGIN: f32 = 20.0;
-        const TEXT_PADDING: f32 = 16.0; // inset from the panel's own edges
+        const TEXT_PADDING: f32 = 32.0; // inset from the panel's own edges
         let screen = self.screen_size();
         let panel_height = screen.y / 3.0 - MARGIN;
         let panel_top = screen.y - panel_height - MARGIN;
@@ -864,8 +865,8 @@ impl Renderer {
         register: Option<&crate::game::dialogue::Register>,
     ) {
         const MARGIN: f32 = 20.0;
-        const NARRATOR_BORDER: [f32; 4] = [1.0, 1.0, 1.0, 0.6]; // Neutral gray border for narrator
-        const MONOLOGUE_BORDER: [f32; 4] = [0.6, 0.6, 1.0, 0.9]; // Blue border for inner monologue
+        const NARRATOR_BORDER: [f32; 4] = [1.0, 1.0, 1.0, 1.0]; // Neutral gray border for narrator
+        const MONOLOGUE_BORDER: [f32; 4] = [0.5, 0.5, 1.0, 1.0]; // Blue border for inner monologue
 
         let border_color = match register {
             Some(crate::game::dialogue::Register::InnerMonologue) => MONOLOGUE_BORDER,
@@ -877,7 +878,7 @@ impl Renderer {
         let panel = SolidRect {
             position: glam::Vec2::new(screen.x / 2.0, screen.y - panel_height / 2.0 - MARGIN),
             size: glam::Vec2::new(screen.x - MARGIN * 2.0, panel_height),
-            fill_color: [0.0, 0.0, 0.0, 0.85], // near-opaque black, per your earlier "legible over noise" ask
+            fill_color: [0.0, 0.0, 0.0, 0.95], // near-opaque black, per your earlier "legible over noise" ask
             border_color,
             border_thickness_px: 10.0,
         };
@@ -963,6 +964,36 @@ impl Renderer {
             render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
+    pub fn render_text_bg(
+        &mut self,
+        glyphs: &[crate::engine::text::PositionedGlyph],
+        frame: &Frame,
+        fill_color: [f32; 4],
+        border_color: Option<[f32; 4]>,
+        border_thickness_px: f32,
+        padding: f32,
+    ) {
+        let (position, size) = crate::engine::text::combined_glyph_info(glyphs, padding);
+
+        let bg = crate::engine::renderer::SolidRect {
+            position,
+            size,
+            fill_color,
+            border_color: border_color.unwrap_or(fill_color),
+            border_thickness_px,
+        };
+
+        let projection = glam::Mat4::orthographic_rh(
+            0.0,
+            self.config.width as f32,
+            self.config.height as f32,
+            0.0,
+            -1.0,
+            1.0,
+        );
+        self.render_solid_rects(frame, &[bg], projection, glam::Mat4::IDENTITY);
     }
 
     pub fn present_frame(&mut self, frame: Frame) {

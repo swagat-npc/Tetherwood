@@ -300,15 +300,6 @@ impl ApplicationHandler for App {
                             .renderer
                             .render_scene(&frame, &state.scene, state.show_colliders);
 
-                        // DEBUG::FPS Counter
-                        if state.show_debug_info {
-                            let fps_text = format!("FPS: {:.0}", state.smoothed_fps);
-                            let glyphs = crate::engine::text::layout_text(
-                                &fps_text,
-                                glam::Vec2::new(8.0, 8.0),
-                            );
-                            state.renderer.render_text(&frame, &glyphs);
-                        }
                         // DEBUG::Screen Text
                         if state.show_test_text {
                             let glyphs = crate::engine::text::layout_text(
@@ -332,23 +323,62 @@ impl ApplicationHandler for App {
                                 crate::engine::text::layout_colored_text(&colored_chars, text_pos);
                             state.renderer.render_text(&frame, &glyphs);
                         }
-                        // DEBUG::Mouse Position
                         if state.show_debug_info {
-                            let screen_pos = glam::Vec2::new(
-                                state.screen_mouse_position.0 as f32,
-                                state.screen_mouse_position.1 as f32,
-                            );
-                            let world_pos = state.renderer.screen_to_world(screen_pos);
-                            let authoring_pos = world_pos / state.multiplying_factor;
-                            let mouse_text = format!(
-                                "Mouse Pos: {:.0}, {:.0}",
-                                authoring_pos.x, authoring_pos.y
-                            );
-                            let screen_size = state.renderer.screen_size();
-                            let mouse_text_pos = glam::Vec2::new(20.0, screen_size.y - 30.0);
-                            let glyphs =
-                                crate::engine::text::layout_text(&mouse_text, mouse_text_pos);
-                            state.renderer.render_text(&frame, &glyphs);
+                            // DEBUG::FPS Counter
+                            {
+                                let fps_text = format!("FPS: {:.0}", state.smoothed_fps);
+                                let glyphs = crate::engine::text::layout_text_scaled(
+                                    &fps_text,
+                                    glam::Vec2::new(10.0, 10.0),
+                                    crate::engine::text::DEBUG_TEXT_SCALE,
+                                );
+                                // --- Render Background
+                                state.renderer.render_text_bg(
+                                    &glyphs,
+                                    &frame,
+                                    [0.0, 0.0, 0.0, 0.85],
+                                    None,
+                                    0.0,
+                                    crate::engine::text::DEBUG_TEXT_PADDING,
+                                );
+                                // --- Render Text
+                                state.renderer.render_text(&frame, &glyphs);
+                            }
+
+                            // DEBUG::Mouse Position
+                            {
+                                let screen_pos = glam::Vec2::new(
+                                    state.screen_mouse_position.0 as f32,
+                                    state.screen_mouse_position.1 as f32,
+                                );
+                                let world_pos = state.renderer.screen_to_world(screen_pos);
+                                let authoring_pos = world_pos / state.multiplying_factor;
+                                let mouse_text = format!(
+                                    "Mouse Pos: {:.0}, {:.0}",
+                                    authoring_pos.x, authoring_pos.y
+                                );
+                                let screen_size = state.renderer.screen_size();
+                                let mouse_text_pos = glam::Vec2::new(
+                                    crate::engine::text::DEBUG_TEXT_PADDING,
+                                    screen_size.y - 25.0,
+                                );
+                                let glyphs = crate::engine::text::layout_text_scaled(
+                                    &mouse_text,
+                                    mouse_text_pos,
+                                    crate::engine::text::DEBUG_TEXT_SCALE,
+                                );
+                                // --- Render Background
+                                state.renderer.render_text_bg(
+                                    &glyphs,
+                                    &frame,
+                                    [0.0, 0.0, 0.0, 0.85],
+                                    None,
+                                    0.0,
+                                    crate::engine::text::DEBUG_TEXT_PADDING,
+                                );
+                                // --- Render Text
+                                state.renderer.render_text(&frame, &glyphs);
+                            }
                         }
                         state.renderer.present_frame(frame);
                     }

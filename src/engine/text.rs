@@ -5,12 +5,18 @@ use glam::Vec2;
 /// occupies an identical cell and position is pure arithmetic from
 /// character order, not derived from a packed/variable-width atlas.
 pub const GLYPH_SIZE: Vec2 = Vec2::new(9.0, 15.0);
-pub const ATLAS_SIZE: Vec2 = Vec2::new(100.0, 144.0);
 /// Distance from one cell's origin to the next — glyph size plus the
 /// 1px gap on all sides. Distinct from GLYPH_SIZE: the glyph itself
 /// doesn't fill the full pitch, narrow characters (e.g. '1') just
 /// leave their cell's remainder blank, same as any monospace font.
 pub const GLYPH_PITCH: Vec2 = Vec2::new(10.0, 16.0);
+pub const ATLAS_SIZE: Vec2 = Vec2::new(100.0, 144.0);
+/// Multiplies GLYPH_SIZE/GLYPH_PITCH for on-screen rendering — the
+/// atlas itself stays authored at native 9x15 pixels (nothing here
+/// changes), this just scales how large a glyph quad ends up drawn.
+pub const DIALOGUE_TEXT_SCALE: f32 = 2.0;
+pub const DEBUG_TEXT_SCALE: f32 = 1.25;
+pub const DEBUG_TEXT_PADDING: f32 = 10.0;
 
 /// Maps a character to its (column, row) cell in the atlas grid.
 /// Explicit table, not computed from character code, since the grid's
@@ -142,26 +148,73 @@ pub struct PositionedGlyph {
     pub cell: (u32, u32),
     pub position: Vec2,
     pub color: [f32; 4],
+    pub scale: f32,
 }
 
-/// Plain &str convenience wrapper for callers
-/// (F3, FPS counter, mouse position) that don't need color.
-pub fn layout_text(text: &str, origin: Vec2) -> Vec<PositionedGlyph> {
+pub fn combined_glyph_info(glyphs: &[PositionedGlyph], padding: f32) -> (Vec2, Vec2) {
+    if glyphs.is_empty() {
+        return (Vec2::ZERO, Vec2::ZERO);
+    }
+
+    let scaled_size = GLYPH_SIZE * glyphs.first().map(|g| g.scale).unwrap_or(1.0);
+
+    // Center Position of all the glyphs combined
+    let min_x = glyphs
+        .iter()
+        .map(|g| g.position.x)
+        .fold(f32::INFINITY, f32::min);
+    let min_y = glyphs
+        .iter()
+        .map(|g| g.position.y)
+        .fold(f32::INFINITY, f32::min);
+    let max_x = glyphs
+        .iter()
+        .map(|g| g.position.x + scaled_size.x)
+        .fold(f32::NEG_INFINITY, f32::max);
+    let max_y = glyphs
+        .iter()
+        .map(|g| g.position.y + scaled_size.y)
+        .fold(f32::NEG_INFINITY, f32::max);
+
+    let combined_center = Vec2::new(min_x + (max_x - min_x) / 2.0, min_y + (max_y - min_y) / 2.0);
+    let combined_size = Vec2::new(max_x - min_x + padding * 2.0, max_y - min_y + padding * 2.0);
+
+    (combined_center, combined_size)
+}
+
+/// Convenience wrapper defaulting to DIALOGUE_TEXT_SCALE — used by
+/// dialogue's per-span coloring, which needs real colors but rarely
+/// needs a non-default scale.
+pub fn layout_colored_text(chars: &[(char, [f32; 4])], origin: Vec2) -> Vec<PositionedGlyph> {
+    layout_colored_text_scaled(chars, origin, DIALOGUE_TEXT_SCALE)
+}
+
+/// Convenience wrapper for default text layout (white, no color) with a custom scale.
+pub fn layout_text_scaled(text: &str, origin: Vec2, scale: f32) -> Vec<PositionedGlyph> {
     let colored: Vec<(char, [f32; 4])> = text.chars().map(|c| (c, [1.0, 1.0, 1.0, 1.0])).collect();
-    layout_colored_text(&colored, origin)
+    layout_colored_text_scaled(&colored, origin, scale)
+}
+
+/// Convenience wrapper for default text layout (white, no color) with a custom scale.
+pub fn layout_text(text: &str, origin: Vec2) -> Vec<PositionedGlyph> {
+    layout_text_scaled(text, origin, DIALOGUE_TEXT_SCALE)
 }
 
 /// Lays out a string starting at `origin` (top-left of the first
 /// character), advancing left to right by GLYPH_PITCH.x per
 /// character. Takes pre-colored characters instead of a plain
-/// &str — used for dialogue's per-span coloring.
-pub fn layout_colored_text(chars: &[(char, [f32; 4])], origin: Vec2) -> Vec<PositionedGlyph> {
+/// &str — used for dialogue's per-span coloring and a custom scale.
+pub fn layout_colored_text_scaled(
+    chars: &[(char, [f32; 4])],
+    origin: Vec2,
+    scale: f32,
+) -> Vec<PositionedGlyph> {
     let mut glyphs = Vec::new();
     let mut cursor = origin;
 
     for &(c, color) in chars {
         if c == ' ' {
-            cursor.x += GLYPH_PITCH.x;
+            cursor.x += GLYPH_PITCH.x * scale;
             continue;
         }
         match glyph_cell(c) {
@@ -170,8 +223,9 @@ pub fn layout_colored_text(chars: &[(char, [f32; 4])], origin: Vec2) -> Vec<Posi
                     cell,
                     position: cursor,
                     color,
+                    scale,
                 });
-                cursor.x += GLYPH_PITCH.x;
+                cursor.x += GLYPH_PITCH.x * scale;
             }
             None => {
                 // TODO: add font name to something like environment variables to be used
@@ -180,7 +234,7 @@ pub fn layout_colored_text(chars: &[(char, [f32; 4])], origin: Vec2) -> Vec<Posi
                 log::warn!(
                     "no glyph for character {c:?} - in <CURRENTLY_USED_FONT> font — skipped"
                 );
-                cursor.x += GLYPH_PITCH.x; // still advance, so later characters don't overlap the gap
+                cursor.x += GLYPH_PITCH.x * scale; // still advance, so later characters don't overlap the gap
             }
         }
     }
