@@ -120,6 +120,7 @@ pub fn glyph_cell(c: char) -> Option<(u32, u32)> {
         '<' => (4, 8),
         '>' => (5, 8),
         '©' => (6, 8),
+        '▼' => (7, 8),
 
         _ => return None,
     })

@@ -23,9 +23,14 @@ struct DialogueState {
     /// Accumulates delta time; a new character reveals once this
     /// crosses REVEAL_INTERVAL.
     reveal_timer: f32,
+    /// Blink cycle for the "press to continue" caret — independent of
+    /// reveal_timer, since blinking should run continuously once the
+    /// line is fully revealed, not restart with each new line.
+    caret_timer: f32,
 }
 
 const REVEAL_INTERVAL: f32 = 0.03;
+const CARET_BLINK_INTERVAL: f32 = 0.5; // seconds per on/off half-cycle
 
 /// A single revealed character, paired with the color it should
 /// render in — flattened from DialogueLine's spans, so the renderer
@@ -43,6 +48,7 @@ impl DialogueState {
             current_line: 0,
             revealed_chars: 0,
             reveal_timer: 0.0,
+            caret_timer: 0.0,
         }
     }
 
@@ -56,6 +62,8 @@ impl DialogueState {
     /// Advances the typewriter reveal by `delta` seconds. Call once
     /// per frame while dialogue is active, regardless of input.
     fn tick(&mut self, delta: f32) {
+        self.caret_timer += delta;
+
         if self.lines.get(self.current_line).is_none() {
             return; // no active lines, nothing to reveal
         };
@@ -89,7 +97,18 @@ impl DialogueState {
         self.current_line += 1;
         self.revealed_chars = 0;
         self.reveal_timer = 0.0;
+        self.caret_timer = 0.0;
         self.current_line < self.lines.len()
+    }
+
+    /// True during the "on" half of the blink cycle, and only once the
+    /// current line is fully revealed — no caret while still typing,
+    /// since there's nothing to advance to yet.
+    fn caret_visible(&self) -> bool {
+        if self.revealed_chars < self.full_len() {
+            return false;
+        }
+        (self.caret_timer % (CARET_BLINK_INTERVAL * 2.0)) < CARET_BLINK_INTERVAL
     }
 
     /// Flattens the current line's spans into one per-character list,
@@ -322,6 +341,16 @@ impl ApplicationHandler for App {
                             let glyphs =
                                 crate::engine::text::layout_colored_text(&colored_chars, text_pos);
                             state.renderer.render_text(&frame, &glyphs);
+
+                            if dialogue.caret_visible() {
+                                let caret_pos = state.renderer.dialogue_caret_position();
+                                let caret_glyphs = crate::engine::text::layout_colored_text_scaled(
+                                    &[('▼', [1.0, 1.0, 1.0, 1.0])],
+                                    caret_pos,
+                                    crate::engine::text::DIALOGUE_TEXT_SCALE + 2.0,
+                                );
+                                state.renderer.render_text(&frame, &caret_glyphs);
+                            }
                         }
                         if state.show_debug_info {
                             // DEBUG::FPS Counter

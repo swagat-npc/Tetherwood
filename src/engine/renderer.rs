@@ -596,6 +596,16 @@ impl Renderer {
         glam::Vec2::new(MARGIN + TEXT_PADDING, panel_top + TEXT_PADDING)
     }
 
+    pub fn dialogue_caret_position(&self) -> glam::Vec2 {
+        const MARGIN: f32 = 40.0;
+        const CARET_INSET: (f32, f32) = (40.0, 60.0); // from the panel's bottom-right corner
+        let screen = self.screen_size();
+        glam::Vec2::new(
+            screen.x - MARGIN - CARET_INSET.0,
+            screen.y - MARGIN - CARET_INSET.1,
+        )
+    }
+
     /// Converts a screen-space pixel position (e.g. CursorMoved's
     /// position — top-left origin, y-down, same axis convention as world
     /// space per ADR-031) into world-space coordinates, by inverting the
