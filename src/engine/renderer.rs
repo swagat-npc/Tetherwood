@@ -3,7 +3,7 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
-use crate::engine::entity::TriggerKind;
+use crate::engine::entity::{self, TriggerKind};
 use crate::engine::ids::TextureId;
 use crate::engine::scene::Scene;
 
@@ -156,6 +156,39 @@ fn push_center_marker(debug_rects: &mut Vec<SolidRect>, center: glam::Vec2, scal
         fill_color: Y_COLOR,
         border_color: Y_COLOR,
         border_thickness_px: 3.0,
+    });
+}
+
+fn push_facing_marker(
+    debug_rects: &mut Vec<SolidRect>,
+    center: glam::Vec2,
+    facing: entity::Direction,
+    scale: f32,
+) {
+    const LINE_LENGTH: f32 = 16.0;
+    const THICKNESS: f32 = 2.0;
+    const FACING_COLOR: [f32; 4] = [1.0, 0.9, 0.1, 1.0]; // distinct from X/Y axis colors
+
+    let direction_vec = match facing {
+        entity::Direction::Up => glam::Vec2::new(0.0, -1.0),
+        entity::Direction::Down => glam::Vec2::new(0.0, 1.0),
+        entity::Direction::Left => glam::Vec2::new(-1.0, 0.0),
+        entity::Direction::Right => glam::Vec2::new(1.0, 0.0),
+    };
+
+    let line_center = center + direction_vec * (LINE_LENGTH * scale / 2.0);
+    let size = if direction_vec.x != 0.0 {
+        glam::Vec2::new(LINE_LENGTH * scale, THICKNESS * scale)
+    } else {
+        glam::Vec2::new(THICKNESS * scale, LINE_LENGTH * scale)
+    };
+
+    debug_rects.push(SolidRect {
+        position: line_center,
+        size,
+        fill_color: FACING_COLOR,
+        border_color: FACING_COLOR,
+        border_thickness_px: 0.0,
     });
 }
 
@@ -639,15 +672,15 @@ impl Renderer {
         // Full draw list: background first (always behind, never
         // y-sorted), then entities in sorted order. Each entry is
         // (bind group index, position, size).
-        let mut draws: Vec<(usize, glam::Vec2, glam::Vec2)> = Vec::new();
+        let mut draws: Vec<(usize, glam::Vec2, glam::Vec2, entity::Direction)> = Vec::new();
         for bg in &scene.background {
-            draws.push((bg.texture.0, bg.position, bg.size));
+            draws.push((bg.texture.0, bg.position, bg.size, entity::Direction::Down));
         }
 
         for &idx in &order {
             let entity = &scene.entities[idx];
             if let Some(texture_id) = entity.texture_id {
-                draws.push((texture_id.0, entity.position, entity.size));
+                draws.push((texture_id.0, entity.position, entity.size, entity.facing));
             }
         }
 
@@ -689,6 +722,9 @@ impl Renderer {
                         1.0,
                     );
                 }
+                if entity.texture_id.is_some() {
+                    push_facing_marker(&mut debug_rects, entity.position, entity.facing, 1.0);
+                }
             }
             for trigger in &scene.triggers {
                 let interactive: bool = match trigger.kind {
@@ -723,8 +759,12 @@ impl Renderer {
         // write_buffer lands before its own draw executes. The first
         // draw clears the screen; every draw after it loads (paints
         // over) what's already there instead of erasing it.
-        for (i, (bind_group_index, position, size)) in draws.iter().enumerate() {
-            let model = model_matrix(*position, *size);
+        for (i, (bind_group_index, position, size, facing)) in draws.iter().enumerate() {
+            let mut draw_size = *size;
+            if *facing == entity::Direction::Left {
+                draw_size.x = -draw_size.x;
+            }
+            let model = model_matrix(*position, draw_size);
             let transform = projection * camera_view * model;
             self.queue.write_buffer(
                 &self.transform_buffer,

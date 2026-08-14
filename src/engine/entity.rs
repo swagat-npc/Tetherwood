@@ -15,6 +15,22 @@ pub struct Entity {
     pub facing: Direction,
 }
 
+impl Entity {
+    /// World-space center of this entity's collider, if it has one —
+    /// falls back to the entity's own sprite-center position
+    /// otherwise. Distinct from `position` (ADR-033's sprite-center
+    /// convention): a collider is frequently offset from its sprite's
+    /// visual center (e.g. feet/hips vs. head), and anything checking
+    /// "is this entity here" for physical/trigger purposes should use
+    /// this, not the raw sprite position.
+    pub fn collider_center(&self) -> Vec2 {
+        match &self.collider {
+            Some(collider) => self.position + collider.rect.center,
+            None => self.position,
+        }
+    }
+}
+
 /// Axis-aligned rectangle (AABB): center offset + half-extents.
 /// Used for collision detection and other spatial queries.
 pub struct Rect {

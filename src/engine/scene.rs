@@ -75,7 +75,7 @@ impl Scene {
     }
 
     pub fn check_triggers(&mut self, show_debug_info: bool) -> Option<(SceneId, WarpId)> {
-        let player_center = self.player().position;
+        let player_center = self.player().collider_center();
 
         // Clear recently_used for any trigger the player has now left and
         // re-arms it for the next time it's actually walked into again.
@@ -116,6 +116,7 @@ impl Scene {
     /// handler — correctness only matters at the instant of the press.
     pub fn try_interact(&self) -> Option<&'static str> {
         let player = self.player();
+        let player_center = player.collider_center();
 
         for trigger in &self.triggers {
             let TriggerKind::Interact {
@@ -126,7 +127,7 @@ impl Scene {
             else {
                 continue;
             };
-            if !point_in_rect(player.position, &trigger.rect) {
+            if !point_in_rect(player_center, &trigger.rect) {
                 continue;
             }
             if required_facing.contains(&player.facing) {
@@ -143,7 +144,7 @@ impl Scene {
     /// approach sides for one object); visibility is true if the player
     /// is in range of *any* of them, not just whichever was checked last.
     pub fn update_interact_prompts(&mut self) {
-        let player_position = self.player().position;
+        let player_position = self.player().collider_center();
         let mut visible: HashMap<EntityId, (bool, crate::engine::ids::TextureId)> = HashMap::new();
 
         for trigger in &self.triggers {
