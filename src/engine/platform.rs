@@ -87,10 +87,8 @@ impl DialogueState {
         if self.lines.get(self.current_line).is_none() {
             return false; // no active lines, nothing to reveal
         };
-        let full_len = self.full_len();
-
-        if self.revealed_chars < full_len {
-            self.revealed_chars = full_len; // skip to full reveal
+        if self.revealed_chars < self.full_len() {
+            self.revealed_chars = self.full_len();
             return true;
         }
 
@@ -461,11 +459,15 @@ impl ApplicationHandler for App {
                                 state.dialogue = None; // dialogue finished
                             }
                         } else if code == KeyCode::KeyE {
-                            // No dialogue active — only KeyE attempts a new interaction
-                            // (Space alone shouldn't trigger examine/interact).
-                            if let Some(id) = state.scene.try_interact() {
-                                let lines = crate::game::dialogue::line_for(id);
-                                state.dialogue = Some(DialogueState::new(lines));
+                            match state.scene.try_interact() {
+                                Some(crate::engine::scene::InteractResult::Dialogue(id)) => {
+                                    let lines = crate::game::dialogue::line_for(id);
+                                    state.dialogue = Some(DialogueState::new(lines));
+                                }
+                                Some(crate::engine::scene::InteractResult::Toggle(entity_id)) => {
+                                    state.scene.toggle_entity(entity_id);
+                                }
+                                None => {}
                             }
                         }
                     }

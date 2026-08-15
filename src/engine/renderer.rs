@@ -709,8 +709,10 @@ impl Renderer {
             const ENTITY_BORDER: [f32; 4] = [0.0, 0.2, 0.8, 0.9];
             const TRIGGER_FILL: [f32; 4] = [0.0, 1.0, 0.0, 0.15];
             const TRIGGER_BORDER: [f32; 4] = [0.0, 0.7, 0.0, 0.9];
-            const INTERACT_FILL: [f32; 4] = [1.0, 1.0, 0.0, 0.15];
-            const INTERACT_BORDER: [f32; 4] = [0.7, 0.7, 0.0, 0.9];
+            const DIALOGUE_FILL: [f32; 4] = [1.0, 1.0, 0.0, 0.15];
+            const DIALOGUE_BORDER: [f32; 4] = [0.7, 0.7, 0.0, 0.9];
+            const INTERACT_FILL: [f32; 4] = [1.0, 0.0, 1.0, 0.15];
+            const INTERACT_BORDER: [f32; 4] = [0.7, 0.0, 0.7, 0.9];
 
             push_center_marker(&mut debug_rects, glam::Vec2::ZERO, 1.0);
 
@@ -744,24 +746,17 @@ impl Renderer {
                 }
             }
             for trigger in &scene.triggers {
-                let interactive: bool = match trigger.kind {
-                    TriggerKind::Warp { .. } => false,
-                    TriggerKind::Interact { .. } => true,
+                let (fill_color, border_color) = match trigger.kind {
+                    TriggerKind::Warp { .. } => (TRIGGER_FILL, TRIGGER_BORDER),
+                    TriggerKind::Dialogue { .. } => (DIALOGUE_FILL, DIALOGUE_BORDER),
+                    TriggerKind::Toggle { .. } => (INTERACT_FILL, INTERACT_BORDER),
                 };
 
                 debug_rects.push(SolidRect {
                     position: trigger.rect.center,
                     size: trigger.rect.half_size * 2.0,
-                    fill_color: if interactive {
-                        INTERACT_FILL
-                    } else {
-                        TRIGGER_FILL
-                    },
-                    border_color: if interactive {
-                        INTERACT_BORDER
-                    } else {
-                        TRIGGER_BORDER
-                    },
+                    fill_color,
+                    border_color,
                     border_thickness_px: 3.0,
                 });
                 push_center_marker(&mut debug_rects, trigger.rect.center, 1.0);

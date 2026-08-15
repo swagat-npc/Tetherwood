@@ -18,6 +18,11 @@ pub enum CameraMode {
     Follow,
 }
 
+pub enum InteractResult {
+    Dialogue(&'static str),
+    Toggle(EntityId),
+}
+
 pub struct Scene {
     pub id: SceneId,
     pub background: Vec<Background>,
@@ -125,24 +130,34 @@ impl Scene {
     /// Checks whether the player is currently in range of, and correctly
     /// facing, an Interact trigger. Called from the interact-button press
     /// handler — correctness only matters at the instant of the press.
-    pub fn try_interact(&self) -> Option<&'static str> {
+    pub fn try_interact(&self) -> Option<InteractResult> {
         let player = self.player();
-        let player_center = player.collider_center();
 
         for trigger in &self.triggers {
-            let TriggerKind::Interact {
-                id,
-                required_facing,
-                ..
-            } = trigger.kind
-            else {
-                continue;
-            };
-            if !point_in_rect(player_center, &trigger.rect) {
-                continue;
-            }
-            if required_facing.contains(&player.facing) {
-                return Some(id);
+            match &trigger.kind {
+                TriggerKind::Dialogue {
+                    id,
+                    required_facing,
+                    ..
+                } => {
+                    if point_in_rect(player.collider_center(), &trigger.rect)
+                        && required_facing.contains(&player.facing)
+                    {
+                        return Some(InteractResult::Dialogue(*id));
+                    }
+                }
+                TriggerKind::Toggle {
+                    target_entity,
+                    required_facing,
+                    ..
+                } => {
+                    if point_in_rect(player.collider_center(), &trigger.rect)
+                        && required_facing.contains(&player.facing)
+                    {
+                        return Some(InteractResult::Toggle(*target_entity));
+                    }
+                }
+                TriggerKind::Warp { .. } => continue,
             }
         }
         None
@@ -159,12 +174,16 @@ impl Scene {
         let mut visible: HashMap<EntityId, (bool, crate::engine::ids::TextureId)> = HashMap::new();
 
         for trigger in &self.triggers {
-            if let TriggerKind::Interact {
+            if let TriggerKind::Dialogue {
                 prompt_entity,
                 prompt_texture,
                 ..
             } = trigger.kind
             {
+                let (Some(prompt_entity), Some(prompt_texture)) = (prompt_entity, prompt_texture)
+                else {
+                    continue;
+                };
                 let in_range = point_in_rect(player_position, &trigger.rect);
                 let entry = visible
                     .entry(prompt_entity)
@@ -264,6 +283,38 @@ impl Scene {
             None => {
                 self.entities[idx].position.y = proposed.y;
             }
+        }
+    }
+
+    /// Flips a Toggle trigger's target entity between its open/closed
+    /// texture and collider. State is inferred from which texture the
+    /// entity currently has (ADR-037's Option-as-state pattern), not
+    /// tracked separately.
+    pub fn toggle_entity(&mut self, target_entity: EntityId) {
+        let Some(trigger) = self.triggers.iter().find(|t| {
+            matches!(t.kind, TriggerKind::Toggle { target_entity: te, .. } if te == target_entity)
+        }) else {
+            return;
+        };
+        let TriggerKind::Toggle {
+            closed_texture,
+            open_texture,
+            closed_collider,
+            ..
+        } = trigger.kind
+        else {
+            return;
+        };
+
+        let entity = &mut self.entities[target_entity.0];
+        if entity.texture_id == Some(closed_texture) {
+            entity.texture_id = Some(open_texture);
+            entity.collider = None;
+        } else {
+            entity.texture_id = Some(closed_texture);
+            entity.collider = Some(Collider {
+                rect: closed_collider,
+            });
         }
     }
 
@@ -450,10 +501,10 @@ impl Scene {
                 half_size: Vec2::new(7.0, 8.0) * multiplying_factor,
             },
             recently_used: false,
-            kind: TriggerKind::Interact {
+            kind: TriggerKind::Dialogue {
                 id: "bed_examine",
-                prompt_entity: bed_prompt,
-                prompt_texture: bed_prompt_tex,
+                prompt_entity: Some(bed_prompt),
+                prompt_texture: Some(bed_prompt_tex),
                 required_facing: &[Direction::Right],
             },
         });
@@ -517,10 +568,10 @@ impl Scene {
                 half_size: Vec2::new(12.0, 12.0) * multiplying_factor,
             },
             recently_used: false,
-            kind: TriggerKind::Interact {
+            kind: TriggerKind::Dialogue {
                 id: "necklace_examine",
-                prompt_entity: necklace_prompt,
-                prompt_texture: necklace_prompt_tex,
+                prompt_entity: Some(necklace_prompt),
+                prompt_texture: Some(necklace_prompt_tex),
                 required_facing: &[Direction::Right],
             },
         });
@@ -560,33 +611,59 @@ impl Scene {
         let village_half_width = village_size.x * 0.5;
         let village_half_height = village_size.y * 0.5;
 
-        let left_edge = village_position.x - village_half_width;
-        let right_edge = village_position.x + village_half_width;
-        let top_edge = village_position.y - village_half_height;
-        let bottom_edge = village_position.y + village_half_height;
+        let patio_door_position = Vec2::new(108.0, 130.0) * multiplying_factor;
+        let patio_door_half_width = 12.0 * multiplying_factor;
+        let patio_door_half_height = 6.0 * multiplying_factor;
+        let patio_door_left_edge = patio_door_position.x - patio_door_half_width;
+        let patio_door_right_edge = patio_door_position.x + patio_door_half_width;
+        // let door_top_edge = door_position.y - door_half_height;
+        // let door_bottom_edge = door_position.y + door_half_height;
+
+        let village_left_edge = village_position.x - village_half_width;
+        let village_right_edge = village_position.x + village_half_width;
+        let village_top_edge = village_position.y - village_half_height;
+        let village_bottom_edge = village_position.y + village_half_height;
 
         let walls = vec![
             Collider {
                 rect: Rect {
-                    center: Vec2::new(village_position.x, top_edge - wall_thickness),
+                    center: Vec2::new(village_position.x, village_top_edge - wall_thickness),
                     half_size: Vec2::new(village_half_width, wall_thickness),
                 },
             }, // north
             Collider {
                 rect: Rect {
-                    center: Vec2::new(village_position.x, bottom_edge + wall_thickness),
-                    half_size: Vec2::new(village_half_width, wall_thickness),
+                    center: Vec2::new(
+                        village_left_edge + (patio_door_left_edge - village_left_edge) * 0.5,
+                        village_bottom_edge + wall_thickness,
+                    ),
+                    half_size: Vec2::new(
+                        (patio_door_left_edge - village_left_edge) * 0.5,
+                        wall_thickness,
+                    ),
                 },
-            }, // south
+            }, // south-west
             Collider {
                 rect: Rect {
-                    center: Vec2::new(left_edge - wall_thickness, village_position.y),
+                    center: Vec2::new(
+                        village_right_edge - (village_right_edge - patio_door_right_edge) * 0.5,
+                        village_bottom_edge + wall_thickness,
+                    ),
+                    half_size: Vec2::new(
+                        (village_right_edge - patio_door_right_edge) * 0.5,
+                        wall_thickness,
+                    ),
+                },
+            }, // south-east
+            Collider {
+                rect: Rect {
+                    center: Vec2::new(village_left_edge - wall_thickness, village_position.y),
                     half_size: Vec2::new(wall_thickness, village_half_height),
                 },
             }, // west
             Collider {
                 rect: Rect {
-                    center: Vec2::new(right_edge + wall_thickness, village_position.y),
+                    center: Vec2::new(village_right_edge + wall_thickness, village_position.y),
                     half_size: Vec2::new(wall_thickness, village_half_height),
                 },
             }, // east
@@ -600,8 +677,8 @@ impl Scene {
 
         triggers.push(Trigger {
             rect: Rect {
-                center: Vec2::new(door_position.x, door_position.y),
-                half_size: Vec2::new(door_size.x * 0.5, door_size.y * 0.5),
+                center: door_position,
+                half_size: door_size * 0.5,
             },
             recently_used: false,
             kind: TriggerKind::Warp {
@@ -629,6 +706,43 @@ impl Scene {
             facing: Direction::Down,
         });
         let player_index = entities.len() - 1;
+
+        let patio_door_closed_tex =
+            texture_store.load(device, queue, "assets/patio_door.aseprite")?;
+        let patio_door_open_tex =
+            texture_store.load_aseprite_frame(device, queue, "assets/patio_door.aseprite", 1)?;
+        let closed_collider = Rect {
+            center: Vec2::new(0.0, 0.0),
+            half_size: Vec2::new(patio_door_half_width, patio_door_half_height),
+        };
+        entities.push(Entity {
+            position: patio_door_position,
+            size: Vec2::new(patio_door_half_width * 2.0, patio_door_half_height * 2.0),
+            collider: Some(Collider {
+                rect: closed_collider,
+            }),
+            texture_id: Some(patio_door_closed_tex),
+            facing: Direction::Down,
+        });
+        let patio_door_entity = EntityId(entities.len() - 1);
+
+        triggers.push(Trigger {
+            rect: Rect {
+                center: Vec2::new(
+                    patio_door_position.x,
+                    patio_door_position.y - (4.0 * multiplying_factor),
+                ),
+                half_size: Vec2::new(patio_door_half_width, patio_door_half_height * 2.0),
+            },
+            recently_used: false,
+            kind: TriggerKind::Toggle {
+                target_entity: patio_door_entity,
+                closed_texture: patio_door_closed_tex,
+                open_texture: patio_door_open_tex,
+                closed_collider,
+                required_facing: &[Direction::Up, Direction::Down],
+            },
+        });
 
         Ok(Scene {
             id: SceneId::Outside,

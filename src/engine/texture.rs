@@ -21,13 +21,30 @@ impl TextureStore {
         path: &str,
     ) -> Result<TextureId> {
         let texture = if path.ends_with(".aseprite") || path.ends_with(".ase") {
-            Texture::from_aseprite(device, queue, path)?
+            Texture::from_aseprite(device, queue, path, 0)?
         } else {
             let bytes = std::fs::read(path)
                 .with_context(|| format!("failed to read texture file: {path}"))?;
             Texture::from_bytes(device, queue, &bytes, path)?
         };
 
+        let id = TextureId(self.textures.len());
+        self.textures.push(texture);
+        Ok(id)
+    }
+
+    /// Loads a specific frame of a multi-frame .aseprite file — the
+    /// explicit, opt-in path for assets like the door's open/closed
+    /// states. load() always defaults to frame 0, the common
+    /// single-frame case.
+    pub fn load_aseprite_frame(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        path: &str,
+        frame_id: u32,
+    ) -> Result<TextureId> {
+        let texture = Texture::from_aseprite(device, queue, path, frame_id)?;
         let id = TextureId(self.textures.len());
         self.textures.push(texture);
         Ok(id)
@@ -69,6 +86,9 @@ pub struct Texture {
     pub width: u32,
     #[allow(dead_code)]
     pub height: u32,
+    #[allow(dead_code)]
+    // recorded at load time; not read back yet, may be useful for debugging multi-frame assets later
+    pub frame_id: u32,
 }
 
 impl Texture {
@@ -140,10 +160,16 @@ impl Texture {
             sampler,
             width: dimensions.0,
             height: dimensions.1,
+            frame_id: 0,
         })
     }
 
-    pub fn from_aseprite(device: &wgpu::Device, queue: &wgpu::Queue, path: &str) -> Result<Self> {
+    pub fn from_aseprite(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        path: &str,
+        frame_id: u32,
+    ) -> Result<Self> {
         let ase = asefile::AsepriteFile::read_file(std::path::Path::new(path))
             .with_context(|| format!("failed to parse aseprite file: {path}"))?;
 
@@ -157,7 +183,7 @@ impl Texture {
         // frame(0).image() returns a fully composited RGBA image — every
         // visible layer flattened together, same result as Aseprite's own
         // "export PNG" would have produced.
-        let rgba_image = ase.frame(0).image();
+        let rgba_image = ase.frame(frame_id).image();
         let dynamic_image = image::DynamicImage::ImageRgba8(rgba_image);
         Self::from_image(device, queue, &dynamic_image, Some(path))
     }

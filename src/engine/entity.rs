@@ -89,15 +89,15 @@ pub enum TriggerKind {
         /// north wall.
         spawn_offset: Vec2,
     },
-    Interact {
+    Dialogue {
         /// Content identifier, resolved by game::dialogue::line_for.
         id: &'static str,
         /// The floating prompt-icon entity, shown/hidden by proximity
         /// alone. Multiple triggers may share one prompt_entity (e.g.
         /// an object reachable from two sides) — see
         /// Scene::update_interact_prompts for how that's resolved.
-        prompt_entity: EntityId,
-        prompt_texture: TextureId,
+        prompt_entity: Option<EntityId>,
+        prompt_texture: Option<TextureId>,
         /// Facing direction(s) that make this specific trigger's rect
         /// valid. A slice because one rect can accept more than one
         /// facing (e.g. a straight-on approach from either side of a
@@ -105,6 +105,13 @@ pub enum TriggerKind {
         /// facings correct for *that* rect's position; an object
         /// reachable from multiple distinct sides needs one Trigger
         /// per side, not one Trigger with every direction listed.
+        required_facing: &'static [Direction],
+    },
+    Toggle {
+        target_entity: EntityId,
+        closed_texture: TextureId,
+        open_texture: TextureId,
+        closed_collider: Rect,
         required_facing: &'static [Direction],
     },
 }
