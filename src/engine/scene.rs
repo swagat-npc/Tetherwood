@@ -747,8 +747,8 @@ impl Scene {
         let patio_door_open_tex =
             texture_store.load_aseprite_frame(device, queue, "assets/patio_door.aseprite", 1)?;
         let closed_collider = Rect {
-            center: Vec2::new(0.0, 0.0),
-            half_size: Vec2::new(patio_door_half_width, patio_door_half_height),
+            center: Vec2::new(0.0, -4.0 * multiplying_factor),
+            half_size: Vec2::new(patio_door_half_width, 2.0 * multiplying_factor),
         };
         entities.push(Entity {
             position: patio_door_position,
@@ -761,13 +761,23 @@ impl Scene {
         });
         let patio_door_entity = EntityId(entities.len() - 1);
 
+        // Two separate triggers, one per approach side — NOT one trigger
+        // with both Up and Down listed in required_facing. A single shared
+        // rect can't distinguish "standing above, facing down (correct)"
+        // from "standing below, facing down (facing away, wrong)" — see
+        // ADR-060, first discovered on the necklace's two-sided approach,
+        // now repurposed here for the same reason.
+        let patio_door_top_toggle_center =
+            Vec2::new(patio_door_position.x, 120.0 * multiplying_factor);
+        let patio_door_top_toggle_half_height = 4.0 * multiplying_factor;
+        let patio_door_bottom_toggle_center =
+            Vec2::new(patio_door_position.x, 136.0 * multiplying_factor);
+        let patio_door_bottom_toggle_half_height = 8.0 * multiplying_factor;
+
         triggers.push(Trigger {
             rect: Rect {
-                center: Vec2::new(
-                    patio_door_position.x,
-                    patio_door_position.y - (4.0 * multiplying_factor),
-                ),
-                half_size: Vec2::new(patio_door_half_width, patio_door_half_height * 2.0),
+                center: patio_door_top_toggle_center,
+                half_size: Vec2::new(patio_door_half_width, patio_door_top_toggle_half_height),
             },
             recently_used: false,
             kind: TriggerKind::Toggle {
@@ -775,7 +785,23 @@ impl Scene {
                 closed_texture: patio_door_closed_tex,
                 open_texture: patio_door_open_tex,
                 closed_collider,
-                required_facing: &[Direction::Up, Direction::Down],
+                required_facing: &[Direction::Down],
+            },
+            active: true,
+        });
+
+        triggers.push(Trigger {
+            rect: Rect {
+                center: patio_door_bottom_toggle_center,
+                half_size: Vec2::new(patio_door_half_width, patio_door_bottom_toggle_half_height),
+            },
+            recently_used: false,
+            kind: TriggerKind::Toggle {
+                target_entity: patio_door_entity,
+                closed_texture: patio_door_closed_tex,
+                open_texture: patio_door_open_tex,
+                closed_collider,
+                required_facing: &[Direction::Up],
             },
             active: true,
         });
