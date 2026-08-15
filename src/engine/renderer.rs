@@ -746,6 +746,9 @@ impl Renderer {
                 }
             }
             for trigger in &scene.triggers {
+                if !trigger.active {
+                    continue;
+                }
                 let (fill_color, border_color) = match trigger.kind {
                     TriggerKind::Warp { .. } => (TRIGGER_FILL, TRIGGER_BORDER),
                     TriggerKind::Dialogue { .. } => (DIALOGUE_FILL, DIALOGUE_BORDER),

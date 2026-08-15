@@ -19,7 +19,7 @@ pub enum CameraMode {
 }
 
 pub enum InteractResult {
-    Dialogue(&'static str),
+    Dialogue(&'static str, Option<EntityId>),
     Toggle(EntityId),
 }
 
@@ -134,16 +134,20 @@ impl Scene {
         let player = self.player();
 
         for trigger in &self.triggers {
+            if !trigger.active {
+                continue;
+            }
             match &trigger.kind {
                 TriggerKind::Dialogue {
                     id,
                     required_facing,
+                    consumes_entity,
                     ..
                 } => {
                     if point_in_rect(player.collider_center(), &trigger.rect)
                         && required_facing.contains(&player.facing)
                     {
-                        return Some(InteractResult::Dialogue(*id));
+                        return Some(InteractResult::Dialogue(*id, *consumes_entity));
                     }
                 }
                 TriggerKind::Toggle {
@@ -174,6 +178,9 @@ impl Scene {
         let mut visible: HashMap<EntityId, (bool, crate::engine::ids::TextureId)> = HashMap::new();
 
         for trigger in &self.triggers {
+            if !trigger.active {
+                continue;
+            }
             if let TriggerKind::Dialogue {
                 prompt_entity,
                 prompt_texture,
@@ -318,6 +325,27 @@ impl Scene {
         }
     }
 
+    // Scene method, mirroring toggle_entity's search pattern
+    pub fn consume_entity(&mut self, entity_id: EntityId) {
+        self.entities[entity_id.0].texture_id = None;
+        self.entities[entity_id.0].collider = None;
+        for trigger in self.triggers.iter_mut() {
+            if let TriggerKind::Dialogue {
+                consumes_entity: Some(id),
+                prompt_entity,
+                ..
+            } = trigger.kind
+            {
+                if id == entity_id {
+                    trigger.active = false;
+                    if let Some(prompt_entity) = prompt_entity {
+                        self.entities[prompt_entity.0].texture_id = None;
+                    }
+                }
+            }
+        }
+    }
+
     /// Beat 1's home: player's bedroom with a working south-door warp to
     /// the outside scene (SceneId::Outside, WarpId("door")). Sizes scale
     /// via multiplying_factor (ADR-042).
@@ -434,6 +462,7 @@ impl Scene {
                 target_warp_id: WarpId("door"),
                 spawn_offset: Vec2::new(0.0, -20.0 * multiplying_factor), // up, into the room
             },
+            active: true,
         });
 
         // Create Entities
@@ -506,7 +535,9 @@ impl Scene {
                 prompt_entity: Some(bed_prompt),
                 prompt_texture: Some(bed_prompt_tex),
                 required_facing: &[Direction::Right],
+                consumes_entity: None,
             },
+            active: true,
         });
 
         let nightstand_tex = texture_store.load(device, queue, "assets/nightstand.aseprite")?;
@@ -561,6 +592,7 @@ impl Scene {
             texture_id: Some(necklace_tex),
             facing: Direction::Down,
         });
+        let necklace_entity = EntityId(entities.len() - 1);
 
         triggers.push(Trigger {
             rect: Rect {
@@ -573,7 +605,9 @@ impl Scene {
                 prompt_entity: Some(necklace_prompt),
                 prompt_texture: Some(necklace_prompt_tex),
                 required_facing: &[Direction::Right],
+                consumes_entity: Some(necklace_entity),
             },
+            active: true,
         });
 
         Ok(Scene {
@@ -687,6 +721,7 @@ impl Scene {
                 target_warp_id: WarpId("door"),
                 spawn_offset: Vec2::new(0.0, 20.0 * multiplying_factor), // down, into the patio
             },
+            active: true,
         });
 
         // Create Entities
@@ -742,6 +777,7 @@ impl Scene {
                 closed_collider,
                 required_facing: &[Direction::Up, Direction::Down],
             },
+            active: true,
         });
 
         Ok(Scene {

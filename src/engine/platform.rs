@@ -454,14 +454,28 @@ impl ApplicationHandler for App {
                         );
                     } else if code == KeyCode::KeyE || code == KeyCode::Space {
                         if let Some(dialogue) = &mut state.dialogue {
-                            // Dialogue already active — this press advances/skips.
+                            let consumed = dialogue
+                                .lines
+                                .get(dialogue.current_line)
+                                .and_then(|l| l.consumes_entity);
                             if !dialogue.advance_or_skip() {
-                                state.dialogue = None; // dialogue finished
+                                if let Some(entity_id) = consumed {
+                                    state.scene.consume_entity(entity_id);
+                                }
+                                state.dialogue = None;
                             }
                         } else if code == KeyCode::KeyE {
                             match state.scene.try_interact() {
-                                Some(crate::engine::scene::InteractResult::Dialogue(id)) => {
-                                    let lines = crate::game::dialogue::line_for(id);
+                                Some(crate::engine::scene::InteractResult::Dialogue(
+                                    id,
+                                    consumes_entity,
+                                )) => {
+                                    let mut lines = crate::game::dialogue::line_for(id);
+                                    if let (Some(last), Some(entity_id)) =
+                                        (lines.last_mut(), consumes_entity)
+                                    {
+                                        last.consumes_entity = Some(entity_id);
+                                    }
                                     state.dialogue = Some(DialogueState::new(lines));
                                 }
                                 Some(crate::engine::scene::InteractResult::Toggle(entity_id)) => {

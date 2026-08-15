@@ -66,6 +66,12 @@ pub struct Trigger {
     /// Transient play-session state, not content (parallel to
     /// Entity's Option fields, ADR-037). (ADR-051)
     pub recently_used: bool,
+    /// False once this trigger's effect has been permanently consumed
+    /// (e.g. the necklace's dialogue finished and removed it) —
+    /// checked before any detection logic runs. Distinct from
+    /// recently_used, which is transient (re-arms on leaving the
+    /// rect); this is permanent for the scene's remaining lifetime.
+    pub active: bool,
 }
 
 /// What a trigger does when the player's center enters it. Two
@@ -106,6 +112,11 @@ pub enum TriggerKind {
         /// reachable from multiple distinct sides needs one Trigger
         /// per side, not one Trigger with every direction listed.
         required_facing: &'static [Direction],
+        /// Entity this dialogue's *last* line should consume (ADR-037's
+        /// texture-clear pattern) once it closes — e.g. the necklace
+        /// removing itself after being picked up. None for dialogue that
+        /// doesn't remove anything (the bed's lore-drop).
+        consumes_entity: Option<EntityId>,
     },
     Toggle {
         target_entity: EntityId,
