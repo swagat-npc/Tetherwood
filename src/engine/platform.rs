@@ -182,6 +182,10 @@ impl AppState {
     fn change_scene(&mut self, scene_id: SceneId) {
         self.scene = Self::build_scene(&mut self.renderer, scene_id, self.multiplying_factor);
     }
+
+    fn reset_scene(&mut self) {
+        self.scene = Self::build_scene(&mut self.renderer, self.scene.id, self.multiplying_factor);
+    }
 }
 
 impl ApplicationHandler for App {
@@ -484,6 +488,11 @@ impl ApplicationHandler for App {
                                 None => {}
                             }
                         }
+                    } else if code == KeyCode::KeyR
+                        && (state.held_keys.contains(&KeyCode::ControlLeft)
+                            || state.held_keys.contains(&KeyCode::ControlRight))
+                    {
+                        state.reset_scene();
                     }
                     if state.show_debug_info {
                         println!("{code:?} pressed");
