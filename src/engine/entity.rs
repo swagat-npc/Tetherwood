@@ -33,6 +33,7 @@ impl Entity {
 
 /// Axis-aligned rectangle (AABB): center offset + half-extents.
 /// Used for collision detection and other spatial queries.
+#[derive(Debug, Clone, Copy)]
 pub struct Rect {
     /// Center offset from the entity's position, where box's center sits relative to the entity's position.
     /// For walls (which have no entity), this is used directly as a world-space center instead.

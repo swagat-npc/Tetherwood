@@ -42,7 +42,12 @@ impl Scene {
     /// would overlap any wall or any other entity's collider. `skip_index`
     /// excludes the entity performing the check, so it never collides
     /// with its own collider.
-    fn collider_blocked(&self, world_center: Vec2, half_size: Vec2, skip_index: usize) -> bool {
+    fn collider_blocked(
+        &self,
+        world_center: Vec2,
+        half_size: Vec2,
+        skip_index: usize,
+    ) -> Option<Rect> {
         for wall in &self.walls {
             if aabb_overlap(
                 world_center,
@@ -50,7 +55,10 @@ impl Scene {
                 wall.rect.center,
                 wall.rect.half_size,
             ) {
-                return true;
+                return Some(Rect {
+                    center: wall.rect.center,
+                    half_size: wall.rect.half_size,
+                });
             }
         }
 
@@ -66,12 +74,15 @@ impl Scene {
                     other_center,
                     collider.rect.half_size,
                 ) {
-                    return true;
+                    return Some(Rect {
+                        center: other_center,
+                        half_size: collider.rect.half_size,
+                    });
                 }
             }
         }
 
-        false
+        None
     }
 
     pub fn check_triggers(&mut self, show_debug_info: bool) -> Option<(SceneId, WarpId)> {
@@ -189,6 +200,8 @@ impl Scene {
         None
     }
 
+    // TODO: sliding along the wall decreases speed
+
     /// Attempts to move the player by `delta`. Resolves collisions
     /// sequentially, per axis — x first, then y from the (possibly
     /// already-updated) x — which is what produces sliding along a
@@ -214,8 +227,22 @@ impl Scene {
             self.entities[idx].position.y,
         );
         let world_center = proposed + offset;
-        if !self.collider_blocked(world_center, half_size, idx) {
-            self.entities[idx].position.x = proposed.x;
+
+        match self.collider_blocked(world_center, half_size, idx) {
+            Some(obstacle) => {
+                // The player's collider edge lands exactly on the obstacle's
+                // edge — computed from geometry alone, never from delta.x, so
+                // it's the same fixed answer every frame regardless of speed.
+                let target_collider_center_x = if delta.x > 0.0 {
+                    obstacle.center.x - obstacle.half_size.x - half_size.x
+                } else {
+                    obstacle.center.x + obstacle.half_size.x + half_size.x
+                };
+                self.entities[idx].position.x = target_collider_center_x - offset.x;
+            }
+            None => {
+                self.entities[idx].position.x = proposed.x;
+            }
         }
 
         // Y axis, from whatever x just resulted from the check above.
@@ -224,8 +251,19 @@ impl Scene {
             self.entities[idx].position.y + delta.y,
         );
         let world_center = proposed + offset;
-        if !self.collider_blocked(world_center, half_size, idx) {
-            self.entities[idx].position.y = proposed.y;
+
+        match self.collider_blocked(world_center, half_size, idx) {
+            Some(obstacle) => {
+                let target_collider_center_y = if delta.y > 0.0 {
+                    obstacle.center.y - obstacle.half_size.y - half_size.y
+                } else {
+                    obstacle.center.y + obstacle.half_size.y + half_size.y
+                };
+                self.entities[idx].position.y = target_collider_center_y - offset.y;
+            }
+            None => {
+                self.entities[idx].position.y = proposed.y;
+            }
         }
     }
 
