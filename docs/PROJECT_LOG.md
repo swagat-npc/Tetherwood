@@ -495,6 +495,208 @@ bed's dialogue text rendering after a successful interaction (m4-07,
 m4-08), and the world-space mouse readout confirmed correct before
 (m4-09) and after (m4-10) its authoring-space unit correction.
 
+### Phase 15 — M4: Draw-Call Batching & Debug Tooling Fixes (completed)
+
+The batching fix flagged as an open item at the end of Phase 14 was
+built for both of its two identified targets. Text rendering
+(previously one full GPU submission per glyph) now bakes each glyph's
+final screen position and atlas UV directly into a shared vertex/index
+buffer built once per string, reusing the ordinary sprite pipeline
+outright — since baking away the per-glyph UV remap left nothing
+text-specific for a dedicated shader to do, text_shader.wgsl and its
+pipeline were deleted entirely, not just optimized — see ADR-062.
+Debug rects received the same treatment, with one necessary
+difference: fill color, border color, and border thickness vary per
+rect in ways that can't be baked into shared geometry the way UV
+sampling could, so this pass needed a genuinely new vertex format
+(DebugVertex) carrying those as per-vertex attributes instead of a
+per-draw uniform, and debug_shader.wgsl was rewritten (not deleted)
+to read them that way — see ADR-063. Both fixes confirmed by direct
+before/after measurement: text went from ~18fps to near-baseline at a
+full dialogue-length test string; the debug overlay, which had become
+unusable once center-position markers roughly tripled its per-frame
+rect count, is legible again.
+
+Two smaller fixes landed alongside this. The font atlas, migrated to
+.aseprite mid-session, was briefly loaded via Texture::from_bytes
+directly — the PNG/JPEG decoder, silently wrong for Aseprite's binary
+format, and a runtime decode failure. Routed instead through
+TextureStore's existing extension-dispatch (ADR-050), which required
+a new TextureStore::take(id) to extract ownership from an otherwise-
+throwaway, single-texture store — explicitly documented as unsound on
+any longer-lived store, since removal invalidates every later
+TextureId (ADR-036) — see ADR-064. Separately, the mouse-position
+debug readout's first version displayed true world-space coordinates,
+producing a real false alarm (a trigger authored as (94, 40) read back
+as (469, 200)) before recognizing world-space has always included
+multiplying_factor's scale; the readout now divides by
+multiplying_factor before display, matching what a developer would
+actually type in a scene's construction code — recorded earlier this
+session as ADR-061.
+
+Two more debug-usability fixes: an on-screen FPS counter (smoothed via
+an exponential moving average, since raw per-frame delta was too
+noisy to read at a live update rate) gives a real-time readout for
+exactly this kind of before/after comparison going forward, and debug
+text positions anchored to Renderer::screen_size() rather than
+hardcoded coordinates, so they stay correctly placed after a window
+resize or maximize rather than silently drifting.
+
+Docs-as-code extended: docs/screenshots/ now covers m4-11 through
+m4-13 — the mouse readout staying correctly anchored after a window
+resize (m4-11), and a direct before/after pair proving the debug-rect
+batching fix, unbatched and near-unusable (m4-12) against batched and
+back to near-baseline framerate (m4-13).
+
+### Phase 16 — M4: Dialogue Machinery (completed)
+
+The typewriter/advance/skip/register system named as M4's remaining
+core requirement was built in full, scoped to the two registers Beat
+2 actually needs (Narrator, InnerMonologue — NPC dialogue stays M5's
+job). DialogueState reveals a line character-by-character on a fixed
+interval, correctly using char boundaries rather than byte slicing
+(a real, if narrowly-avoided, panic risk the moment any line uses a
+non-ASCII character like an em dash). Both E and Space advance/skip;
+E alone may also start a new interaction when no dialogue is active,
+so idly pressing Space while walking never accidentally triggers an
+examine.
+
+Dialogue content is authored as a Vec<DialogueLine>, each holding a
+Vec<ColoredSpan> rather than a flat &str — chosen specifically to
+support per-span coloring (e.g. a single word tinted to read as fear)
+as structured Rust data rather than a parsed markup string, keeping
+D-C's no-parser discipline intact even as content richness grew — see
+ADR-065. Vertex (shared by every sprite and by batched text,
+post-ADR-062) gained a tint field for this, multiplied into the
+sampled color in shader.wgsl and defaulting to white everywhere else,
+so ordinary sprites needed no change — see ADR-066.
+
+A screen-space dialogue panel reuses the batched solid-rect pipeline
+built for the F1 debug overlay (ADR-063) — its second real consumer,
+generalized from DebugRect/DebugVertex to SolidRect/SolidVertex and
+from a debug-only draw path to Renderer::render_solid_rects, callable
+with any projection/view pair rather than assuming render_scene's
+world-space transform — see ADR-067. The panel's border color reads
+the active line's Register, the first real use of Register beyond
+bookkeeping and a cheap stand-in for ADR-021's fuller "distinct
+frame" requirement until real panel art exists.
+
+A blinking "press to continue" caret (▼, drawn into a previously
+empty atlas grid cell) is shown only once the current line is fully
+revealed, toggled via its own independent timer so it keeps blinking
+continuously rather than resetting per line — implemented as one more
+character through the existing batched text path, no new sprite or
+draw call.
+
+Docs-as-code extended: docs/screenshots/ now covers m4-14 through
+m4-16 and m4-20 — typewriter reveal mid-line (m4-14), the panel
+border and per-span text color both visibly distinguishing register
+(m4-15), the panel after visual tuning (m4-16), and the blinking
+caret (m4-20).
+
+### Phase 17 — M4: Debug Tooling Independence & Facing Visualization (completed)
+
+Dialogue's text scale (DIALOGUE_TEXT_SCALE) and debug text's scale
+(DEBUG_TEXT_SCALE) were decoupled — both had been forced to share one
+constant, so tuning either affected the other. layout_text/
+layout_colored_text became thin wrappers defaulting to
+DIALOGUE_TEXT_SCALE around new _scaled variants taking an explicit
+scale, the same default-via-wrapper pattern already used for color.
+Debug text (FPS counter, mouse position) gained solid background
+boxes via a new Renderer::render_text_bg, sized to the glyph list's
+own bounding box (text::combined_glyph_info) plus an explicit padding
+parameter — reusing render_solid_rects rather than introducing new
+drawing machinery, the same generalized pipeline the dialogue panel
+already uses.
+
+Entity facing gained two independent visual expressions. A horizontal
+flip (negative x-scale in the sprite draw, gated on Direction::Left)
+gives the player sprite genuine left/right distinction — Up/Down
+remain visually identical, a known, accepted limit of flip-only
+direction until real directional art exists (frame-based, per
+ADR-050's proven single-frame-swap pattern, extended). Separately, a
+new F1 debug marker (push_facing_marker) draws a short line from each
+textured entity's position in its current facing direction — its
+first version, a plain symmetric bar, was found genuinely ambiguous
+(Up and Down were visually indistinguishable, confirmed by placing
+two oppositely-facing beds side by side) and was replaced with a
+three-segment tapering shape reading unambiguously as a directional
+arrow, using nothing but the existing batched-rect pipeline — see
+ADR-068.
+
+Docs-as-code extended: docs/screenshots/ now covers m4-17 through
+m4-19 — scaled, backed debug text (m4-17), the player sprite's
+left/right mirroring (m4-18), and the corrected, unambiguous facing
+debug lines (m4-19).
+
+### Phase 18 — M4: Flush Collision, Trigger Restructuring, Necklace Pickup (completed)
+
+Player movement previously stopped short of a blocked collider by
+whatever distance the frame's step size happened to leave, rather
+than landing flush — visibly worse at higher speed or lower frame
+rate, and never actually zero-gap. collider_blocked now returns the
+specific obstacle (Option<Rect>, not just whether one exists), and a
+blocked step resolves to the exact geometric contact position,
+computed fresh from geometry every frame rather than from a
+delta-dependent gap — stable regardless of movement speed. Getting
+there surfaced and fixed two further bugs: aabb_overlap's strict `<`
+judged exact flush contact (newly, frequently reached) as "not
+overlapping," letting movement pass clean through the axis that was
+supposedly blocking it; and an intermediate gap formula mixed current
+and proposed position inconsistently, producing jitter that never
+converged — see ADR-069.
+
+TriggerKind's Interact variant split into Dialogue and Toggle — a
+direct, dialogue-free texture/collider flip (state inferred from
+which texture the entity currently has, ADR-037's existing
+Option-as-state pattern) for objects needing to change on every press
+with no conversation, distinct from Dialogue's proximity+facing+
+button-into-a-conversation flow. Dialogue's prompt_entity/
+prompt_texture became Option — not every interactable should show a
+"press E" icon forever; this game's design uses prompts only for the
+first couple of tutorial interactions. TextureStore::load_aseprite_frame
+loads a specific frame of a multi-frame file explicitly, chosen over
+Aseprite layers since frames already produce the flat, composited
+image a static state needs — see ADR-070.
+
+A new patio door (new_outside) exercises Toggle against real content,
+open/closed via two frames of one file. Its first version listed both
+Up and Down in one shared trigger's required_facing and could be
+opened from the wrong side (standing above, facing away, still
+satisfied the check) — the same ADR-060 gap first found on the
+necklace, now hit a second time on content this same phase
+introduced; fixed by splitting into two triggers, one per approach
+zone, sharing all door state and differing only in rect and
+required_facing.
+
+DialogueLine gained a narrow, single-purpose consumes_entity: Option
+<EntityId> — not a general post-dialogue callback — clearing a
+specific entity once a specific line is the dialogue's last and it
+closes. Trigger gained a permanent active flag, distinct from the
+already-transient recently_used: once consumed, a trigger is
+deactivated for the scene's remaining lifetime, checked everywhere
+triggers are read (check_triggers, try_interact,
+update_interact_prompts, and the F1 debug overlay — all four
+independently iterate triggers and all four needed the guard).
+Scene::consume_entity clears the target entity, deactivates its
+trigger, and separately clears the trigger's own prompt icon — a
+distinct entity, easy to miss since a deactivated trigger no longer
+participates in prompt-visibility logic at all and would otherwise
+leave a stale icon frozen on screen — see ADR-071. The necklace now
+removes itself (sprite, collider, prompt, trigger) after its examine
+line finishes, Beat 2's first working item-pickup moment.
+
+A Ctrl+R scene-reset shortcut (AppState::reset_scene, reusing
+change_scene's build_scene path) rebuilds the current scene from
+scratch for testing, checked via the existing held_keys set rather
+than winit's separate ModifiersState API.
+
+Docs-as-code extended: docs/screenshots/ now covers m4-21 through
+m4-25 — flush, zero-gap contact against a collider (m4-21), the
+patio door's two Toggle triggers visible under F1 (m4-22), the door
+after opening (m4-23), and a before/after pair confirming the
+necklace's full removal after being picked up (m4-24, m4-25).
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -1062,6 +1264,66 @@ m4-08), and the world-space mouse readout confirmed correct before
 - **Rationale:** The tool's purpose is to speed up hand-placing content — it's more useful reporting "what to type" than "the true final scaled value," since the former is the number actually compared against source code during authoring. `screen_to_world` itself is unchanged (still returns true world-space, needed elsewhere); the division is display-only, at the one call site that renders this specific debug text.
 - **Consequences:** Recorded explicitly so the same false alarm doesn't recur — any raw literal in scene-construction code is pre-scale/authoring-space; any position read from a live `Entity`/`Rect`/mouse-readout is post-scale/world-space; the two are only numerically equal when `multiplying_factor == 1.0`.
 
+### ADR-062: Text rendering batched into one draw call; dedicated text pipeline removed
+- **Context:** render_text issued one full GPU submission (buffer allocation, bind group, command encoder, submit) per glyph, via a per-draw GlyphUniform remapping a shared unit quad's UV onto one atlas sub-rectangle each time. At real dialogue-length strings (~83 characters) this measurably cost ~40fps, dropping the game from ~60fps to ~18fps whenever text was on screen.
+- **Decision:** build_text_mesh computes every glyph's final screen-space corner positions and atlas UV directly, once, on the CPU, producing one vertex+index buffer for an entire string. render_text uploads that once and issues a single draw_indexed call regardless of string length. Since baking UV directly into vertex data eliminated the only reason text needed its own shader (the per-draw remap), text_shader.wgsl, text_pipeline, GlyphUniform, and glyph_bind_group_layout are deleted; render_text now draws through the existing sprite pipeline (shader.wgsl), pointed at the glyph atlas bind group instead of a scene texture.
+- **Rationale:** Per-primitive GPU submission cost (not the fragment/vertex math itself) was the actual bottleneck, per the same category of cost ADR-043 already named for debug rects — batching removes the submission count, not any rendering logic. That the fix also deleted a whole shader/pipeline pair, rather than just speeding up the existing one, was a direct consequence of the per-primitive *data* (UV offset) being fully bakeable into geometry, unlike debug rects' per-primitive *color/thickness* (see ADR-063, which could not take this same shortcut).
+- **Consequences:** No typewriter/partial-reveal hook was added in this pass (deferred until the dialogue manager actually needs it); draw_indexed(0..N) on this same batched buffer is the identified extension point when that's built — reducing revealed character count needs no buffer rebuild, only a smaller index range.
+
+### ADR-063: Debug-rect overlay batched via a dedicated per-vertex format
+- **Context:** The debug-collider overlay (ADR-043) paid the same per-rect GPU submission cost as text, at "a dozen or so" rects — explicitly accepted at that scale, explicitly flagged for revisit if rect count grew. Adding center-position crosshair markers (one per wall, collider, and trigger, plus one at the world origin) roughly tripled per-frame rect count, crossing that threshold — F1 became unusable.
+- **Decision:** A new DebugVertex format carries fill_color, border_color, and border_thickness as per-vertex attributes (duplicated identically across a rect's 4 corners) instead of a per-draw DebugRectUniform. debug_shader.wgsl's border-math fragment logic is unchanged — only its inputs move from a uniform to interpolated vertex attributes. build_debug_mesh batches every debug rect for the frame into one shared vertex/index buffer, drawn with a single draw_indexed call; debug_bind_group_layout is removed, since the debug pipeline's only remaining binding is the shared transform uniform.
+- **Rationale:** Unlike text's UV offset (a single value fully determining what to sample), a rect's color/thickness values are inputs to the fragment shader's own computation, not something bakeable into shared geometry alone — this is why debug-rect batching needed a genuinely new vertex format rather than reusing an unmodified existing pipeline the way text could. The underlying fix (move per-primitive data from a uniform to per-vertex attributes, collapse many draws into one) is the same principle as ADR-062, applied to a case where the data being varied is richer.
+- **Consequences:** Confirmed via direct before/after screenshots with the smoothed on-screen FPS counter — frame rate returned to near-baseline with center markers enabled. Any future debug-visualization addition (e.g. a facing-direction indicator) should default to this same batched-mesh pattern rather than reintroducing a per-primitive draw loop.
+
+### ADR-064: TextureStore::take, explicitly unsound outside a throwaway store
+- **Context:** The font atlas asset was migrated to .aseprite mid-session but briefly loaded via Texture::from_bytes directly, bypassing TextureStore::load's existing extension-based dispatch (ADR-050) — a runtime decode failure, since from_bytes's PNG/JPEG decoder has no knowledge of Aseprite's binary format. Reusing TextureStore::load's dispatch instead required a way to extract an owned Texture back out, since TextureStore::get only borrows and the store built for this one-off load doesn't outlive Renderer::new.
+- **Decision:** TextureStore::take(id) removes and returns ownership of a texture via Vec::swap_remove, documented explicitly as sound only for a store about to be discarded with nothing else holding an index into it.
+- **Rationale:** swap_remove was chosen over remove for both correctness-adjacent honesty and (at this scale, immaterial) efficiency: on a genuinely throwaway single-texture store there is nothing "behind" the removed element to shift either way, but swap_remove's O(1), no-reordering-of-the-rest semantics better signal "I don't care what happens to this collection afterward" than remove's order-preserving intent. On any store with more than one entry and a longer lifetime, either method would invalidate later TextureIds (ADR-036's stable-index guarantee) — take() must never be called on a real scene's TextureStore.
+- **Consequences:** The doc comment on take() carries this warning directly, since nothing in the type system currently prevents misuse on a longer-lived store — a future correctness gap, accepted at this scale (one call site, unlikely to be reused incorrectly) rather than building an enforcement mechanism now.
+
+### ADR-065: Dialogue content authored as structured colored spans, not markup
+- **Context:** Per-word/phrase text coloring (e.g. tinting "dangerous" red within an otherwise white line) needed a way to associate color with a sub-range of a line's text.
+- **Decision:** DialogueLine holds Vec<ColoredSpan> (text + color per span) rather than a flat &str with inline markup syntax.
+- **Rationale:** A markup syntax parsed at runtime is a real, if small, parser — unjustified machinery at current content volume, and inconsistent with D-C's static-Rust-data approach (ADR-027). Structured spans get the same capability as plain, explicit Rust values, authored directly in game::dialogue::line_for.
+- **Consequences:** More verbose to author than inline markup would be (each colored sub-run is its own explicit struct literal) — an accepted, deliberate cost given content volume remains small.
+
+### ADR-066: Shared Vertex format gains a tint field
+- **Context:** Per-span dialogue coloring needed a way to multiply a color into each glyph's sampled texture. Text already shares the ordinary sprite pipeline (ADR-062) with no per-vertex color concept.
+- **Decision:** Vertex (used by every sprite and by batched text alike) gains a tint: [f32; 4] field, multiplied into the sampled color in shader.wgsl's fragment shader. Every existing static VERTICES entry sets it to white (a no-op multiply), so ordinary sprites are unaffected.
+- **Rationale:** Extending the one shared vertex format, rather than building a second, text-only tinted variant, avoids re-diverging text from sprites right after ADR-062 unified them — the cost (one more vec4 per vertex, unused by sprites) is trivial next to reintroducing a parallel pipeline.
+- **Consequences:** Any future sprite-tinting need (a damage flash, a fade) already has the capability available for free.
+
+### ADR-067: Debug-rect pipeline generalized into a general solid-rect primitive
+- **Context:** The dialogue panel needed a solid-colored background rectangle — mechanically identical to what the F1 debug overlay's batched-rect pipeline (ADR-063) already draws, just for a permanent, player-facing purpose rather than a dev toggle.
+- **Decision:** DebugRect/DebugVertex renamed to SolidRect/SolidVertex; the draw path generalized into Renderer::render_solid_rects, taking an explicit projection/view pair rather than assuming render_scene's world-space transform — letting the F1 overlay (world-space) and the dialogue panel (screen-space, matching render_text's ADR-058 convention) share one mechanism correctly.
+- **Rationale:** The debug overlay was the pipeline's first consumer; the dialogue panel is its second, and per this project's established pattern, a second real consumer is exactly when a name/API should generalize beyond its original single-purpose framing — not before.
+- **Consequences:** Any future solid-color UI need (a health bar background, a menu panel) has a ready, batched, tested primitive to build on.
+
+### ADR-068: Facing debug marker redesigned from a symmetric line to a tapering arrow
+- **Context:** push_facing_marker's first version drew one rect centered on a point offset in the facing direction — visually symmetric, so Up and Down (and Left and Right) produced identical-looking lines, confirmed ambiguous by placing two oppositely-facing beds side by side.
+- **Decision:** Three rects along the facing axis, decreasing in thickness toward the tip (5.0 -> 3.0 -> 1.5 px), producing a triangle-like silhouette that unambiguously points away from center — using nothing but the existing batched solid-rect pipeline, no new geometry primitive (e.g. a true triangle) built.
+- **Rationale:** A single rect cannot encode direction at all, only axis — no comparison or math fix addresses this, only an asymmetric shape can. Three tapering segments achieve that using only the rectangle primitive already available, avoiding new pipeline work for a debug-only visual.
+- **Consequences:** A genuine triangle/arrowhead primitive remains a possible future upgrade if more debug/editor visuals need it, not built now since the tapering-rect approximation already reads clearly.
+
+### ADR-069: Collision resolution lands the player flush against colliders via exact geometry
+- **Context:** A blocked movement step was previously rejected outright rather than partially resolved, so the player's actual stopping distance from an obstacle depended on wherever they happened to be the previous frame — never exactly flush, worse at higher speed.
+- **Decision:** collider_blocked returns Option<Rect> (the specific blocking obstacle). A blocked axis resolves to the exact position where the player's collider edge touches the obstacle's edge, computed directly from both rects' geometry each frame — not from delta or a cached gap value.
+- **Rationale:** The correct resting position is a fixed geometric fact independent of movement speed; computing it directly (rather than approximating via partial steps or accumulated deltas) is both simpler and immune to the frame-rate-dependent jitter an intermediate delta-based attempt produced. Required aabb_overlap's boundary comparison to change from strict `<` to `<=`, since exact flush contact (the new, common resting state) must correctly register as "still touching," not "just cleared."
+- **Consequences:** Confirmed against straight approaches from all four directions, diagonal sliding along a flat wall, and diagonal movement into a true inside corner.
+
+### ADR-070: TriggerKind split into Warp, Dialogue, and Toggle
+- **Context:** All non-Warp interactions had shared one Interact variant (proximity+facing+button starting a dialogue). A door needing to open/close on every press, with no conversation, didn't fit that shape.
+- **Decision:** Interact renamed to Dialogue; a new Toggle variant flips a target entity's texture and collider directly, with no dialogue involved. State is inferred from which texture the entity currently holds (ADR-037's Option-as-state pattern), not tracked as a separate flag. Dialogue's prompt_entity/prompt_texture become Option, since this game's design shows "press E" prompts only for the first couple of tutorial interactions, never afterward.
+- **Rationale:** A door's toggle and a conversation's start are genuinely different actions with different data needs (Toggle has no id/prompt/facing-list-per-side content at all); forcing both through one variant would mean irrelevant fields on every construction site. TextureStore::load_aseprite_frame (explicit frame selection) was added alongside this, since Toggle's two visual states are two frames of one file.
+- **Consequences:** try_interact's return type became InteractResult, an enum the caller matches on to dispatch correctly — any future third interaction kind gets its own arm here, not a generalized callback (still deliberately not built, per ADR-046).
+
+### ADR-071: Permanent trigger deactivation and entity consumption for one-shot pickups
+- **Context:** The necklace needed to remove itself (sprite, collider, prompt icon, and its own trigger) after its examine dialogue finished — a one-way, permanent state change, distinct from Toggle's bidirectional flip and from recently_used's transient, self-re-arming suppression.
+- **Decision:** DialogueLine gains consumes_entity: Option<EntityId> — narrow and single-purpose, naming exactly which entity to remove when that specific line is the dialogue's last and it closes, not a general post-dialogue hook. Trigger gains a permanent active: bool, checked in every function that reads triggers (check_triggers, try_interact, update_interact_prompts, and the F1 debug-rect overlay). Scene::consume_entity clears the target entity's texture/collider, deactivates the owning trigger, and separately clears that trigger's own prompt-icon entity — a distinct entity from the one being consumed, whose visibility would otherwise freeze at whatever state it held the instant the trigger deactivated, since a deactivated trigger no longer participates in update_interact_prompts at all.
+- **Rationale:** A generic post-dialogue callback mechanism was considered and rejected (same reasoning as ADR-046's earlier trigger-dispatch decision) — one narrow field solving the one real case in front of the project, not speculative machinery for cases that don't exist yet.
+- **Consequences:** All four trigger-reading call sites needed the active guard independently; missing any one of them (as initially happened for the debug overlay) leaves a stale, non-functional trigger still visibly or functionally present. Confirmed via a before/after screenshot pair showing the necklace's complete removal.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -1135,6 +1397,34 @@ m4-08), and the world-space mouse readout confirmed correct before
   buffer/bind-group/draw-call cost, ADR-043's originally-accepted cost
   crossed its stated revisit threshold) — batching is the identified
   fix for both, not yet built, tracked as an open item.
+- Draw-call batching (Phase 15, ADR-062–064) closed the performance
+  gap both text rendering and the debug overlay had hit at real
+  content scale: text now costs one draw call per string regardless
+  of length (previously one per glyph, ~18fps at a full dialogue-
+  length test string), and the debug overlay similarly batches every
+  wall/collider/trigger/center-marker rect into one draw call
+  (previously unusable once center markers roughly tripled per-frame
+  rect count). text_shader.wgsl and its dedicated pipeline were
+  deleted entirely — baking UV offset into vertex data left nothing
+  left for a separate shader to do, so batched text now draws through
+  the ordinary sprite pipeline. Two smaller fixes landed alongside:
+  the font atlas is now loaded through TextureStore's existing
+  extension dispatch (a direct from_bytes call had silently mismatched
+  the .aseprite format after its mid-session migration), and the
+  mouse-position debug readout displays authoring-space rather than
+  raw world-space coordinates, matching what's actually typed in
+  scene-construction code. An on-screen, exponentially-smoothed FPS
+  counter and screen-size-relative debug text anchoring were also
+  added, both aimed at making this kind of before/after comparison
+  and general debugging easier going forward.
+- Dialogue machinery (Phase 16), debug-tooling independence and
+  facing visualization (Phase 17), and flush collision with the
+  Dialogue/Toggle trigger restructuring, the patio door, and the
+  necklace's working item-pickup (Phase 18) are all now complete —
+  see ADR-065–071. M4's remaining open items: real Beat 2 writing
+  (bed/necklace lines are still placeholder text), blip audio (E7,
+  not started), and the code-organization pass flagged as its own
+  upcoming, separate conversation once M4's remaining features land.
 
 ### Open questions
 
