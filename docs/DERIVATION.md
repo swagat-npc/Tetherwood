@@ -3,7 +3,12 @@
 **Document type:** Design→requirements derivation (docs-as-code, lives in `docs/`)
 **Input:** Project Log v2, Beats v2 (Phase 7)
 **Output:** Feature inventory → engine/game system split → Rust concept map → milestones → 30/45-day plan
-**Status:** v1
+**Status:** v2 — retrospective update after M1–M4 shipped. Original
+feature inventory/milestone table (§2, §5) kept as historical record
+of the plan; §5's milestone table and §6/§7's day-based schedule are
+superseded by PROJECT_LOG.md's actual Phase Log, which is now the
+authoritative record of what was built and when. See PROJECT_LOG.md
+for the real build history from M1 onward.
 
 ---
 
@@ -36,6 +41,9 @@ Scope tags: 🔷 slice · 🔶 Phase 1 thickening · ⬜ later phase.
 - Collision vs static rectangles (walls, furniture)
 - Interact verb: proximity + facing check + button
 - Examine triggers → narrator text (keepsake: flavor only, no mechanics hint — ADR-018)
+  — **resolved during M4**: the keepsake *is* the necklace, examined
+  and consumed (removed from the scene) after its dialogue closes, not
+  a separate object — see ADR-071, ADR-075.
 
 ### Beat 2 — The empty house 🔷
 - Scene transition (room → room): unload/load scene, player spawn points
@@ -97,14 +105,15 @@ Scope tags: 🔷 slice · 🔶 Phase 1 thickening · ⬜ later phase.
 | E1 | **Platform**: window, event loop, input mapping (winit) | all | 🔷 |
 | E2 | **Renderer**: wgpu device/surface/pipeline, textured quads, sprite batching (naive ok), camera, y-sorted draw order, text rendering | all | 🔷 |
 | E3 | **Time**: frame delta; battle tick accumulator | all / battle | 🔷 |
-| E4 | **Scene system**: scene trait, stack (push battle over overworld), transitions incl. flatten hook | 2,6,8 | 🔷 |
+| E4 | **Scene system**: scene trait, stack (push battle over overworld), transitions incl. flatten hook. **M4 built a concrete Scene, no trait/stack — deferred to M6 per ADR-044, once battle-over-overworld gives a second real shape to design against.** | 2,6,8 | 🔷 |
 | E5 | **Entity model**: plain structs, ID/index addressing (D-A) | all | 🔷 |
-| E6 | **Dialogue machinery**: typewriter, three registers, blip playback, flag-conditioned line selection, advance/skip | 2–6,8 | 🔷 |
+| E6 | **Dialogue machinery**: typewriter, three registers, blip playback, flag-conditioned line selection, advance/skip. **M4 built two of three registers; NPC (avatar + standard frame) deferred to M5, once the village exists to speak it.** | 2–6,8 | 🔷 |
 | E7 | **Audio**: one music track, SFX/blip playback (kira) | 3+, dialogue | 🔷 |
-| E8 | **Interaction/trigger**: proximity + facing + button; zone triggers | 1,3,4,6 | 🔷 |
+| E8 | **Interaction/trigger**: proximity + facing + button; zone triggers. **Grew into three trigger kinds (ADR-046, 070) — Warp (scene transition), Dialogue (examine → conversation, ADR-060's multi-approach pattern), Toggle (dialogue-free state flip, e.g. doors). Permanent one-shot consumption (ADR-071) added for item pickups, distinct from Toggle's bidirectional flip.** | 1,3,4,6 | 🔷 |
 | E9 | **Flag store**: named booleans, query API | 3–8 | 🔷 |
 | E10 | **Asset loading**: image decode → GPU texture, audio load; static tables for data (D-C) | all | 🔷 |
 | E11 | **Grid combat substrate**: grid math, tile highlight rendering, tick scheduling | 7 | 🔷 (built in game module first; promoted to engine only if a second battle context ever wants it — the extraction principle in miniature) |
+| E12 | **Debug/editor tooling**: world-space mouse readout (`screen_to_world`), a permanent collider/trigger/facing-direction overlay (batched solid-rect pipeline, ADR-063/067), self-expiring toast notifications, a hand-built `Slider` widget (ADR-073) — not planned as an engine system at all in the original derivation; emerged directly from M3/M4's own authoring pain (hand-placing triggers blind) and is now treated as the seed of a future in-engine inspector, not throwaway scaffolding | all (authoring/debugging, not gameplay-facing) | 🔷 informal so far; formalizing into a real inspector is explicitly named as a future goal, not yet scheduled |
 
 ### Game content (`src/game/`)
 
@@ -128,7 +137,7 @@ Ordered by when the build forces each concept. "Bites" = where you will meet it 
 | Modules & visibility | `engine/` vs `game/` boundary from day one (D-B) | M1+ |
 | Closures & `move` | winit's event loop closure; `'static` bound confusion is a rite of passage | M1 |
 | Traits | wgpu's trait-heavy API (M2); `Scene` trait (M4) | M2,M4 |
-| Trait objects (`dyn`) | Scene stack holding heterogeneous scenes | M4 |
+| Trait objects (`dyn`) | Scene stack holding heterogeneous scenes | M6 |
 | Lifetimes (reading them) | wgpu surface/device relationships; mostly *reading* signatures, rarely writing them | M2 |
 | Slices, Vec, HashMap | Entity lists, flag store | M3,M5 |
 | **Indices over references** | Enemy AI needs player position; borrow checker vetoes the C#-style object graph. THE signature Rust-gamedev lesson. Expect it; don't fight it; store IDs. | M5–M6 |
@@ -144,18 +153,20 @@ Ordered by when the build forces each concept. "Bites" = where you will meet it 
 
 ## 5. Milestones (each ends visible)
 
-| M | Name | Definition of done | Engine systems |
-|---|---|---|---|
-| M0 | Baseline | Rustlings sets done; Book ch1–10 skimmed; can explain ownership to a rubber duck | — |
-| M1 | The Window | `cargo run` opens a window, cyan clear color, ESC quits, WASD logs to console | E1, E3 (delta) |
-| M2 | The Sprite | Triangle → quad → **textured sprite at an arbitrary position**; camera offset works | E2, WGSL |
-| M3 | The Room | Beat 1 playable: authored bedroom, player walks with collision, camera follows, y-sort proven (walk behind furniture) | E5, E8 (partial), E10 |
-| M4 | The Voice | Beat 2 playable: room transition; examine bed → narrator text; typewriter + blips; inner-monologue frame distinct | E4, E6, E7 |
-| M5 | The Village | Beats 3–5 slice path: village scene, 3–4 NPCs, flag-conditioned clue chain, guard grants sword (flag + HUD icon) | E9, E6 full, E8 full |
-| M6 | The Fold | Beats 6–7: encounter trigger, flatten v1, full battle vs one initiate-soldier (grid, tick, telegraph, lockout, HP, win/lose/retry) | E11, E4 (stack) |
-| M7 | The Hook | Beat 8: un-fold, essence thread, map drop, closing text, end screen. **Slice complete.** | polish |
+| M | Name | Definition of done | Engine systems | Status |
+|---|---|---|---|---|
+| M0 | Baseline | Rustlings sets done; Book ch1–10 skimmed; can explain ownership to a rubber duck | — | ✅ |
+| M1 | The Window | `cargo run` opens a window, cyan clear color, ESC quits, WASD logs to console | E1, E3 (delta) | ✅ |
+| M2 | The Sprite | Triangle → quad → **textured sprite at an arbitrary position**; camera offset works | E2, WGSL | ✅ |
+| M3 | The Room | Beat 1 playable: authored bedroom, player walks with collision, camera follows, y-sort proven (walk behind furniture) | E5, E8 (partial), E10 | ✅ |
+| M4 | The Voice | Beat 2 playable: room transition; examine bed → narrator text; typewriter + blips; inner-monologue frame distinct | E4, E6, E7 | ✅ closed, substantially exceeded original scope — see PROJECT_LOG Phase 21 |
+| M5 | The Village | Beats 3–5 slice path: village scene, 3–4 NPCs, flag-conditioned clue chain, guard grants sword (flag + HUD icon) | E9, E6 full, E8 full | ⬜ next |
+| M6 | The Fold | Beats 6–7: encounter trigger, flatten v1, full battle vs one initiate-soldier (grid, tick, telegraph, lockout, HP, win/lose/retry) | E11, E4 (stack) | ⬜ |
+| M7 | The Hook | Beat 8: un-fold, essence thread, map drop, closing text, end screen. **Slice complete.** | polish | ⬜ |
 
 ---
+
+**written before implementation began; kept for record, not followed**
 
 ## 6. The Plan — Days 1–30 (+ preview to 45)
 
@@ -176,6 +187,8 @@ Ordered by when the build forces each concept. "Bites" = where you will meet it 
 **Days 31–45 (preview) — M5 finish → M6 → M7.** Guard + sword (~d32) · grid + tick + player-on-grid (~d36) · initiate behavior + telegraphs + lockout (~d40) · flatten v1 + win/lose (~d43) · Beat 8 + end screen (~d45). **Slice complete around day 45.** The 30-day number is the *checkpoint*, not the finish line — plan says so out loud to prevent week-3 despair.
 
 ---
+
+**written before implementation began; kept for record, not followed**
 
 ## 7. Risks Specific to This Plan
 
