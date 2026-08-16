@@ -245,19 +245,48 @@ impl Scene {
         };
         let (offset, half_size) = (collider.rect.center, collider.rect.half_size);
 
-        // X axis
-        let proposed = Vec2::new(
-            self.entities[idx].position.x + delta.x,
-            self.entities[idx].position.y,
-        );
-        let world_center = proposed + offset;
+        // Recover the original, un-normalized direction and full speed
+        // magnitude, so a blocked axis can hand its "unused" speed budget
+        // to the other axis instead of leaving it diagonal-reduced.
+        let direction = delta.normalize_or_zero();
+        let full_speed = delta.length();
 
-        match self.collider_blocked(world_center, half_size, idx) {
+        // First pass: check whether each axis's *original, diagonal-sized*
+        // proposal would be blocked - using the same starting position for
+        // both checks, since neither axis has actually moved yet.
+        let start = self.entities[idx].position;
+
+        let x_probe = Vec2::new(start.x + delta.x, start.y) + offset;
+        let x_blocked_initially = self.collider_blocked(x_probe, half_size, idx).is_some();
+
+        let y_probe = Vec2::new(start.x, start.y + delta.y) + offset;
+        let y_blocked_initially = self.collider_blocked(y_probe, half_size, idx).is_some();
+
+        // Each axis's actual delta: full, undiminished speed in its own
+        // direction if the *other* axis was blocked (nothing left to share
+        // the diagonal split with) - otherwise the original diagonal delta.
+        let x_delta = if y_blocked_initially && direction.x != 0.0 {
+            direction.x.signum() * full_speed
+        } else {
+            delta.x
+        };
+        let y_delta = if x_blocked_initially && direction.y != 0.0 {
+            direction.y.signum() * full_speed
+        } else {
+            delta.y
+        };
+
+        // X axis
+        let proposed_x = start.x + x_delta;
+        let world_center = Vec2::new(proposed_x, start.y) + offset;
+        let x_blocked = self.collider_blocked(world_center, half_size, idx);
+
+        match x_blocked {
             Some(obstacle) => {
                 // The player's collider edge lands exactly on the obstacle's
-                // edge — computed from geometry alone, never from delta.x, so
+                // edge - computed from geometry alone, never from delta.x, so
                 // it's the same fixed answer every frame regardless of speed.
-                let target_collider_center_x = if delta.x > 0.0 {
+                let target_collider_center_x = if x_delta > 0.0 {
                     obstacle.center.x - obstacle.half_size.x - half_size.x
                 } else {
                     obstacle.center.x + obstacle.half_size.x + half_size.x
@@ -265,16 +294,13 @@ impl Scene {
                 self.entities[idx].position.x = target_collider_center_x - offset.x;
             }
             None => {
-                self.entities[idx].position.x = proposed.x;
+                self.entities[idx].position.x = proposed_x;
             }
         }
 
         // Y axis, from whatever x just resulted from the check above.
-        let proposed = Vec2::new(
-            self.entities[idx].position.x,
-            self.entities[idx].position.y + delta.y,
-        );
-        let world_center = proposed + offset;
+        let proposed_y = self.entities[idx].position.y + y_delta;
+        let world_center = Vec2::new(self.entities[idx].position.x, proposed_y) + offset;
 
         match self.collider_blocked(world_center, half_size, idx) {
             Some(obstacle) => {
@@ -286,7 +312,7 @@ impl Scene {
                 self.entities[idx].position.y = target_collider_center_y - offset.y;
             }
             None => {
-                self.entities[idx].position.y = proposed.y;
+                self.entities[idx].position.y = proposed_y;
             }
         }
     }
