@@ -226,8 +226,6 @@ impl Scene {
         None
     }
 
-    // TODO: sliding along the wall decreases speed
-
     /// Attempts to move the player by `delta`. Resolves collisions
     /// sequentially, per axis — x first, then y from the (possibly
     /// already-updated) x — which is what produces sliding along a

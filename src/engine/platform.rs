@@ -1,3 +1,4 @@
+use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
 use pollster::block_on;
 use std::collections::HashSet;
 use std::{sync::Arc, time::Instant};
@@ -12,6 +13,7 @@ use winit::{
 use crate::engine::ids::SceneId;
 use crate::engine::renderer::Renderer;
 use crate::engine::scene::{CameraMode, Scene};
+use crate::game::dialogue::Register;
 
 struct DialogueState {
     lines: Vec<crate::game::dialogue::DialogueLine>,
@@ -59,24 +61,38 @@ impl DialogueState {
             .unwrap_or(0)
     }
 
+    fn char_at(&self, index: usize) -> Option<char> {
+        self.lines
+            .get(self.current_line)?
+            .spans
+            .iter()
+            .flat_map(|s| s.text.chars())
+            .nth(index)
+    }
+
     /// Advances the typewriter reveal by `delta` seconds. Call once
     /// per frame while dialogue is active, regardless of input.
-    fn tick(&mut self, delta: f32) {
+    fn tick(&mut self, delta: f32) -> bool {
         self.caret_timer += delta;
 
         if self.lines.get(self.current_line).is_none() {
-            return; // no active lines, nothing to reveal
+            return false; // no active lines, nothing to reveal
         };
         let full_len = self.full_len();
         if self.revealed_chars >= full_len {
-            return; // line is fully revealed, nothing to do
+            return false; // line is fully revealed, nothing to do
         }
 
         self.reveal_timer += delta;
+        let mut revealed_non_space = false;
         while self.reveal_timer >= REVEAL_INTERVAL && self.revealed_chars < full_len {
             self.reveal_timer -= REVEAL_INTERVAL;
+            if self.char_at(self.revealed_chars) != Some(' ') {
+                revealed_non_space = true;
+            }
             self.revealed_chars += 1;
         }
+        revealed_non_space
     }
 
     /// The E/Space press handler. Skips to full reveal if the current
@@ -158,6 +174,10 @@ struct AppState {
     dialogue: Option<DialogueState>,
     screen_mouse_position: (f64, f64),
     smoothed_fps: f32,
+    audio: kira::AudioManager<kira::DefaultBackend>,
+    audio_blip: Vec<StaticSoundData>,
+    blip_step_counter: usize,
+    blip_volume: f32,
 }
 
 impl AppState {
@@ -186,6 +206,23 @@ impl AppState {
     fn reset_scene(&mut self) {
         self.scene = Self::build_scene(&mut self.renderer, self.scene.id, self.multiplying_factor);
     }
+
+    const BLIP_PITCH_STEPS: [f64; 4] = [0.95, 1.05, 1.0, 1.1]; // semitone-ish multipliers, cycling
+    // const BLIP_PITCH_STEPS: [f64; 4] = [0.5, 1.0, 1.5, 2.0];
+    fn play_blip(&mut self, step_index: usize) {
+        let Some(dialogue) = self.dialogue.as_mut() else {
+            return;
+        };
+        let sound_data = match dialogue.current_register() {
+            Some(Register::InnerMonologue) => &self.audio_blip[1],
+            _ => &self.audio_blip[0],
+        };
+        let pitch = Self::BLIP_PITCH_STEPS[step_index % Self::BLIP_PITCH_STEPS.len()];
+        let settings = StaticSoundSettings::new()
+            .playback_rate(kira::PlaybackRate::from(pitch))
+            .volume(kira::Decibels::from(self.blip_volume));
+        let _ = self.audio.play(sound_data.clone().with_settings(settings));
+    }
 }
 
 impl ApplicationHandler for App {
@@ -212,6 +249,19 @@ impl ApplicationHandler for App {
 
         let initial_scene = AppState::build_scene(&mut renderer, SceneId::Home, multiplying_factor);
 
+        let audio =
+            kira::AudioManager::<kira::DefaultBackend>::new(kira::AudioManagerSettings::default())
+                .expect("failed to initialize audio");
+        let mut audio_blip = Vec::new();
+        audio_blip.push(
+            StaticSoundData::from_file("assets/sound/blip_narrator.wav")
+                .expect("failed to load narrator blip"),
+        );
+        audio_blip.push(
+            StaticSoundData::from_file("assets/sound/blip_monologue.wav")
+                .expect("failed to load monologue blip"),
+        );
+
         let state = AppState {
             window,
             renderer,
@@ -226,6 +276,10 @@ impl ApplicationHandler for App {
             dialogue: None,
             screen_mouse_position: (0.0, 0.0),
             smoothed_fps: 60.0,
+            audio,
+            audio_blip,
+            blip_step_counter: 0,
+            blip_volume: -24.0,
         };
 
         self.state = Some(state);
@@ -274,7 +328,11 @@ impl ApplicationHandler for App {
                 }
 
                 if let Some(dialogue) = &mut state.dialogue {
-                    dialogue.tick(delta.as_secs_f32());
+                    if dialogue.tick(delta.as_secs_f32()) {
+                        let step = state.blip_step_counter;
+                        state.blip_step_counter = state.blip_step_counter.wrapping_add(1);
+                        state.play_blip(step);
+                    }
                 }
 
                 // TODO(engine): raw KeyCode handling here is content, not machinery (ADR-035).

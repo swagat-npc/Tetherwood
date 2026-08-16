@@ -697,6 +697,30 @@ patio door's two Toggle triggers visible under F1 (m4-22), the door
 after opening (m4-23), and a before/after pair confirming the
 necklace's full removal after being picked up (m4-24, m4-25).
 
+### Phase 19 — M4: Blip Audio (completed)
+
+The last unbuilt piece of M4's core machinery — blip sounds tied to
+typewriter reveal, per DERIVATION's original E7 scope — is in. kira
+(0.12) was chosen over rodio after a real comparison: kira is
+purpose-built for game audio (tick-synced playback, per-instance
+pitch/volume control) where rodio is a general-purpose playback
+library that would need that layer hand-built on top — see ADR-072.
+
+DialogueState::tick() reports whether a blip-worthy (non-space)
+character was newly revealed, rather than DialogueState knowing
+anything about audio itself — the same machinery/content-adjacent
+separation Scene already keeps from rendering. Pitch cycles through a
+small fixed sequence rather than randomizing, a deliberate rise-and-
+fall pattern rather than chatter. Volume is stored and applied via
+Decibels, not a linear factor, matching how human loudness perception
+is logarithmic — already shaped for a future settings-screen slider
+with no rework needed when that's built.
+
+Docs-as-code note: no new screenshots this phase — audio has no
+visual signature to capture; confirmed instead by direct listening
+(pitch-cycling audible via a temporarily exaggerated test range,
+narrator/monologue blips audibly distinct, volume adjustable).
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -1324,6 +1348,12 @@ necklace's full removal after being picked up (m4-24, m4-25).
 - **Rationale:** A generic post-dialogue callback mechanism was considered and rejected (same reasoning as ADR-046's earlier trigger-dispatch decision) — one narrow field solving the one real case in front of the project, not speculative machinery for cases that don't exist yet.
 - **Consequences:** All four trigger-reading call sites needed the active guard independently; missing any one of them (as initially happened for the debug overlay) leaves a stale, non-functional trigger still visibly or functionally present. Confirmed via a before/after screenshot pair showing the necklace's complete removal.
 
+### ADR-072: kira chosen over rodio for game audio
+- **Context:** M4's blip system needed a Rust audio crate. kira had been listed in the project's tech stack table since Phase 0, uncontested; worth verifying rather than treating as a settled default given every other dependency choice this session (asefile, the font atlas) was actually compared against alternatives first.
+- **Decision:** kira, confirmed as the right choice on reflection rather than replaced.
+- **Rationale:** kira is purpose-built for game audio — tick/clock-synced playback, per-instance pitch and volume control via Tween/Value types — exactly the shape blip-syncing needs. rodio is a general-purpose playback library (decode, play, pause, loop) with no equivalent game-specific timing/modulation layer; using it would mean building that layer by hand on top. No third serious contender was found in the Rust audio ecosystem for this use case.
+- **Consequences:** Confirmed via kira's own documented examples (Tween-based playback rate changes, Clock-based timed playback) matching the project's actual need closely enough that no workaround or hand-rolled timing layer was required.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -1425,6 +1455,11 @@ necklace's full removal after being picked up (m4-24, m4-25).
   (bed/necklace lines are still placeholder text), blip audio (E7,
   not started), and the code-organization pass flagged as its own
   upcoming, separate conversation once M4's remaining features land.
+- Blip audio (Phase 19, ADR-072) closes out M4's core machinery. Only
+  two items remain before M4 can close: real Beat 2 writing (still
+  placeholder), and a known movement bug (sliding along a wall
+  decreases speed, pre-existing TODO) — the code-organization pass
+  remains deliberately deferred to its own future conversation.
 
 ### Open questions
 
