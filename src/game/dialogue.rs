@@ -26,6 +26,7 @@ pub struct DialogueLine {
 
 const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const FEAR_RED: [f32; 4] = [0.9, 0.2, 0.2, 1.0];
+const UNEASE_TINT: [f32; 4] = [0.75, 0.75, 0.95, 1.0];
 
 /// Content lookup by interact-trigger id. Static match, no data files
 /// (D-C) — content volume doesn't yet justify anything more. Each
@@ -33,11 +34,10 @@ const FEAR_RED: [f32; 4] = [0.9, 0.2, 0.2, 1.0];
 /// bed) mixes narrator and inner-monologue lines together.
 pub fn line_for(id: &str) -> Vec<DialogueLine> {
     match id {
-        // Throwaway placeholder lines - still need to flesh out the dialogue
         "bed_examine" => vec![
             DialogueLine {
                 spans: vec![ColoredSpan {
-                    text: "Her bed is still made.",
+                    text: "The blanket's kicked back, sheets creased like she left in a hurry.",
                     color: WHITE,
                 }],
                 register: Register::Narrator,
@@ -45,7 +45,7 @@ pub fn line_for(id: &str) -> Vec<DialogueLine> {
             },
             DialogueLine {
                 spans: vec![ColoredSpan {
-                    text: "She never came home last night.",
+                    text: "Rain hammers the shutters. The storm must have woken her.",
                     color: WHITE,
                 }],
                 register: Register::Narrator,
@@ -53,21 +53,69 @@ pub fn line_for(id: &str) -> Vec<DialogueLine> {
             },
             DialogueLine {
                 spans: vec![ColoredSpan {
-                    text: "...where are you?",
-                    color: FEAR_RED,
+                    text: "She wouldn't just walk out into this. Not without a reason.",
+                    color: WHITE,
+                }],
+                register: Register::InnerMonologue,
+                consumes_entity: None,
+            },
+            DialogueLine {
+                spans: vec![ColoredSpan {
+                    text: "No note. No sound of her coming back.",
+                    color: WHITE,
+                }],
+                register: Register::Narrator,
+                consumes_entity: None,
+            },
+            DialogueLine {
+                spans: vec![
+                    ColoredSpan {
+                        text: "...[Name]... ",
+                        color: WHITE,
+                    },
+                    ColoredSpan {
+                        text: "where are you?",
+                        color: FEAR_RED,
+                    },
+                ],
+                register: Register::InnerMonologue,
+                consumes_entity: None,
+            },
+        ],
+        "necklace_examine" => vec![
+            DialogueLine {
+                spans: vec![ColoredSpan {
+                    text: "A thin silver chain, caught on the headboard.",
+                    color: WHITE,
+                }],
+                register: Register::Narrator,
+                consumes_entity: None,
+            },
+            DialogueLine {
+                spans: vec![ColoredSpan {
+                    text: "She never takes this off. Not even to sleep.",
+                    color: WHITE,
+                }],
+                register: Register::Narrator,
+                consumes_entity: None,
+            },
+            DialogueLine {
+                spans: vec![ColoredSpan {
+                    text: "Why would she leave without it?",
+                    color: WHITE,
+                }],
+                register: Register::InnerMonologue,
+                consumes_entity: None,
+            },
+            DialogueLine {
+                spans: vec![ColoredSpan {
+                    text: "It feels... heavier than it should.",
+                    color: UNEASE_TINT,
                 }],
                 register: Register::InnerMonologue,
                 consumes_entity: None,
             },
         ],
-        "necklace_examine" => vec![DialogueLine {
-            spans: vec![ColoredSpan {
-                text: "A silver necklace, half-hidden behind the pillow.",
-                color: WHITE,
-            }],
-            register: Register::Narrator,
-            consumes_entity: None,
-        }],
         _ => vec![DialogueLine {
             spans: vec![ColoredSpan {
                 text: "...",

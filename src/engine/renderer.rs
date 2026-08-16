@@ -624,6 +624,14 @@ impl Renderer {
         )
     }
 
+    pub fn dialogue_text_max_width(&self) -> f32 {
+        const MARGIN: f32 = 20.0;
+        const TEXT_PADDING: f32 = 32.0;
+        let screen = self.screen_size();
+        let panel_width = screen.x - MARGIN * 2.0;
+        panel_width - TEXT_PADDING * 2.0
+    }
+
     /// Converts a screen-space pixel position (e.g. CursorMoved's
     /// position — top-left origin, y-down, same axis convention as world
     /// space per ADR-031) into world-space coordinates, by inverting the

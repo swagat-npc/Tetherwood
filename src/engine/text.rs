@@ -188,13 +188,6 @@ pub fn centered_text_origin(text: &str, screen_center_x: f32, y: f32, scale: f32
     Vec2::new(screen_center_x - total_width / 2.0, y)
 }
 
-/// Convenience wrapper defaulting to DIALOGUE_TEXT_SCALE — used by
-/// dialogue's per-span coloring, which needs real colors but rarely
-/// needs a non-default scale.
-pub fn layout_colored_text(chars: &[(char, [f32; 4])], origin: Vec2) -> Vec<PositionedGlyph> {
-    layout_colored_text_scaled(chars, origin, DIALOGUE_TEXT_SCALE)
-}
-
 /// Convenience wrapper for default text layout (white, no color) with a custom scale.
 pub fn layout_text_scaled(text: &str, origin: Vec2, scale: f32) -> Vec<PositionedGlyph> {
     let colored: Vec<(char, [f32; 4])> = text.chars().map(|c| (c, [1.0, 1.0, 1.0, 1.0])).collect();
@@ -240,4 +233,62 @@ pub fn layout_colored_text_scaled(
         }
     }
     glyphs
+}
+
+/// Splits a line's spans into multiple visual lines, breaking at word
+/// boundaries so no line exceeds max_width. Each returned line is
+/// itself a Vec<(char, [f32;4])> — ready to hand straight to
+/// layout_colored_text_scaled, one call per line, with the caller
+/// choosing each line's y position. Doesn't touch layout_colored_text_scaled
+/// itself, so every existing caller (debug text, toasts) is unaffected.
+pub fn wrap_colored_text(
+    chars: &[(char, [f32; 4])],
+    max_width: f32,
+    scale: f32,
+) -> Vec<Vec<(char, [f32; 4])>> {
+    let char_width = GLYPH_PITCH.x * scale;
+    let mut lines: Vec<Vec<(char, [f32; 4])>> = vec![Vec::new()];
+    let mut current_word: Vec<(char, [f32; 4])> = Vec::new();
+    let mut current_line_width = 0.0;
+    let mut current_word_width = 0.0;
+
+    let flush_word = |lines: &mut Vec<Vec<(char, [f32; 4])>>,
+                      current_word: &mut Vec<(char, [f32; 4])>,
+                      current_line_width: &mut f32,
+                      current_word_width: &mut f32| {
+        if current_word.is_empty() {
+            return;
+        }
+        if *current_line_width + *current_word_width > max_width && *current_line_width > 0.0 {
+            lines.push(Vec::new());
+            *current_line_width = 0.0;
+        }
+        lines.last_mut().unwrap().append(current_word);
+        *current_line_width += *current_word_width;
+        *current_word_width = 0.0;
+    };
+
+    for &(c, color) in chars {
+        if c == ' ' {
+            flush_word(
+                &mut lines,
+                &mut current_word,
+                &mut current_line_width,
+                &mut current_word_width,
+            );
+            lines.last_mut().unwrap().push((' ', color));
+            current_line_width += char_width;
+        } else {
+            current_word.push((c, color));
+            current_word_width += char_width;
+        }
+    }
+    flush_word(
+        &mut lines,
+        &mut current_word,
+        &mut current_line_width,
+        &mut current_word_width,
+    );
+
+    lines
 }
