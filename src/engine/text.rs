@@ -183,6 +183,11 @@ pub fn combined_glyph_info(glyphs: &[PositionedGlyph], padding: f32) -> (Vec2, V
     (combined_center, combined_size)
 }
 
+pub fn centered_text_origin(text: &str, screen_center_x: f32, y: f32, scale: f32) -> Vec2 {
+    let total_width = text.chars().count() as f32 * crate::engine::text::GLYPH_PITCH.x * scale;
+    Vec2::new(screen_center_x - total_width / 2.0, y)
+}
+
 /// Convenience wrapper defaulting to DIALOGUE_TEXT_SCALE — used by
 /// dialogue's per-span coloring, which needs real colors but rarely
 /// needs a non-default scale.
@@ -194,11 +199,6 @@ pub fn layout_colored_text(chars: &[(char, [f32; 4])], origin: Vec2) -> Vec<Posi
 pub fn layout_text_scaled(text: &str, origin: Vec2, scale: f32) -> Vec<PositionedGlyph> {
     let colored: Vec<(char, [f32; 4])> = text.chars().map(|c| (c, [1.0, 1.0, 1.0, 1.0])).collect();
     layout_colored_text_scaled(&colored, origin, scale)
-}
-
-/// Convenience wrapper for default text layout (white, no color) with a custom scale.
-pub fn layout_text(text: &str, origin: Vec2) -> Vec<PositionedGlyph> {
-    layout_text_scaled(text, origin, DIALOGUE_TEXT_SCALE)
 }
 
 /// Lays out a string starting at `origin` (top-left of the first

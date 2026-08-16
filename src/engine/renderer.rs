@@ -1021,10 +1021,26 @@ impl Renderer {
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 
+    pub fn render_text_with_bg(
+        &mut self,
+        frame: &Frame,
+        glyphs: &[crate::engine::text::PositionedGlyph],
+    ) {
+        self.render_text_bg(
+            frame,
+            glyphs,
+            [0.0, 0.0, 0.0, 0.85],
+            None,
+            0.0,
+            crate::engine::text::DEBUG_TEXT_PADDING,
+        );
+        self.render_text(frame, glyphs);
+    }
+
     pub fn render_text_bg(
         &mut self,
-        glyphs: &[crate::engine::text::PositionedGlyph],
         frame: &Frame,
+        glyphs: &[crate::engine::text::PositionedGlyph],
         fill_color: [f32; 4],
         border_color: Option<[f32; 4]>,
         border_thickness_px: f32,

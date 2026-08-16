@@ -170,7 +170,6 @@ struct AppState {
     multiplying_factor: f32, // TODO: migrate this to a config struct to supply everywhere
     show_colliders: bool,
     show_debug_info: bool,
-    show_test_text: bool,
     dialogue: Option<DialogueState>,
     screen_mouse_position: (f64, f64),
     smoothed_fps: f32,
@@ -178,6 +177,13 @@ struct AppState {
     audio_blip: Vec<StaticSoundData>,
     blip_step_counter: usize,
     blip_volume: f32,
+    notifications: Vec<Notification>,
+}
+
+struct Notification {
+    message: String,
+    duration: std::time::Duration,
+    start_time: Instant,
 }
 
 impl AppState {
@@ -227,8 +233,6 @@ impl AppState {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        // TODO: Top level stuct to always be in memory, give it a hashmap of scene or anything that is needed everytime
-        // and just call it when needed
         if self.state.is_some() {
             // resumed() firing again (Android window-reclaim) is a
             // no-op on this desktop-only target - guard kept explicit
@@ -272,7 +276,6 @@ impl ApplicationHandler for App {
             multiplying_factor,
             show_colliders: true, // DEBUG: set to true for debugging
             show_debug_info: false,
-            show_test_text: false,
             dialogue: None,
             screen_mouse_position: (0.0, 0.0),
             smoothed_fps: 60.0,
@@ -280,6 +283,7 @@ impl ApplicationHandler for App {
             audio_blip,
             blip_step_counter: 0,
             blip_volume: -24.0,
+            notifications: Vec::new(),
         };
 
         self.state = Some(state);
@@ -379,13 +383,35 @@ impl ApplicationHandler for App {
                             .renderer
                             .render_scene(&frame, &state.scene, state.show_colliders);
 
-                        // DEBUG::Screen Text
-                        if state.show_test_text {
-                            let glyphs = crate::engine::text::layout_text(
-                                "The Quick Brown Fox, Jumped Over the Lazy Dog! With the new font @ == estäblished*",
-                                glam::Vec2::new(20.0, 500.0),
-                            );
-                            state.renderer.render_text(&frame, &glyphs);
+                        // DEBUG::Notifications Text
+                        if !state.notifications.is_empty() {
+                            let screen_size = state.renderer.screen_size();
+                            let count = state.notifications.len();
+                            let notification_height = crate::engine::text::GLYPH_SIZE.y
+                                * crate::engine::text::DEBUG_TEXT_SCALE
+                                + crate::engine::text::DEBUG_TEXT_PADDING * 2.0;
+                            let notification_gap = 10.0;
+                            for (i, notification) in state.notifications.iter().enumerate() {
+                                let stack_position = count - i - 1;
+                                let origin = crate::engine::text::centered_text_origin(
+                                    &notification.message,
+                                    screen_size.x * 0.5,
+                                    screen_size.y
+                                        - 25.0
+                                        - stack_position as f32
+                                            * (notification_height + notification_gap),
+                                    crate::engine::text::DEBUG_TEXT_SCALE,
+                                );
+                                let glyphs = crate::engine::text::layout_text_scaled(
+                                    &notification.message,
+                                    origin,
+                                    crate::engine::text::DEBUG_TEXT_SCALE,
+                                );
+                                state.renderer.render_text_with_bg(&frame, &glyphs);
+                            }
+                            state
+                                .notifications
+                                .retain(|n| n.start_time.elapsed() <= n.duration);
                         }
                         // HUD::Displayed Text
                         if let Some(dialogue) = &state.dialogue {
@@ -421,17 +447,7 @@ impl ApplicationHandler for App {
                                     glam::Vec2::new(10.0, 10.0),
                                     crate::engine::text::DEBUG_TEXT_SCALE,
                                 );
-                                // --- Render Background
-                                state.renderer.render_text_bg(
-                                    &glyphs,
-                                    &frame,
-                                    [0.0, 0.0, 0.0, 0.85],
-                                    None,
-                                    0.0,
-                                    crate::engine::text::DEBUG_TEXT_PADDING,
-                                );
-                                // --- Render Text
-                                state.renderer.render_text(&frame, &glyphs);
+                                state.renderer.render_text_with_bg(&frame, &glyphs);
                             }
 
                             // DEBUG::Mouse Position
@@ -456,17 +472,7 @@ impl ApplicationHandler for App {
                                     mouse_text_pos,
                                     crate::engine::text::DEBUG_TEXT_SCALE,
                                 );
-                                // --- Render Background
-                                state.renderer.render_text_bg(
-                                    &glyphs,
-                                    &frame,
-                                    [0.0, 0.0, 0.0, 0.85],
-                                    None,
-                                    0.0,
-                                    crate::engine::text::DEBUG_TEXT_PADDING,
-                                );
-                                // --- Render Text
-                                state.renderer.render_text(&frame, &glyphs);
+                                state.renderer.render_text_with_bg(&frame, &glyphs);
                             }
                         }
                         state.renderer.present_frame(frame);
@@ -498,7 +504,7 @@ impl ApplicationHandler for App {
                             "{} Colliders",
                             if state.show_colliders { "Show" } else { "Hide" }
                         );
-                    } else if code == KeyCode::F2 {
+                    } else if code == KeyCode::F3 {
                         state.show_debug_info = !state.show_debug_info;
                         println!(
                             "{} Debug Info",
@@ -507,12 +513,6 @@ impl ApplicationHandler for App {
                             } else {
                                 "Hide"
                             }
-                        );
-                    } else if code == KeyCode::F3 {
-                        state.show_test_text = !state.show_test_text;
-                        println!(
-                            "{} Test Text",
-                            if state.show_test_text { "Show" } else { "Hide" }
                         );
                     } else if code == KeyCode::KeyE || code == KeyCode::Space {
                         if let Some(dialogue) = &mut state.dialogue {
@@ -551,6 +551,11 @@ impl ApplicationHandler for App {
                             || state.held_keys.contains(&KeyCode::ControlRight))
                     {
                         state.reset_scene();
+                        state.notifications.push(Notification {
+                            message: format!("Scene ({:?}) reset", state.scene.id),
+                            duration: std::time::Duration::from_secs(2),
+                            start_time: Instant::now(),
+                        });
                     }
                     if state.show_debug_info {
                         println!("{code:?} pressed");
