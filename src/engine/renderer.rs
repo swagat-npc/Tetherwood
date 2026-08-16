@@ -594,6 +594,17 @@ impl Renderer {
         glam::Vec2::new(self.config.width as f32, self.config.height as f32)
     }
 
+    pub fn screen_projection(&self) -> glam::Mat4 {
+        glam::Mat4::orthographic_rh(
+            0.0,
+            self.config.width as f32,
+            self.config.height as f32,
+            0.0,
+            -1.0,
+            1.0,
+        )
+    }
+
     pub fn dialogue_text_position(&self) -> glam::Vec2 {
         const MARGIN: f32 = 20.0;
         const TEXT_PADDING: f32 = 32.0; // inset from the panel's own edges
@@ -658,14 +669,7 @@ impl Renderer {
     }
 
     pub fn render_scene(&mut self, frame: &Frame, scene: &Scene, show_colliders: bool) {
-        let projection = glam::Mat4::orthographic_rh(
-            0.0,
-            self.config.width as f32,
-            self.config.height as f32,
-            0.0,
-            -1.0,
-            1.0,
-        );
+        let projection = self.screen_projection();
         let screen_center = glam::Vec2::new(
             self.config.width as f32 / 2.0,
             self.config.height as f32 / 2.0,
@@ -938,14 +942,7 @@ impl Renderer {
             border_thickness_px: 10.0,
         };
 
-        let projection = glam::Mat4::orthographic_rh(
-            0.0,
-            self.config.width as f32,
-            self.config.height as f32,
-            0.0,
-            -1.0,
-            1.0,
-        );
+        let projection = self.screen_projection();
         self.render_solid_rects(frame, &[panel], projection, glam::Mat4::IDENTITY);
     }
 
@@ -974,14 +971,7 @@ impl Renderer {
 
         // Screen=space only (ADR-058) - no camera_view term, so text stays fixed
         // to the window regardless of camera position or mode (HUD).
-        let projection = glam::Mat4::orthographic_rh(
-            0.0,
-            self.config.width as f32,
-            self.config.height as f32,
-            0.0,
-            -1.0,
-            1.0,
-        );
+        let projection = self.screen_projection();
         self.queue.write_buffer(
             &self.transform_buffer,
             0,
@@ -1056,14 +1046,7 @@ impl Renderer {
             border_thickness_px,
         };
 
-        let projection = glam::Mat4::orthographic_rh(
-            0.0,
-            self.config.width as f32,
-            self.config.height as f32,
-            0.0,
-            -1.0,
-            1.0,
-        );
+        let projection = self.screen_projection();
         self.render_solid_rects(frame, &[bg], projection, glam::Mat4::IDENTITY);
     }
 

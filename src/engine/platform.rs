@@ -1,3 +1,4 @@
+use glam::Vec2;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
 use pollster::block_on;
 use std::collections::HashSet;
@@ -178,6 +179,8 @@ struct AppState {
     blip_step_counter: usize,
     blip_volume: f32,
     notifications: Vec<Notification>,
+    left_mouse_down: bool,
+    volume_slider: crate::engine::ui::Slider,
 }
 
 struct Notification {
@@ -266,6 +269,14 @@ impl ApplicationHandler for App {
                 .expect("failed to load monologue blip"),
         );
 
+        let volume_slider = crate::engine::ui::Slider::new(
+            Vec2::new(700.0, 30.0),
+            Vec2::new(120.0, 12.0),
+            -40.0,
+            0.0,
+            -24.0, // matches blip_volume's current default
+        );
+
         let state = AppState {
             window,
             renderer,
@@ -284,6 +295,8 @@ impl ApplicationHandler for App {
             blip_step_counter: 0,
             blip_volume: -24.0,
             notifications: Vec::new(),
+            left_mouse_down: false,
+            volume_slider,
         };
 
         self.state = Some(state);
@@ -341,7 +354,7 @@ impl ApplicationHandler for App {
 
                 // TODO(engine): raw KeyCode handling here is content, not machinery (ADR-035).
                 let speed = 80.0 * state.multiplying_factor; // pixels per second scaled up to the factor
-                let mut movement = glam::Vec2::ZERO;
+                let mut movement = Vec2::ZERO;
                 if state.held_keys.contains(&KeyCode::KeyW) {
                     movement.y -= 1.0;
                 }
@@ -354,7 +367,7 @@ impl ApplicationHandler for App {
                 if state.held_keys.contains(&KeyCode::KeyD) {
                     movement.x += 1.0;
                 }
-                if movement != glam::Vec2::ZERO {
+                if movement != Vec2::ZERO {
                     if let Some(dir) = crate::engine::entity::Direction::from_movement(movement) {
                         state.scene.player_mut().facing = dir;
                     }
@@ -386,20 +399,17 @@ impl ApplicationHandler for App {
                         // DEBUG::Notifications Text
                         if !state.notifications.is_empty() {
                             let screen_size = state.renderer.screen_size();
-                            let count = state.notifications.len();
                             let notification_height = crate::engine::text::GLYPH_SIZE.y
                                 * crate::engine::text::DEBUG_TEXT_SCALE
                                 + crate::engine::text::DEBUG_TEXT_PADDING * 2.0;
                             let notification_gap = 10.0;
                             for (i, notification) in state.notifications.iter().enumerate() {
-                                let stack_position = count - i - 1;
                                 let origin = crate::engine::text::centered_text_origin(
                                     &notification.message,
                                     screen_size.x * 0.5,
                                     screen_size.y
                                         - 25.0
-                                        - stack_position as f32
-                                            * (notification_height + notification_gap),
+                                        - i as f32 * (notification_height + notification_gap),
                                     crate::engine::text::DEBUG_TEXT_SCALE,
                                 );
                                 let glyphs = crate::engine::text::layout_text_scaled(
@@ -444,7 +454,7 @@ impl ApplicationHandler for App {
                                 let fps_text = format!("FPS: {:.0}", state.smoothed_fps);
                                 let glyphs = crate::engine::text::layout_text_scaled(
                                     &fps_text,
-                                    glam::Vec2::new(10.0, 10.0),
+                                    Vec2::new(10.0, 10.0),
                                     crate::engine::text::DEBUG_TEXT_SCALE,
                                 );
                                 state.renderer.render_text_with_bg(&frame, &glyphs);
@@ -452,7 +462,7 @@ impl ApplicationHandler for App {
 
                             // DEBUG::Mouse Position
                             {
-                                let screen_pos = glam::Vec2::new(
+                                let screen_pos = Vec2::new(
                                     state.screen_mouse_position.0 as f32,
                                     state.screen_mouse_position.1 as f32,
                                 );
@@ -463,7 +473,7 @@ impl ApplicationHandler for App {
                                     authoring_pos.x, authoring_pos.y
                                 );
                                 let screen_size = state.renderer.screen_size();
-                                let mouse_text_pos = glam::Vec2::new(
+                                let mouse_text_pos = Vec2::new(
                                     crate::engine::text::DEBUG_TEXT_PADDING,
                                     screen_size.y - 25.0,
                                 );
@@ -473,6 +483,29 @@ impl ApplicationHandler for App {
                                     crate::engine::text::DEBUG_TEXT_SCALE,
                                 );
                                 state.renderer.render_text_with_bg(&frame, &glyphs);
+                            }
+
+                            // DEBUG:: Volume slider
+                            {
+                                let world_mouse = Vec2::new(
+                                    state.screen_mouse_position.0 as f32,
+                                    state.screen_mouse_position.1 as f32,
+                                );
+                                if state
+                                    .volume_slider
+                                    .update(world_mouse, state.left_mouse_down)
+                                {
+                                    state.blip_volume = state.volume_slider.value;
+                                }
+                                let slider_rects = state.volume_slider.build_rects();
+                                let projection = state.renderer.screen_projection();
+
+                                state.renderer.render_solid_rects(
+                                    &frame,
+                                    &slider_rects,
+                                    projection,
+                                    glam::Mat4::IDENTITY,
+                                );
                             }
                         }
                         state.renderer.present_frame(frame);
@@ -568,6 +601,13 @@ impl ApplicationHandler for App {
             },
             WindowEvent::CursorMoved { position, .. } => {
                 state.screen_mouse_position = (position.x, position.y);
+            }
+            WindowEvent::MouseInput {
+                state: button_state,
+                button: winit::event::MouseButton::Left,
+                ..
+            } => {
+                state.left_mouse_down = button_state == winit::event::ElementState::Pressed;
             }
             _ => {}
         }

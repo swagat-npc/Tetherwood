@@ -5,5 +5,6 @@ mod renderer;
 mod scene;
 mod text;
 mod texture;
+pub mod ui;
 
 pub use platform::run;
