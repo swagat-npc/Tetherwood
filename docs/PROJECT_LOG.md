@@ -3,8 +3,8 @@
 
 **Document type:** Living project record (docs-as-code)
 **Started:** July 2026
-**Revision:** v6
-**Status:** M1–M4 complete. M4 (The Voice) closed — scene transitions, dialogue machinery (typewriter, registers, per-span color, word-wrap), blip audio, and Beat 2's real content all built and verified. M5 (The Village) next: ambient NPCs, full clue chain, second enemy tier, menus. A structural code-organization pass is planned as its own dedicated session before M5 begins. Companion document: `docs/DERIVATION.md`.
+**Revision:** v7
+**Status:** M1–M4 complete. M4 (The Voice) closed — scene transitions, dialogue machinery (typewriter, registers, per-span color, word-wrap), blip audio, and Beat 2's real content all built and verified. Beat 2's underlying lore re-derived this session (ADR-074–076) — the shipped dialogue text is unaffected and remains accurate, but its causal foundation is now load-bearing rather than assumed. M5 (The Village) next: ambient NPCs, full clue chain, second enemy tier, menus. A structural code-organization pass is planned as its own dedicated session before M5 begins. Companion document: `docs/DERIVATION.md`.
 **Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated when decisions accumulate, not on a timer.
 **Screenshots at each visual milestone** are part of this ritual, not an afterthought — historically the step most likely to be skipped (M4's first two phases shipped with none until caught retroactively); a phase isn't fully closed until its screenshots exist and are named.
 
@@ -817,6 +817,59 @@ cost.
 Docs-as-code extended: docs/screenshots/ now covers m4-27 — a real
 Beat 2 line correctly word-wrapped within the dialogue panel.
 
+### Phase 22 — Sister's Departure Re-Lore & Ancestral Protector Lineage (completed)
+
+A design-only session (no code), triggered by re-examining the necklace's
+placement (behind the bed, decided during M4 implementation) against
+ADR-019's original claim that she never returned home. The two didn't
+fit together cleanly, and pulling on that thread produced three real
+decisions, recorded below as ADR-074–076.
+
+Resolved: she came home, was woken mid-storm, and left again in a
+hurry in the dark — not taken from the room, not a struggle. The
+necklace catches on the headboard as an ordinary consequence of a
+rushed, lightless departure, not violence. This supersedes ADR-019's
+"never came home" claim while keeping everything ADR-019 was actually
+for (real panic, natural gate-block routing) intact.
+
+Also resolved: the gate sabotage was never just atmospheric cult
+cover — it's premeditated ambush-routing, timed to a path the cult
+had already learned she takes. This sharpens "why sabotage the gate
+at all" into a concrete answer.
+
+Also resolved, and the session's centerpiece: the sigil has a real
+origin. An ancestral line of village protectors, passed to the eldest
+child, has maintained protective wards against this specific cult for
+generations — explaining, for the first time on causal grounds rather
+than "conservation of energy" alone, why the totem can absorb and
+convert z-essence (it was built for exactly that), why the sibling
+tether functions as more than sentiment (it's a shared bloodline
+conduit), and why she has the object at all. Retroactively upgrades
+ADR-006's thesis and ADR-017's tree from "z-essence, because physics"
+to "z-essence, because this family's entire purpose."
+
+Also resolved: the clue-chain activity previously read as "she was
+mixed up with the cult" is reframed as "she was actively working
+against them" (ward maintenance, timed to the storm because rain
+threatens chalk sigils). This is a stronger version of ADR-005's
+premise, not a contradiction of it — she was always meant to be
+secretly better than she appeared; now there's a concrete, dangerous
+thing she did to make that true, which also strengthens ADR-007's
+ritual precondition (unregretted, unknown sacrifice).
+
+No code or shipped dialogue changes as a result of this session — the
+Phase 21 bed/necklace lines were already tonally consistent with this
+lore by coincidence of good instinct, and remain the canonical text.
+This phase exists to make the ground under them solid, and to record
+a Beat 4 writing constraint for whenever that dialogue is drafted.
+
+Also parked (not decided, not an ADR): a hierarchy-gated escalation
+for cult combat abilities — elemental/environmental battle effects
+(wind, rain, sandstorm) usable only by named cult leadership with
+preparation time, never rank-and-file initiates, mirroring how the
+game already reveals cult capability gradually (ADR-016). Recorded in
+full under Section 5's parked ideas.
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -1456,6 +1509,24 @@ Beat 2 line correctly word-wrapped within the dialogue panel.
 - **Rationale:** Checked against egui's actual, real Slider API — `ui.add(egui::Slider::new(&mut value, range))` — which uses the identical mutate-in-place-and-check-a-response-flag shape, not a registered closure. Callbacks are the retained-mode UI pattern (persistent widgets, external code reacting to events fired later); this project's render loop already rebuilds and redraws everything every frame, which is structurally immediate-mode already. The callback version wasn't a more general form of the same design — it was a different paradigm, borrowed from a different kind of UI framework, that would need to be undone rather than extended if a real inspector is built later.
 - **Consequences:** Confirms the project's "well-structured version costs the same, so build it" standing correction (per the developer's explicit request to be called out when this applies, not just when a simpler version is being over-built) — the bool-return version is not the compromise here, it's the version already matching what a real future inspector would want.
 
+### ADR-074: She returned home; the storm woke her; gate sabotage is premeditated ambush-routing (supersedes ADR-019)
+- **Context:** ADR-019 stated she never came home through the storm. Necklace placement, decided during M4 implementation (behind the bed, caught on the headboard), only makes sense if she *was* in that room that night — direct tension with the original claim. Separately, ADR-019 left "why sabotage the gate" underspecified beyond generic cover.
+- **Decision:** She came home, was woken by the storm itself partway through the night, and left again in a hurry — no lights (relying on lightning flashes), grabbing a cloak, not noticing the necklace slip loose and catch on the headboard. No struggle, no intruder in the house; the room stays undisturbed except for that one small, ordinary object out of place. Separately: the main gate's storm damage is real, but the cult deliberately finishes the sabotage afterward, that same night, because they'd already learned this is the route she takes — forcing her onto the cemetery path specifically to stage the ambush there, not merely to slow later pursuit.
+- **Rationale:** Preserves everything ADR-019 actually needed (real panic from an empty-but-recently-occupied room; natural, rail-free routing for the player toward the back exit) while fixing a real plausibility gap: a struggle in a shared bedroom is unstageable without the player character improbably sleeping through it or unbuilt magic explaining why he didn't (ADR-023's show-then-tell logic explicitly reserves that kind of reveal for later). A hurried, self-caused departure needs no such patch. Turning the sabotage into deliberate ambush-routing (rather than incidental cover) answers a "why would they bother" question the original ADR left open, and reads as competent antagonists exploiting a real coincidence rather than antagonists with unstated weather control.
+- **Consequences:** Beat 2's already-shipped dialogue (Phase 21) required no changes — "rumpled sheets," "the storm... woke her," and the necklace's felt-wrongness line already fit this reading. Beat 3's flat-plank foreshadowing (ADR-019) is unaffected — the plank still marks the cult's finishing touch on the gate. Any future Beat 4/5 writing must not imply she was taken from the house.
+
+### ADR-075: Ancestral protector lineage — the sigil's true origin
+- **Context:** The sigil's ability to absorb and convert z-essence (ADR-017) was previously justified only by in-fiction physics ("energy can't be destroyed, has nowhere else to go"), which explains the *currency* but not why this specific object is built to receive it, nor why the sibling tether (ADR-019/023's justification for the plank and the map) is more than a metaphor.
+- **Decision:** The protagonist's family is a lineage of village protectors, predating the current cult conflict, whose role has been standing against exactly this kind of dimensional predation. The role — and the sigil that channels it — passes to the eldest child of each generation, a specific inherited family tradition rather than a general claim about gender. The sister carries it now; wards placed and maintained around the village (the chalk, candles — Beat 4's existing clue content) are this duty in practice, needing periodic renewal, which the storm's timing threatened (rain washes chalk sigils). The totem's ability to absorb z-essence isn't found magic — it was made for this. The sibling tether that lets the player feel the plank's wrongness (ADR-019) and later use the cult's own map (ADR-023) is this same bloodline conduit, not sentiment alone. Cultists are cast as this lineage's opposite number — reject vs. protect a dimension — extending ADR-006's existing reject/inherit juxtaposition rather than adding a new one.
+- **Rationale:** Converts several previously separate "just because" justifications (why the tether works, why the totem does what it does, why she has it) into one mechanism with a shared cause. Framing the inheritance as this-specific-family's tradition (not a general claim about women) keeps the intended message — a chosen lineage of selfless duty — without the framing reading as a claim about gender broadly.
+- **Consequences:** Implementation note: the necklace examined in Beat 2 (`necklace_examine`) *is* the ADR-018 keepsake/sigil — Beat 1's originally-planned separate keepsake-examine interactable was never built as its own thing; this pickup consolidates it. No content changes required. Opens, not answers, a question worth holding for later writing: why the founding ancestor chose eldest-child inheritance specifically. The cult's status as an old, patient threat (not a recent upstart) is now implied and should inform any future cult-history writing.
+
+### ADR-076: Sister's clue-chain activity reframed as opposition, not entanglement
+- **Context:** Phase 3's arc and Beat 4's clue content (villagers seeing her "scurry," buying chalk/candles/a scarf) were originally ambiguous enough to read as her being drawn toward or investigating the cult out of curiosity — workable, but weaker than available alternatives once ADR-075 established she has an active protective duty.
+- **Decision:** She was maintaining protective wards against the cult, not fraternizing with or investigating it. The same observed behaviors (odd purchases, secretive movement) now read as ward-maintenance in progress, timed urgently against the storm.
+- **Rationale:** "She was quietly investigating something spooky" makes her an unlucky bystander; "she was doing dangerous, secret work to protect others, alone, and told no one" makes her exactly the kind of unregretted, unknown sacrifice the ritual requires (ADR-007), and gives the cult a sharper motive (neutralizing a real threat, not grabbing a convenient target) that fits the acknowledgment-ladder enemy dialogue design (ADR-016) better than incidental victimhood.
+- **Consequences:** Beat 4's actual dialogue is still unwritten (per DERIVATION, Phase 1 scope) — this is a framing constraint for whenever it's drafted, not a content change today. What the candles/chalk/scarf are *specifically for* (ward materials, ward locations) remains open and does not need resolving now.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -1567,6 +1638,41 @@ A genuinely different, currently unbuilt idea: two separately-sized rects per in
 Raised while extending try_move_player's flush-collision resolution — collider_blocked currently checks every wall and every entity's collider unconditionally, twice per frame per moving entity (once per axis), regardless of distance from the mover. Fine at current content scale (a dozen-ish colliders per scene), but scales linearly with total collider count, not with how many are actually nearby.
 
 A coarse-grid spatial partition (informed by a similar approach in a colleague's bullet-hell project) would divide a scene into fixed-size cells, further split into quadrants around the moving entity's current cell, and only check colliders in the mover's cell plus the 3 adjacent cells toward whichever quadrant the entity sits in — reducing most checks to a small, roughly-constant neighborhood rather than the whole scene. Not built now — no current scene is close to large enough for this to matter, and building it against today's small, hand-placed content risks guessing at cell size and boundary handling without real data to tune against. Revisit once a scene's collider count is large enough to make the cost concretely measurable (M5's populated village is the likely trigger).
+
+### Parked — Combat design: elemental/environmental battle effects & cult power hierarchy
+
+Sketched alongside ADR-075's lineage work, not mechanically designed.
+Not an ADR.
+
+- **Elemental/environmental effects are hierarchy-gated, not universal.**
+  Rank-and-file initiates never use them (consistent with ADR-016 —
+  they're mundane by design). Named cult leadership ("executives," to
+  borrow the framing this was pitched in) can invoke a single
+  environmental effect, and only with prior preparation time — not a
+  standing ability, a rare and costly working. Full-scale weather
+  events (the storm that enabled the kidnapping) are reserved for
+  cult leadership acting with significant lead time, not something
+  available casually — this keeps ADR-016's escalation-by-reveal
+  design intact rather than undercutting it with an off-screen show
+  of force before the game even starts.
+- **Escalation mirrors ADR-016's existing tier logic, one level up:**
+  early leadership fights introduce one mild environmental modifier
+  (e.g. wind nudging the player toward the front row, aggravating the
+  existing back-row-camping tension ADR-014 already names); later
+  fights intensify the same category rather than introducing unrelated
+  ones (wind becomes a visibility-obscuring sandstorm, etc.).
+- **Hard constraint, not optional:** whatever obscures vision must
+  never obscure telegraph tiles themselves (ADR-015's fairness
+  contract is non-negotiable) — the environment gets worse, the
+  warning stays legible, possibly via a redundant audio cue under
+  heavy-effect conditions. Telegraph windows may legitimately shrink
+  as a difficulty lever (paired with the loss of an enemy's own visible
+  wind-up animation once "whose turn is it" is no longer readable at a
+  glance), but must never disappear.
+- **Explicitly out of slice, out of Phase 1.** This is new engine
+  surface (per-battle environmental state, movement/visibility
+  modifiers) with no beat currently demanding it. Revisit only once
+  boss/executive-tier encounters are actually being designed.
 
 ### Next session agenda (Milestone Chat #3: The Room / M3)
 
