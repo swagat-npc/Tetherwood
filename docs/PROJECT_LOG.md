@@ -3,8 +3,8 @@
 
 **Document type:** Living project record (docs-as-code)
 **Started:** July 2026
-**Revision:** v5
-**Status:** M1–M3 complete; M4 (The Voice) in progress — scene transitions, camera modes, lazy scene reload, and text rendering foundation all built and verified; dialogue machinery (typewriter, registers, blips) and Beat 2 content next. Companion document: `docs/DERIVATION.md` (feature inventory, engine split, Rust map, milestones, 45-day plan).
+**Revision:** v6
+**Status:** M1–M4 complete. M4 (The Voice) closed — scene transitions, dialogue machinery (typewriter, registers, per-span color, word-wrap), blip audio, and Beat 2's real content all built and verified. M5 (The Village) next: ambient NPCs, full clue chain, second enemy tier, menus. A structural code-organization pass is planned as its own dedicated session before M5 begins. Companion document: `docs/DERIVATION.md`.
 **Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated when decisions accumulate, not on a timer.
 **Screenshots at each visual milestone** are part of this ritual, not an afterthought — historically the step most likely to be skipped (M4's first two phases shipped with none until caught retroactively); a phase isn't fully closed until its screenshots exist and are named.
 
@@ -721,6 +721,102 @@ visual signature to capture; confirmed instead by direct listening
 (pitch-cycling audible via a temporarily exaggerated test range,
 narrator/monologue blips audibly distinct, volume adjustable).
 
+### Phase 20 — M4: Toast Notifications, Wall-Slide Fix, Hand-Built Slider (completed)
+
+Self-expiring, stacked toast notifications (Notification: message,
+duration, start_time) replaced the F3 test-string debug toggle,
+Ctrl+R scene reset becoming the first real consumer ("Scene (id)
+reset", 2 seconds). render_text_with_bg consolidated a
+background-then-text pairing every debug text block had been
+repeating by hand. Stacking was built newest-shifts-existing-upward
+first, then deliberately reverted to positionally-stable
+(each notification keeps its on-screen position for its whole
+lifetime) after testing showed a shifting stack was harder to track
+by eye — a real, tested UX call, not a default.
+
+The pre-existing "sliding along a wall decreases speed" TODO was
+fixed: diagonal movement splits speed across both axes by design, but
+the free axis was still using its diagonal-reduced share even after
+the other axis became fully blocked, rather than being topped up to
+the full per-frame speed a purely-cardinal move would get. Two cheap
+probes against the unmoved starting position determine each axis's
+blocked status before either axis's real magnitude is decided, so a
+blocked axis can hand its unused speed budget to the other — fully
+symmetric (both x-blocks-boosts-y and y-blocks-boosts-x), confirmed
+against cardinal movement, diagonal wall-sliding on both wall
+orientations, and a true diagonal corner.
+
+A hand-built Slider (engine/ui.rs) replaced considering an egui
+dependency for a single volume knob — evaluated deliberately rather
+than dismissed by default, given the developer's own stated future
+interest in an inspector panel. update() returns bool and the caller
+reads .value directly, rejecting a registered on_change closure after
+checking egui's own actual Slider API, which uses the identical
+mutate-in-place-and-check-a-flag shape, not a callback — the
+project's already-per-frame redraw loop is structurally immediate-
+mode already, and a closure-based callback belongs to a different,
+retained-mode paradigm the project isn't using — see ADR-073. Volume
+is the first real, live-adjustable control wired to blip_volume's
+already-Decibels-shaped value. Renderer::screen_projection()
+consolidated four separate hand-built orthographic projection
+constructions (render_scene, render_dialogue_panel, render_text,
+render_text_bg) discovered while wiring the slider's own draw call —
+an attempt to instead expose Renderer's SurfaceConfiguration wholesale
+was tried and reverted in favor of this narrower getter.
+
+Grid-based spatial partitioning for collision checks — informed by a
+technique from a colleague's project, dividing a scene into cells and
+quadrant-based neighborhoods so collider_blocked only checks nearby
+obstacles rather than every collider in the scene — evaluated and
+explicitly parked rather than built, since no current scene is large
+enough to make today's linear-scan cost measurable; revisit around
+M5's populated village.
+
+Docs-as-code extended: docs/screenshots/ now covers m4-26 — the
+volume slider live-adjusting blip_volume.
+
+### Phase 21 — M4: Word-Wrap and Beat 2's Real Dialogue (completed) — M4 CLOSED
+
+The last piece of unbuilt dialogue machinery landed alongside the
+milestone's actual content, surfaced by that same content: real prose
+(45-70 character lines) exposed that layout_colored_text_scaled had
+never had any concept of line width, since every prior string
+(placeholder lines, debug text, toasts) happened to be short enough
+to never need it. text::wrap_colored_text splits a colored-char
+sequence into multiple visual lines at word boundaries only,
+processing one word at a time so a break can never land mid-word —
+kept as a separate pre-processing step rather than built into
+layout_colored_text_scaled itself, so every other caller of that
+function needed no changes and no risk of altered behavior.
+Renderer::dialogue_text_max_width() derives the panel's usable width
+from the same constants dialogue_text_position() already uses, rather
+than a separately guessed value.
+
+Beat 2's actual dialogue replaced every placeholder line: the bed (5
+lines — rumpled sheets and the storm giving way to real worry) and
+the necklace (4 lines, ending on its one deliberate felt-wrongness
+beat, "heavier than it should" — every other line in both sequences
+stays mundane on purpose, since Beat 2 shouldn't tip its hand yet).
+[Name] remains an explicit, unresolved placeholder pending a naming
+decision, not an oversight.
+
+This closes M4 (The Voice). DERIVATION's definition of done — Beat 2
+playable: room transition; examine bed/necklace → narrator and inner-
+monologue text; typewriter + blips; inner-monologue register visually
+and aurally distinct — is met in full, verified against real content,
+not placeholder text. M4 substantially exceeded DERIVATION's original
+E4/E6/E7 scope along the way: the scene-transition/warp system grew
+three trigger kinds (Warp, Dialogue, Toggle) rather than one; debug
+tooling grew from a collider overlay into a real, if informal,
+authoring aid (world-space mouse readout, facing visualization, a
+live-adjustable slider); text rendering and the debug-rect overlay
+both required a full batching pass once real content and richer
+debug visuals exceeded their originally-accepted per-primitive draw
+cost.
+
+Docs-as-code extended: docs/screenshots/ now covers m4-27 — a real
+Beat 2 line correctly word-wrapped within the dialogue panel.
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -1354,6 +1450,12 @@ narrator/monologue blips audibly distinct, volume adjustable).
 - **Rationale:** kira is purpose-built for game audio — tick/clock-synced playback, per-instance pitch and volume control via Tween/Value types — exactly the shape blip-syncing needs. rodio is a general-purpose playback library (decode, play, pause, loop) with no equivalent game-specific timing/modulation layer; using it would mean building that layer by hand on top. No third serious contender was found in the Rust audio ecosystem for this use case.
 - **Consequences:** Confirmed via kira's own documented examples (Tween-based playback rate changes, Clock-based timed playback) matching the project's actual need closely enough that no workaround or hand-rolled timing layer was required.
 
+### ADR-073: Slider rejects a callback field in favor of direct value access
+- **Context:** Autocomplete suggested `on_change: Option<Box<dyn Fn(f32)>>` on the hand-built Slider widget, the standard callback/event-hook pattern for a general-purpose, reusable UI library. The developer's stated goal (a decoupled Slider usable for a future inspector panel) made it worth genuinely evaluating rather than defaulting to whichever was simpler for today's single volume-knob use case.
+- **Decision:** No callback field. `Slider::update(mouse_pos, mouse_down) -> bool` returns whether the value changed this call; the caller reads `slider.value` directly, in the same frame, at the same call site.
+- **Rationale:** Checked against egui's actual, real Slider API — `ui.add(egui::Slider::new(&mut value, range))` — which uses the identical mutate-in-place-and-check-a-response-flag shape, not a registered closure. Callbacks are the retained-mode UI pattern (persistent widgets, external code reacting to events fired later); this project's render loop already rebuilds and redraws everything every frame, which is structurally immediate-mode already. The callback version wasn't a more general form of the same design — it was a different paradigm, borrowed from a different kind of UI framework, that would need to be undone rather than extended if a real inspector is built later.
+- **Consequences:** Confirms the project's "well-structured version costs the same, so build it" standing correction (per the developer's explicit request to be called out when this applies, not just when a simpler version is being over-built) — the bool-return version is not the compromise here, it's the version already matching what a real future inspector would want.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -1375,91 +1477,16 @@ narrator/monologue blips audibly distinct, volume adjustable).
   permanent debug tooling (collider overlay, input logging) — all
   built and proven against tuned, real bedroom content. Definition
   of done met in full.
-- ⬜ **M4 (The Voice)** ← in progress. Design phase (Phase 12)
-  resolved scene transitions, trigger/warp identity, and scene
-  persistence before content work began: concrete `Scene` swap-slot,
-  trait+stack deferred to M6 (ADR-044); automatic zone-triggered door
-  transitions, no button prompt (ADR-045); two trigger flavors
-  (interact vs. zone), single-variant dispatch enum (ADR-046);
-  Pokémon-style warp pairs over per-scene spawn points (ADR-047);
-  scene persistence via the existing flag store (ADR-020) with lazy
-  GPU unload/reload (ADR-048); native Aseprite loading, parked at
-  ADR-049, implemented mid-milestone once PNG-export friction became
-  real (ADR-050); warp identity as a named-string WarpId with
-  per-trigger reentry suppression and Scene self-identity (ADR-051);
-  startup warp-pair validation proposed and deferred (ADR-052).
-  `SceneId` variant rename (`Bedroom`/`Hallway` → `Home`/`Outside`)
-  still pending in code. 
-- Remaining per DERIVATION §5: door/trigger
-  content in `new_home`, `new_outside` placeholder scene, the
-  transition-handling code in `platform.rs`, text rendering, dialogue
-  machinery (E6), audio (E7), examine-bed narrator text, typewriter +
-  blips, inner-monologue frame. Scene-transition mechanism (trigger firing, warp-pair resolution,
-    reentry suppression, spawn positioning) is now fully implemented and
-    verified working end to end between Home and Outside — see ADR-053,
-    054. Camera currently uses only the static-anchor mode (ADR-041);
-    Outside needs a follow-camera, since its content already exceeds a
-    single static screen — CameraMode (static vs. follow, chosen per
-    scene) is the immediate next task. Scenes-cached-forever vs.
-    ADR-048's lazy-unload-and-rebuild-from-flags remains an open,
-    undecided architectural question — current behavior (Vec<Scene>,
-    reused once visited) has not been reconciled with ADR-048 either
-    way. Main menu / pause menu deferred per ADR-055, blocked on text
-    rendering.
-- Code written so far: entity/scene/asset layer (now with
-  `Collider`/`Trigger` types and `engine/ids.rs` for shared
-  identifiers), collision, y-sort, full renderer, debug tooling,
-  native Aseprite texture loading alongside PNG — one scene
-  (`new_home`, née `new_bedroom`) as content. No scene transitions,
-  no second scene, no dialogue, text rendering, or audio exist yet.
-- Text rendering foundation now built and verified (ADR-056–058):
-  screen-space bitmap font pipeline, F3 debug toggle confirms correct
-  glyph lookup/UV sampling/spacing end to end. Still not built:
-  dialogue machinery (typewriter, registers, blip audio, advance/skip
-  input), the dialogue panel/avatar frame, and Beat 2's actual
-  narrator-text content.
-- Interact triggers (facing-gated, proximity + button) now built and
-  content-tested against a real beat (the bed's lore-drop examine
-  text) — see Phase 14, ADR-059–061. Debug tooling extended: world-
-  space mouse readout, center-position crosshair markers, trigger
-  color-coding by kind. Both text rendering (~83 glyphs) and the
-  expanded debug overlay now measurably tank frame rate (per-primitive
-  buffer/bind-group/draw-call cost, ADR-043's originally-accepted cost
-  crossed its stated revisit threshold) — batching is the identified
-  fix for both, not yet built, tracked as an open item.
-- Draw-call batching (Phase 15, ADR-062–064) closed the performance
-  gap both text rendering and the debug overlay had hit at real
-  content scale: text now costs one draw call per string regardless
-  of length (previously one per glyph, ~18fps at a full dialogue-
-  length test string), and the debug overlay similarly batches every
-  wall/collider/trigger/center-marker rect into one draw call
-  (previously unusable once center markers roughly tripled per-frame
-  rect count). text_shader.wgsl and its dedicated pipeline were
-  deleted entirely — baking UV offset into vertex data left nothing
-  left for a separate shader to do, so batched text now draws through
-  the ordinary sprite pipeline. Two smaller fixes landed alongside:
-  the font atlas is now loaded through TextureStore's existing
-  extension dispatch (a direct from_bytes call had silently mismatched
-  the .aseprite format after its mid-session migration), and the
-  mouse-position debug readout displays authoring-space rather than
-  raw world-space coordinates, matching what's actually typed in
-  scene-construction code. An on-screen, exponentially-smoothed FPS
-  counter and screen-size-relative debug text anchoring were also
-  added, both aimed at making this kind of before/after comparison
-  and general debugging easier going forward.
-- Dialogue machinery (Phase 16), debug-tooling independence and
-  facing visualization (Phase 17), and flush collision with the
-  Dialogue/Toggle trigger restructuring, the patio door, and the
-  necklace's working item-pickup (Phase 18) are all now complete —
-  see ADR-065–071. M4's remaining open items: real Beat 2 writing
-  (bed/necklace lines are still placeholder text), blip audio (E7,
-  not started), and the code-organization pass flagged as its own
-  upcoming, separate conversation once M4's remaining features land.
-- Blip audio (Phase 19, ADR-072) closes out M4's core machinery. Only
-  two items remain before M4 can close: real Beat 2 writing (still
-  placeholder), and a known movement bug (sliding along a wall
-  decreases speed, pre-existing TODO) — the code-organization pass
-  remains deliberately deferred to its own future conversation.
+- ✅ **M4 (The Voice):** closed at Phase 21. Scene transitions (three
+  trigger kinds — Warp, Dialogue, Toggle), lazy scene reload, camera
+  modes, batched text and debug-rect rendering, full dialogue
+  machinery (typewriter, advance/skip, two registers, per-span color,
+  word-wrap), blip audio, and Beat 2's real bed/necklace content —
+  all built, verified, and confirmed against real content rather than
+  placeholders. Two items deliberately not part of M4's own scope:
+  the code-organization/refactor pass (explicitly deferred to its own
+  future session), and grid-based spatial partitioning for collision
+  (parked, revisit at M5 content scale).
 
 ### Open questions
 
@@ -1534,6 +1561,12 @@ A separate document — screenshots embedded inline, written for an outside read
 Raised while designing TriggerKind::Interact (M4, the necklace/nightstand case). A single Rect, tested via point_in_rect, currently governs both "show the interact prompt icon" (proximity only) and "the interaction may fire" (proximity + facing + button) — confirmed as mathematically sufficient for every case designed so far (point-in-rect and aabb-overlap were shown to be the same test, just parameterized by rect size — not a source of the "notice vs. touch" distinction on their own).
 
 A genuinely different, currently unbuilt idea: two separately-sized rects per interactable — a wider one governing "the player can tell something's here" (icon visibility) and a tighter one governing "the player may actually interact" (e.g. a glowing altar visible from across a room, but only interactable up close). Not built now — no current beat needs it, and building it speculatively risks guessing radii against no real content. Revisit when a real case demands the distinction; if none ever does, this parked idea should simply be removed rather than built for its own sake.
+
+### Parked — Grid-based spatial partitioning for collision checks
+
+Raised while extending try_move_player's flush-collision resolution — collider_blocked currently checks every wall and every entity's collider unconditionally, twice per frame per moving entity (once per axis), regardless of distance from the mover. Fine at current content scale (a dozen-ish colliders per scene), but scales linearly with total collider count, not with how many are actually nearby.
+
+A coarse-grid spatial partition (informed by a similar approach in a colleague's bullet-hell project) would divide a scene into fixed-size cells, further split into quadrants around the moving entity's current cell, and only check colliders in the mover's cell plus the 3 adjacent cells toward whichever quadrant the entity sits in — reducing most checks to a small, roughly-constant neighborhood rather than the whole scene. Not built now — no current scene is close to large enough for this to matter, and building it against today's small, hand-placed content risks guessing at cell size and boundary handling without real data to tune against. Revisit once a scene's collider count is large enough to make the cost concretely measurable (M5's populated village is the likely trigger).
 
 ### Next session agenda (Milestone Chat #3: The Room / M3)
 
