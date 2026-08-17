@@ -1,11 +1,11 @@
 mod debug;
-mod entity;
+pub mod entity;
 pub mod ids;
 mod platform;
 mod renderer;
-mod scene;
+pub mod scene;
 mod text;
-mod texture;
+pub mod texture;
 pub mod ui;
 
 pub use platform::run;

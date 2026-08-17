@@ -190,14 +190,18 @@ impl AppState {
     /// from change_scene, which just assigns the result afterward.
     fn build_scene(renderer: &mut Renderer, scene_id: SceneId, multiplying_factor: f32) -> Scene {
         let new_scene = match scene_id {
-            SceneId::Home => {
-                Scene::new_home(renderer.device(), renderer.queue(), multiplying_factor)
-                    .expect("failed to build home scene")
-            }
-            SceneId::Outside => {
-                Scene::new_outside(renderer.device(), renderer.queue(), multiplying_factor)
-                    .expect("failed to build outside scene")
-            }
+            SceneId::Home => crate::game::scenes::home::build(
+                renderer.device(),
+                renderer.queue(),
+                multiplying_factor,
+            )
+            .expect("failed to build home scene"),
+            SceneId::Outside => crate::game::scenes::outside::build(
+                renderer.device(),
+                renderer.queue(),
+                multiplying_factor,
+            )
+            .expect("failed to build outside scene"),
         };
         renderer.prepare_scene(&new_scene);
         new_scene
