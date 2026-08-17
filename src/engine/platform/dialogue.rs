@@ -1,5 +1,7 @@
+use crate::game::dialogue::{DialogueLine, Register};
+
 pub(super) struct DialogueState {
-    pub(super) lines: Vec<crate::game::dialogue::DialogueLine>,
+    pub(super) lines: Vec<DialogueLine>,
     pub(super) current_line: usize,
     /// How many bytes of the current line's text are currently
     /// visible. Grows over time (typewriter); jumping straight to
@@ -27,7 +29,7 @@ pub(super) struct RevealedChar {
 }
 
 impl DialogueState {
-    pub(super) fn new(lines: Vec<crate::game::dialogue::DialogueLine>) -> Self {
+    pub(super) fn new(lines: Vec<DialogueLine>) -> Self {
         Self {
             lines,
             current_line: 0,
@@ -126,7 +128,7 @@ impl DialogueState {
             .collect()
     }
 
-    pub(super) fn current_register(&self) -> Option<&crate::game::dialogue::Register> {
+    pub(super) fn current_register(&self) -> Option<&Register> {
         self.lines.get(self.current_line).map(|l| &l.register)
     }
 }

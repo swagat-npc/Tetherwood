@@ -1,7 +1,10 @@
 use super::gpu::{Frame, Renderer};
 use super::mesh::{SolidRect, build_solid_rect_mesh, build_text_mesh, model_matrix};
+use crate::engine::debug::overlay;
 use crate::engine::entity;
 use crate::engine::scene::Scene;
+use crate::engine::text;
+use crate::game::dialogue::Register;
 use wgpu::util::DeviceExt;
 
 impl Renderer {
@@ -40,7 +43,7 @@ impl Renderer {
         }
 
         let debug_rects = if show_colliders {
-            crate::engine::debug::overlay::build_debug_rects(scene)
+            overlay::build_debug_rects(scene)
         } else {
             Vec::new()
         };
@@ -196,14 +199,14 @@ impl Renderer {
     pub fn render_dialogue_panel(
         &mut self,
         frame: &Frame,
-        register: Option<&crate::game::dialogue::Register>,
+        register: Option<&Register>,
     ) {
         const MARGIN: f32 = 20.0;
         const NARRATOR_BORDER: [f32; 4] = [1.0, 1.0, 1.0, 1.0]; // Neutral gray border for narrator
         const MONOLOGUE_BORDER: [f32; 4] = [0.5, 0.5, 1.0, 1.0]; // Blue border for inner monologue
 
         let border_color = match register {
-            Some(crate::game::dialogue::Register::InnerMonologue) => MONOLOGUE_BORDER,
+            Some(Register::InnerMonologue) => MONOLOGUE_BORDER,
             _ => NARRATOR_BORDER, // Narrator or not active lines
         };
 
@@ -221,7 +224,7 @@ impl Renderer {
         self.render_solid_rects(frame, &[panel], projection, glam::Mat4::IDENTITY);
     }
 
-    pub fn render_text(&mut self, frame: &Frame, glyphs: &[crate::engine::text::PositionedGlyph]) {
+    pub fn render_text(&mut self, frame: &Frame, glyphs: &[text::PositionedGlyph]) {
         // Screen-space only — no camera_view term, so text stays fixed
         // to the window regardless of camera position or mode (HUD).
         if glyphs.is_empty() {
@@ -289,7 +292,7 @@ impl Renderer {
     pub fn render_text_with_bg(
         &mut self,
         frame: &Frame,
-        glyphs: &[crate::engine::text::PositionedGlyph],
+        glyphs: &[text::PositionedGlyph],
     ) {
         self.render_text_bg(
             frame,
@@ -297,7 +300,7 @@ impl Renderer {
             [0.0, 0.0, 0.0, 0.85],
             None,
             0.0,
-            crate::engine::text::DEBUG_TEXT_PADDING,
+            text::DEBUG_TEXT_PADDING,
         );
         self.render_text(frame, glyphs);
     }
@@ -305,13 +308,13 @@ impl Renderer {
     pub fn render_text_bg(
         &mut self,
         frame: &Frame,
-        glyphs: &[crate::engine::text::PositionedGlyph],
+        glyphs: &[text::PositionedGlyph],
         fill_color: [f32; 4],
         border_color: Option<[f32; 4]>,
         border_thickness_px: f32,
         padding: f32,
     ) {
-        let (position, size) = crate::engine::text::combined_glyph_info(glyphs, padding);
+        let (position, size) = text::combined_glyph_info(glyphs, padding);
 
         let bg = SolidRect {
             position,

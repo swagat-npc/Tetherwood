@@ -1,6 +1,7 @@
 use super::mesh::{INDICES, SolidVertex, VERTICES, Vertex};
 use crate::engine::ids::TextureId;
 use crate::engine::scene::Scene;
+use crate::engine::texture::{Texture, TextureStore};
 use anyhow::Result;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
@@ -36,7 +37,7 @@ pub struct Renderer {
     // glyph_atlas_bind_group borrows from them — never read again after
     // construction, since the bind group is what render_text actually uses.
     #[allow(dead_code)]
-    font_atlas: crate::engine::texture::Texture,
+    font_atlas: Texture,
     pub(super) glyph_atlas_bind_group: wgpu::BindGroup,
     pub camera_position: glam::Vec2,
 }
@@ -195,7 +196,7 @@ impl Renderer {
             }],
         });
 
-        let mut font_store = crate::engine::texture::TextureStore::new();
+        let mut font_store = TextureStore::new();
         let font_atlas_id =
             font_store.load(&device, &queue, "assets/good_neighbors_font.aseprite")?;
         let font_atlas = font_store.take(font_atlas_id);

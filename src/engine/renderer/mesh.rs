@@ -1,3 +1,5 @@
+use crate::engine::text;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct Vertex {
@@ -134,17 +136,15 @@ pub(super) fn model_matrix(position: glam::Vec2, size: glam::Vec2) -> glam::Mat4
 /// per-glyph-uniform approach, no per-draw remapping is needed: the
 /// vertex data already is the answer, so the whole string draws in
 /// one draw call instead of one per glyph.
-pub(super) fn build_text_mesh(
-    glyphs: &[crate::engine::text::PositionedGlyph],
-) -> (Vec<Vertex>, Vec<u16>) {
+pub(super) fn build_text_mesh(glyphs: &[text::PositionedGlyph]) -> (Vec<Vertex>, Vec<u16>) {
     let mut vertices = Vec::with_capacity(glyphs.len() * 4);
     let mut indices = Vec::with_capacity(glyphs.len() * 6);
 
     for glyph in glyphs {
-        let (uv_min, uv_max) = crate::engine::text::glyph_uv(glyph.cell.0, glyph.cell.1);
+        let (uv_min, uv_max) = text::glyph_uv(glyph.cell.0, glyph.cell.1);
 
         let top_left = glyph.position;
-        let bottom_right = glyph.position + crate::engine::text::GLYPH_SIZE * glyph.scale;
+        let bottom_right = glyph.position + text::GLYPH_SIZE * glyph.scale;
 
         let base = vertices.len() as u16;
         vertices.push(Vertex {

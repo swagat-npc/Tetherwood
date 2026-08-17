@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::engine::entity::{
     Background, Collider, Entity, Rect, Trigger, TriggerKind, aabb_overlap, point_in_rect,
 };
-use crate::engine::ids::{EntityId, SceneId, WarpId};
+use crate::engine::ids::{EntityId, SceneId, TextureId, WarpId};
 use crate::engine::texture::TextureStore;
 
 /// Per-scene camera behavior (ADR-041). Static holds its own fixed
@@ -173,7 +173,7 @@ impl Scene {
     /// is in range of *any* of them, not just whichever was checked last.
     pub fn update_interact_prompts(&mut self) {
         let player_position = self.player().collider_center();
-        let mut visible: HashMap<EntityId, (bool, crate::engine::ids::TextureId)> = HashMap::new();
+        let mut visible: HashMap<EntityId, (bool, TextureId)> = HashMap::new();
 
         for trigger in &self.triggers {
             if !trigger.active {

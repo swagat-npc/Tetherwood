@@ -13,13 +13,17 @@ use winit::{
     window::{Window, WindowId},
 };
 
+use crate::engine::debug::notifications::Notification;
+use crate::engine::entity::Direction;
+use crate::engine::ids::SceneId;
 use crate::engine::input::InputState;
-use crate::engine::renderer::Renderer;
-use crate::engine::scene::{CameraMode, Scene};
-use crate::engine::{debug::notifications::Notification, scene::InteractResult};
+use crate::engine::renderer::{Frame, Renderer};
+use crate::engine::scene::{CameraMode, InteractResult, Scene};
+use crate::engine::text;
+use crate::engine::ui::Slider;
 use crate::game::actions::{self, Action};
-use crate::game::dialogue::Register;
-use crate::{engine::ids::SceneId, game::dialogue::line_for};
+use crate::game::dialogue::{Register, line_for};
+use crate::game::scenes::{home, outside};
 
 pub fn run() {
     let event_loop = EventLoop::new().expect("failed to create event loop");
@@ -52,7 +56,7 @@ struct AppState {
     blip_volume: f32,
     notifications: Vec<Notification>,
     left_mouse_down: bool,
-    volume_slider: crate::engine::ui::Slider,
+    volume_slider: Slider,
 }
 
 impl AppState {
@@ -61,18 +65,12 @@ impl AppState {
     /// from change_scene, which just assigns the result afterward.
     fn build_scene(renderer: &mut Renderer, scene_id: SceneId, multiplying_factor: f32) -> Scene {
         let new_scene = match scene_id {
-            SceneId::Home => crate::game::scenes::home::build(
-                renderer.device(),
-                renderer.queue(),
-                multiplying_factor,
-            )
-            .expect("failed to build home scene"),
-            SceneId::Outside => crate::game::scenes::outside::build(
-                renderer.device(),
-                renderer.queue(),
-                multiplying_factor,
-            )
-            .expect("failed to build outside scene"),
+            SceneId::Home => home::build(renderer.device(), renderer.queue(), multiplying_factor)
+                .expect("failed to build home scene"),
+            SceneId::Outside => {
+                outside::build(renderer.device(), renderer.queue(), multiplying_factor)
+                    .expect("failed to build outside scene")
+            }
         };
         renderer.prepare_scene(&new_scene);
         new_scene
@@ -117,7 +115,7 @@ impl AppState {
         let speed = 80.0 * self.multiplying_factor;
         let movement = actions::resolve_movement(&self.input);
         if movement != Vec2::ZERO {
-            if let Some(dir) = crate::engine::entity::Direction::from_movement(movement) {
+            if let Some(dir) = Direction::from_movement(movement) {
                 self.scene.player_mut().facing = dir;
             }
             let delta_move = movement.normalize() * speed * delta;
@@ -140,26 +138,22 @@ impl AppState {
         self.renderer.camera_position = camera_target;
     }
 
-    fn draw_hud(&mut self, frame: &crate::engine::renderer::Frame) {
+    fn draw_hud(&mut self, frame: &Frame) {
         // DEBUG::Notifications Text
         if !self.notifications.is_empty() {
             let screen_size = self.renderer.screen_size();
-            let notification_height = crate::engine::text::GLYPH_SIZE.y
-                * crate::engine::text::DEBUG_TEXT_SCALE
-                + crate::engine::text::DEBUG_TEXT_PADDING * 2.0;
+            let notification_height =
+                text::GLYPH_SIZE.y * text::DEBUG_TEXT_SCALE + text::DEBUG_TEXT_PADDING * 2.0;
             let notification_gap = 10.0;
             for (i, notification) in self.notifications.iter().enumerate() {
-                let origin = crate::engine::text::centered_text_origin(
+                let origin = text::centered_text_origin(
                     &notification.message,
                     screen_size.x * 0.5,
                     screen_size.y - 25.0 - i as f32 * (notification_height + notification_gap),
-                    crate::engine::text::DEBUG_TEXT_SCALE,
+                    text::DEBUG_TEXT_SCALE,
                 );
-                let glyphs = crate::engine::text::layout_text_scaled(
-                    &notification.message,
-                    origin,
-                    crate::engine::text::DEBUG_TEXT_SCALE,
-                );
+                let glyphs =
+                    text::layout_text_scaled(&notification.message, origin, text::DEBUG_TEXT_SCALE);
                 self.renderer.render_text_with_bg(frame, &glyphs);
             }
             self.notifications.retain(|n| !n.expired());
@@ -177,30 +171,26 @@ impl AppState {
                 .map(|rc| (rc.ch, rc.color))
                 .collect();
 
-            let wrapped_lines = crate::engine::text::wrap_colored_text(
-                &colored_chars,
-                max_width,
-                crate::engine::text::DIALOGUE_TEXT_SCALE,
-            );
+            let wrapped_lines =
+                text::wrap_colored_text(&colored_chars, max_width, text::DIALOGUE_TEXT_SCALE);
 
-            let line_height =
-                crate::engine::text::GLYPH_SIZE.y * crate::engine::text::DIALOGUE_TEXT_SCALE + 4.0;
+            let line_height = text::GLYPH_SIZE.y * text::DIALOGUE_TEXT_SCALE + 4.0;
             for (i, line_chars) in wrapped_lines.iter().enumerate() {
                 let line_origin = text_pos + Vec2::new(0.0, i as f32 * line_height);
-                let glyphs = crate::engine::text::layout_colored_text_scaled(
+                let glyphs = text::layout_colored_text_scaled(
                     line_chars,
                     line_origin,
-                    crate::engine::text::DIALOGUE_TEXT_SCALE,
+                    text::DIALOGUE_TEXT_SCALE,
                 );
                 self.renderer.render_text(frame, &glyphs);
             }
 
             if dialogue.caret_visible() {
                 let caret_pos = self.renderer.dialogue_caret_position();
-                let caret_glyphs = crate::engine::text::layout_colored_text_scaled(
+                let caret_glyphs = text::layout_colored_text_scaled(
                     &[('▼', [1.0, 1.0, 1.0, 1.0])],
                     caret_pos,
-                    crate::engine::text::DIALOGUE_TEXT_SCALE + 2.0,
+                    text::DIALOGUE_TEXT_SCALE + 2.0,
                 );
                 self.renderer.render_text(frame, &caret_glyphs);
             }
@@ -209,10 +199,10 @@ impl AppState {
             // DEBUG::FPS Counter
             {
                 let fps_text = format!("FPS: {:.0}", self.smoothed_fps);
-                let glyphs = crate::engine::text::layout_text_scaled(
+                let glyphs = text::layout_text_scaled(
                     &fps_text,
                     Vec2::new(10.0, 10.0),
-                    crate::engine::text::DEBUG_TEXT_SCALE,
+                    text::DEBUG_TEXT_SCALE,
                 );
                 self.renderer.render_text_with_bg(frame, &glyphs);
             }
@@ -228,15 +218,9 @@ impl AppState {
                 let mouse_text =
                     format!("Mouse Pos: {:.0}, {:.0}", authoring_pos.x, authoring_pos.y);
                 let screen_size = self.renderer.screen_size();
-                let mouse_text_pos = Vec2::new(
-                    crate::engine::text::DEBUG_TEXT_PADDING,
-                    screen_size.y - 25.0,
-                );
-                let glyphs = crate::engine::text::layout_text_scaled(
-                    &mouse_text,
-                    mouse_text_pos,
-                    crate::engine::text::DEBUG_TEXT_SCALE,
-                );
+                let mouse_text_pos = Vec2::new(text::DEBUG_TEXT_PADDING, screen_size.y - 25.0);
+                let glyphs =
+                    text::layout_text_scaled(&mouse_text, mouse_text_pos, text::DEBUG_TEXT_SCALE);
                 self.renderer.render_text_with_bg(frame, &glyphs);
             }
 
@@ -298,7 +282,7 @@ impl ApplicationHandler for App {
                 .expect("failed to load monologue blip"),
         );
 
-        let volume_slider = crate::engine::ui::Slider::new(
+        let volume_slider = Slider::new(
             Vec2::new(700.0, 30.0),
             Vec2::new(120.0, 12.0),
             -40.0,

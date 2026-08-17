@@ -184,7 +184,7 @@ pub fn combined_glyph_info(glyphs: &[PositionedGlyph], padding: f32) -> (Vec2, V
 }
 
 pub fn centered_text_origin(text: &str, screen_center_x: f32, y: f32, scale: f32) -> Vec2 {
-    let total_width = text.chars().count() as f32 * crate::engine::text::GLYPH_PITCH.x * scale;
+    let total_width = text.chars().count() as f32 * GLYPH_PITCH.x * scale;
     Vec2::new(screen_center_x - total_width / 2.0, y)
 }
 
