@@ -1,6 +1,7 @@
 mod dialogue;
 pub mod input;
 
+use crate::engine::debug::hud;
 use crate::engine::debug::notifications::Notification;
 use crate::engine::debug::ui::Slider;
 use crate::engine::entity::Direction;
@@ -83,7 +84,8 @@ impl AppState {
     }
 
     const BLIP_PITCH_STEPS: [f64; 4] = [0.95, 1.05, 1.0, 1.1]; // semitone-ish multipliers, cycling
-    // const BLIP_PITCH_STEPS: [f64; 4] = [0.5, 1.0, 1.5, 2.0];
+    // const BLIP_PITCH_STEPS: [f64; 4] = [0.5, 1.0, 1.5, 2.0]; // more variation in pitch shift
+
     fn play_blip(&mut self, step_index: usize) {
         let Some(dialogue) = self.dialogue.as_mut() else {
             return;
@@ -138,24 +140,8 @@ impl AppState {
 
     fn draw_hud(&mut self, frame: &Frame) {
         // DEBUG::Notifications Text
-        if !self.notifications.is_empty() {
-            let screen_size = self.renderer.screen_size();
-            let notification_height =
-                text::GLYPH_SIZE.y * text::DEBUG_TEXT_SCALE + text::DEBUG_TEXT_PADDING * 2.0;
-            let notification_gap = 10.0;
-            for (i, notification) in self.notifications.iter().enumerate() {
-                let origin = text::centered_text_origin(
-                    &notification.message,
-                    screen_size.x * 0.5,
-                    screen_size.y - 25.0 - i as f32 * (notification_height + notification_gap),
-                    text::DEBUG_TEXT_SCALE,
-                );
-                let glyphs =
-                    text::layout_text_scaled(&notification.message, origin, text::DEBUG_TEXT_SCALE);
-                self.renderer.render_text_with_bg(frame, &glyphs);
-            }
-            self.notifications.retain(|n| !n.expired());
-        }
+        hud::draw_notifications(&mut self.renderer, frame, &mut self.notifications);
+
         // HUD::Displayed Text
         if let Some(dialogue) = &self.dialogue {
             self.renderer
@@ -193,54 +179,29 @@ impl AppState {
                 self.renderer.render_text(frame, &caret_glyphs);
             }
         }
+
         if self.show_debug_info {
             // DEBUG::FPS Counter
-            {
-                let fps_text = format!("FPS: {:.0}", self.smoothed_fps);
-                let glyphs = text::layout_text_scaled(
-                    &fps_text,
-                    Vec2::new(10.0, 10.0),
-                    text::DEBUG_TEXT_SCALE,
-                );
-                self.renderer.render_text_with_bg(frame, &glyphs);
-            }
+            hud::draw_fps_counter(&mut self.renderer, frame, self.smoothed_fps);
 
             // DEBUG::Mouse Position
-            {
-                let screen_pos = Vec2::new(
-                    self.screen_mouse_position.0 as f32,
-                    self.screen_mouse_position.1 as f32,
-                );
-                let world_pos = self.renderer.screen_to_world(screen_pos);
-                let authoring_pos = world_pos / self.multiplying_factor;
-                let mouse_text =
-                    format!("Mouse Pos: {:.0}, {:.0}", authoring_pos.x, authoring_pos.y);
-                let screen_size = self.renderer.screen_size();
-                let mouse_text_pos = Vec2::new(text::DEBUG_TEXT_PADDING, screen_size.y - 25.0);
-                let glyphs =
-                    text::layout_text_scaled(&mouse_text, mouse_text_pos, text::DEBUG_TEXT_SCALE);
-                self.renderer.render_text_with_bg(frame, &glyphs);
-            }
+            hud::draw_mouse_position(
+                &mut self.renderer,
+                frame,
+                self.screen_mouse_position,
+                self.multiplying_factor,
+            );
 
             // DEBUG:: Volume slider
-            {
-                let world_mouse = Vec2::new(
-                    self.screen_mouse_position.0 as f32,
-                    self.screen_mouse_position.1 as f32,
-                );
-                if self.volume_slider.update(world_mouse, self.left_mouse_down) {
-                    self.blip_volume = self.volume_slider.value;
-                }
-                let slider_rects = self.volume_slider.build_rects();
-                let projection = self.renderer.screen_projection();
-
-                self.renderer.render_solid_rects(
-                    frame,
-                    &slider_rects,
-                    projection,
-                    glam::Mat4::IDENTITY,
-                );
+            let world_mouse = Vec2::new(
+                self.screen_mouse_position.0 as f32,
+                self.screen_mouse_position.1 as f32,
+            );
+            if self.volume_slider.update(world_mouse, self.left_mouse_down) {
+                self.blip_volume = self.volume_slider.value;
             }
+            let slider_rects = self.volume_slider.build_rects();
+            hud::draw_slider(&mut self.renderer, frame, &slider_rects);
         }
     }
 }
