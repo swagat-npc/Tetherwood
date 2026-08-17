@@ -39,70 +39,11 @@ impl Renderer {
             }
         }
 
-        let mut debug_rects: Vec<SolidRect> = Vec::new();
-        if show_colliders {
-            const WALL_FILL: [f32; 4] = [1.0, 0.0, 0.0, 0.15];
-            const WALL_BORDER: [f32; 4] = [0.7, 0.0, 0.0, 0.9];
-            const ENTITY_FILL: [f32; 4] = [0.0, 0.4, 1.0, 0.15];
-            const ENTITY_BORDER: [f32; 4] = [0.0, 0.2, 0.8, 0.9];
-            const TRIGGER_FILL: [f32; 4] = [0.0, 1.0, 0.0, 0.15];
-            const TRIGGER_BORDER: [f32; 4] = [0.0, 0.7, 0.0, 0.9];
-            const DIALOGUE_FILL: [f32; 4] = [1.0, 1.0, 0.0, 0.15];
-            const DIALOGUE_BORDER: [f32; 4] = [0.7, 0.7, 0.0, 0.9];
-            const INTERACT_FILL: [f32; 4] = [1.0, 0.0, 1.0, 0.15];
-            const INTERACT_BORDER: [f32; 4] = [0.7, 0.0, 0.7, 0.9];
-
-            push_center_marker(&mut debug_rects, glam::Vec2::ZERO, 1.0);
-
-            for wall in &scene.walls {
-                debug_rects.push(SolidRect {
-                    position: wall.rect.center,
-                    size: wall.rect.half_size * 2.0,
-                    fill_color: WALL_FILL,
-                    border_color: WALL_BORDER,
-                    border_thickness_px: 3.0,
-                });
-                push_center_marker(&mut debug_rects, wall.rect.center, 1.0);
-            }
-            for entity in &scene.entities {
-                if let Some(collider) = &entity.collider {
-                    debug_rects.push(SolidRect {
-                        position: entity.position + collider.rect.center,
-                        size: collider.rect.half_size * 2.0,
-                        fill_color: ENTITY_FILL,
-                        border_color: ENTITY_BORDER,
-                        border_thickness_px: 3.0,
-                    });
-                    push_center_marker(
-                        &mut debug_rects,
-                        entity.position + collider.rect.center,
-                        1.0,
-                    );
-                }
-                if entity.texture_id.is_some() {
-                    push_facing_marker(&mut debug_rects, entity.position, entity.facing, 1.0);
-                }
-            }
-            for trigger in &scene.triggers {
-                if !trigger.active {
-                    continue;
-                }
-                let (fill_color, border_color) = match trigger.kind {
-                    TriggerKind::Warp { .. } => (TRIGGER_FILL, TRIGGER_BORDER),
-                    TriggerKind::Dialogue { .. } => (DIALOGUE_FILL, DIALOGUE_BORDER),
-                    TriggerKind::Toggle { .. } => (INTERACT_FILL, INTERACT_BORDER),
-                };
-
-                debug_rects.push(SolidRect {
-                    position: trigger.rect.center,
-                    size: trigger.rect.half_size * 2.0,
-                    fill_color,
-                    border_color,
-                    border_thickness_px: 3.0,
-                });
-                push_center_marker(&mut debug_rects, trigger.rect.center, 1.0);
-            }
-        }
+        let debug_rects = if show_colliders {
+            crate::engine::debug::overlay::build_debug_rects(scene)
+        } else {
+            Vec::new()
+        };
 
         // Each draw gets its own encoder and its own submit. See the
         // explanation above the code block in this message: repeatedly

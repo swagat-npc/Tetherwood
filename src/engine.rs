@@ -1,3 +1,4 @@
+mod debug;
 mod entity;
 pub mod ids;
 mod platform;

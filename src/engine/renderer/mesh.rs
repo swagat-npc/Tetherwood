@@ -1,5 +1,3 @@
-use crate::engine::entity;
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct Vertex {
@@ -128,68 +126,6 @@ pub(super) fn model_matrix(position: glam::Vec2, size: glam::Vec2) -> glam::Mat4
     let scale = glam::Mat4::from_scale(size.extend(1.0));
     let translate = glam::Mat4::from_translation((position - half_size).extend(0.0));
     translate * scale
-}
-
-pub(super) fn push_center_marker(debug_rects: &mut Vec<SolidRect>, center: glam::Vec2, scale: f32) {
-    const ARM_LENGTH: f32 = 8.0;
-    const THICKNESS: f32 = 2.0;
-    const X_COLOR: [f32; 4] = [1.0, 0.15, 0.15, 1.0]; // X-Axis
-    const Y_COLOR: [f32; 4] = [0.15, 1.0, 0.15, 1.0]; // Y-Axis
-
-    debug_rects.push(SolidRect {
-        position: center,
-        size: glam::Vec2::new(ARM_LENGTH * scale, THICKNESS * scale),
-        fill_color: X_COLOR,
-        border_color: X_COLOR,
-        border_thickness_px: 3.0,
-    });
-    debug_rects.push(SolidRect {
-        position: center,
-        size: glam::Vec2::new(THICKNESS * scale, ARM_LENGTH * scale),
-        fill_color: Y_COLOR,
-        border_color: Y_COLOR,
-        border_thickness_px: 3.0,
-    });
-}
-
-pub(super) fn push_facing_marker(
-    debug_rects: &mut Vec<SolidRect>,
-    center: glam::Vec2,
-    facing: entity::Direction,
-    scale: f32,
-) {
-    const FACING_COLOR: [f32; 4] = [0.2, 0.8, 1.0, 1.0]; // distinct from X/Y axis colors
-
-    // Three segments, each shorter and thinner than the last as they
-    // move away from center — a stepped taper reads as "pointing this
-    // way" even using only rects, no true arrowhead geometry needed.
-    const SEGMENTS: [(f32, f32); 3] = [(3.0, 5.0), (8.0, 3.0), (13.0, 1.5)];
-
-    let direction_vec = match facing {
-        entity::Direction::Up => glam::Vec2::new(0.0, -1.0),
-        entity::Direction::Down => glam::Vec2::new(0.0, 1.0),
-        entity::Direction::Left => glam::Vec2::new(-1.0, 0.0),
-        entity::Direction::Right => glam::Vec2::new(1.0, 0.0),
-    };
-    let along_axis = direction_vec.x != 0.0;
-
-    for &(offset, thickness) in &SEGMENTS {
-        let seg_center = center + direction_vec * (offset * scale);
-        let seg_length = 5.0 * scale;
-        let size = if along_axis {
-            glam::Vec2::new(seg_length, thickness * scale)
-        } else {
-            glam::Vec2::new(thickness * scale, seg_length)
-        };
-
-        debug_rects.push(SolidRect {
-            position: seg_center,
-            size,
-            fill_color: FACING_COLOR,
-            border_color: FACING_COLOR,
-            border_thickness_px: 0.0,
-        });
-    }
 }
 
 /// Builds one vertex+index buffer for an entire string — 4 vertices

@@ -11,6 +11,7 @@ use winit::{
     window::{Window, WindowId},
 };
 
+use crate::engine::debug::notifications::Notification;
 use crate::engine::ids::SceneId;
 use crate::engine::renderer::Renderer;
 use crate::engine::scene::{CameraMode, Scene};
@@ -181,12 +182,6 @@ struct AppState {
     notifications: Vec<Notification>,
     left_mouse_down: bool,
     volume_slider: crate::engine::ui::Slider,
-}
-
-struct Notification {
-    message: String,
-    duration: std::time::Duration,
-    start_time: Instant,
 }
 
 impl AppState {
@@ -419,9 +414,7 @@ impl ApplicationHandler for App {
                                 );
                                 state.renderer.render_text_with_bg(&frame, &glyphs);
                             }
-                            state
-                                .notifications
-                                .retain(|n| n.start_time.elapsed() <= n.duration);
+                            state.notifications.retain(|n| !n.expired());
                         }
                         // HUD::Displayed Text
                         if let Some(dialogue) = &state.dialogue {
