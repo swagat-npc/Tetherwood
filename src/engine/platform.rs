@@ -1,3 +1,6 @@
+mod dialogue;
+
+use dialogue::DialogueState;
 use glam::Vec2;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
 use pollster::block_on;
@@ -17,139 +20,6 @@ use crate::engine::{debug::notifications::Notification, scene::InteractResult};
 use crate::game::actions::{self, Action};
 use crate::game::dialogue::Register;
 use crate::{engine::ids::SceneId, game::dialogue::line_for};
-
-struct DialogueState {
-    lines: Vec<crate::game::dialogue::DialogueLine>,
-    current_line: usize,
-    /// How many bytes of the current line's text are currently
-    /// visible. Grows over time (typewriter); jumping straight to
-    /// the line's full length is what "skip" does.
-    revealed_chars: usize,
-    /// Accumulates delta time; a new character reveals once this
-    /// crosses REVEAL_INTERVAL.
-    reveal_timer: f32,
-    /// Blink cycle for the "press to continue" caret — independent of
-    /// reveal_timer, since blinking should run continuously once the
-    /// line is fully revealed, not restart with each new line.
-    caret_timer: f32,
-}
-
-const REVEAL_INTERVAL: f32 = 0.03;
-const CARET_BLINK_INTERVAL: f32 = 0.5; // seconds per on/off half-cycle
-
-/// A single revealed character, paired with the color it should
-/// render in — flattened from DialogueLine's spans, so the renderer
-/// doesn't need to know about span boundaries at all, just a flat
-/// per-character color sequence.
-struct RevealedChar {
-    ch: char,
-    color: [f32; 4],
-}
-
-impl DialogueState {
-    fn new(lines: Vec<crate::game::dialogue::DialogueLine>) -> Self {
-        Self {
-            lines,
-            current_line: 0,
-            revealed_chars: 0,
-            reveal_timer: 0.0,
-            caret_timer: 0.0,
-        }
-    }
-
-    fn full_len(&self) -> usize {
-        self.lines
-            .get(self.current_line)
-            .map(|line| line.spans.iter().map(|s| s.text.chars().count()).sum())
-            .unwrap_or(0)
-    }
-
-    fn char_at(&self, index: usize) -> Option<char> {
-        self.lines
-            .get(self.current_line)?
-            .spans
-            .iter()
-            .flat_map(|s| s.text.chars())
-            .nth(index)
-    }
-
-    /// Advances the typewriter reveal by `delta` seconds. Call once
-    /// per frame while dialogue is active, regardless of input.
-    fn tick(&mut self, delta: f32) -> bool {
-        self.caret_timer += delta;
-
-        if self.lines.get(self.current_line).is_none() {
-            return false; // no active lines, nothing to reveal
-        };
-        let full_len = self.full_len();
-        if self.revealed_chars >= full_len {
-            return false; // line is fully revealed, nothing to do
-        }
-
-        self.reveal_timer += delta;
-        let mut revealed_non_space = false;
-        while self.reveal_timer >= REVEAL_INTERVAL && self.revealed_chars < full_len {
-            self.reveal_timer -= REVEAL_INTERVAL;
-            if self.char_at(self.revealed_chars) != Some(' ') {
-                revealed_non_space = true;
-            }
-            self.revealed_chars += 1;
-        }
-        revealed_non_space
-    }
-
-    /// The E/Space press handler. Skips to full reveal if the current
-    /// line isn't done typing; otherwise advances to the next line.
-    /// Returns false once there are no more lines — the caller closes
-    /// the dialogue on that signal.
-    fn advance_or_skip(&mut self) -> bool {
-        if self.lines.get(self.current_line).is_none() {
-            return false; // no active lines, nothing to reveal
-        };
-        if self.revealed_chars < self.full_len() {
-            self.revealed_chars = self.full_len();
-            return true;
-        }
-
-        self.current_line += 1;
-        self.revealed_chars = 0;
-        self.reveal_timer = 0.0;
-        self.caret_timer = 0.0;
-        self.current_line < self.lines.len()
-    }
-
-    /// True during the "on" half of the blink cycle, and only once the
-    /// current line is fully revealed — no caret while still typing,
-    /// since there's nothing to advance to yet.
-    fn caret_visible(&self) -> bool {
-        if self.revealed_chars < self.full_len() {
-            return false;
-        }
-        (self.caret_timer % (CARET_BLINK_INTERVAL * 2.0)) < CARET_BLINK_INTERVAL
-    }
-
-    /// Flattens the current line's spans into one per-character list,
-    /// truncated to however many characters are currently revealed.
-    fn visible_chars(&self) -> Vec<RevealedChar> {
-        let Some(line) = self.lines.get(self.current_line) else {
-            return Vec::new();
-        };
-        line.spans
-            .iter()
-            .flat_map(|span| {
-                span.text.chars().map(move |ch| RevealedChar {
-                    ch,
-                    color: span.color,
-                })
-            })
-            .take(self.revealed_chars)
-            .collect()
-    }
-
-    fn current_register(&self) -> Option<&crate::game::dialogue::Register> {
-        self.lines.get(self.current_line).map(|l| &l.register)
-    }
-}
 
 pub fn run() {
     let event_loop = EventLoop::new().expect("failed to create event loop");
@@ -231,6 +101,165 @@ impl AppState {
             .playback_rate(kira::PlaybackRate::from(pitch))
             .volume(kira::Decibels::from(self.blip_volume));
         let _ = self.audio.play(sound_data.clone().with_settings(settings));
+    }
+
+    fn tick_dialogue(&mut self, delta: f32) {
+        if let Some(dialogue) = &mut self.dialogue {
+            if dialogue.tick(delta) {
+                let step = self.blip_step_counter;
+                self.blip_step_counter = self.blip_step_counter.wrapping_add(1);
+                self.play_blip(step);
+            }
+        }
+    }
+
+    fn update_player(&mut self, delta: f32) {
+        let speed = 80.0 * self.multiplying_factor;
+        let movement = actions::resolve_movement(&self.input);
+        if movement != Vec2::ZERO {
+            if let Some(dir) = crate::engine::entity::Direction::from_movement(movement) {
+                self.scene.player_mut().facing = dir;
+            }
+            let delta_move = movement.normalize() * speed * delta;
+            self.scene.try_move_player(delta_move);
+            if let Some((target_scene, target_warp_id)) =
+                self.scene.check_triggers(self.show_debug_info)
+            {
+                self.change_scene(target_scene);
+                if let Some(spawn_position) = self.scene.activate_warp(target_warp_id) {
+                    self.scene.player_mut().position = spawn_position;
+                }
+            }
+        }
+        self.scene.update_interact_prompts();
+
+        let camera_target = match self.scene.camera_mode {
+            CameraMode::Static(anchor) => anchor,
+            CameraMode::Follow => self.scene.player().position,
+        };
+        self.renderer.camera_position = camera_target;
+    }
+
+    fn draw_hud(&mut self, frame: &crate::engine::renderer::Frame) {
+        // DEBUG::Notifications Text
+        if !self.notifications.is_empty() {
+            let screen_size = self.renderer.screen_size();
+            let notification_height = crate::engine::text::GLYPH_SIZE.y
+                * crate::engine::text::DEBUG_TEXT_SCALE
+                + crate::engine::text::DEBUG_TEXT_PADDING * 2.0;
+            let notification_gap = 10.0;
+            for (i, notification) in self.notifications.iter().enumerate() {
+                let origin = crate::engine::text::centered_text_origin(
+                    &notification.message,
+                    screen_size.x * 0.5,
+                    screen_size.y - 25.0 - i as f32 * (notification_height + notification_gap),
+                    crate::engine::text::DEBUG_TEXT_SCALE,
+                );
+                let glyphs = crate::engine::text::layout_text_scaled(
+                    &notification.message,
+                    origin,
+                    crate::engine::text::DEBUG_TEXT_SCALE,
+                );
+                self.renderer.render_text_with_bg(frame, &glyphs);
+            }
+            self.notifications.retain(|n| !n.expired());
+        }
+        // HUD::Displayed Text
+        if let Some(dialogue) = &self.dialogue {
+            self.renderer
+                .render_dialogue_panel(frame, dialogue.current_register());
+            let text_pos = self.renderer.dialogue_text_position();
+            let max_width = self.renderer.dialogue_text_max_width();
+
+            let colored_chars: Vec<(char, [f32; 4])> = dialogue
+                .visible_chars()
+                .into_iter()
+                .map(|rc| (rc.ch, rc.color))
+                .collect();
+
+            let wrapped_lines = crate::engine::text::wrap_colored_text(
+                &colored_chars,
+                max_width,
+                crate::engine::text::DIALOGUE_TEXT_SCALE,
+            );
+
+            let line_height =
+                crate::engine::text::GLYPH_SIZE.y * crate::engine::text::DIALOGUE_TEXT_SCALE + 4.0;
+            for (i, line_chars) in wrapped_lines.iter().enumerate() {
+                let line_origin = text_pos + Vec2::new(0.0, i as f32 * line_height);
+                let glyphs = crate::engine::text::layout_colored_text_scaled(
+                    line_chars,
+                    line_origin,
+                    crate::engine::text::DIALOGUE_TEXT_SCALE,
+                );
+                self.renderer.render_text(frame, &glyphs);
+            }
+
+            if dialogue.caret_visible() {
+                let caret_pos = self.renderer.dialogue_caret_position();
+                let caret_glyphs = crate::engine::text::layout_colored_text_scaled(
+                    &[('▼', [1.0, 1.0, 1.0, 1.0])],
+                    caret_pos,
+                    crate::engine::text::DIALOGUE_TEXT_SCALE + 2.0,
+                );
+                self.renderer.render_text(frame, &caret_glyphs);
+            }
+        }
+        if self.show_debug_info {
+            // DEBUG::FPS Counter
+            {
+                let fps_text = format!("FPS: {:.0}", self.smoothed_fps);
+                let glyphs = crate::engine::text::layout_text_scaled(
+                    &fps_text,
+                    Vec2::new(10.0, 10.0),
+                    crate::engine::text::DEBUG_TEXT_SCALE,
+                );
+                self.renderer.render_text_with_bg(frame, &glyphs);
+            }
+
+            // DEBUG::Mouse Position
+            {
+                let screen_pos = Vec2::new(
+                    self.screen_mouse_position.0 as f32,
+                    self.screen_mouse_position.1 as f32,
+                );
+                let world_pos = self.renderer.screen_to_world(screen_pos);
+                let authoring_pos = world_pos / self.multiplying_factor;
+                let mouse_text =
+                    format!("Mouse Pos: {:.0}, {:.0}", authoring_pos.x, authoring_pos.y);
+                let screen_size = self.renderer.screen_size();
+                let mouse_text_pos = Vec2::new(
+                    crate::engine::text::DEBUG_TEXT_PADDING,
+                    screen_size.y - 25.0,
+                );
+                let glyphs = crate::engine::text::layout_text_scaled(
+                    &mouse_text,
+                    mouse_text_pos,
+                    crate::engine::text::DEBUG_TEXT_SCALE,
+                );
+                self.renderer.render_text_with_bg(frame, &glyphs);
+            }
+
+            // DEBUG:: Volume slider
+            {
+                let world_mouse = Vec2::new(
+                    self.screen_mouse_position.0 as f32,
+                    self.screen_mouse_position.1 as f32,
+                );
+                if self.volume_slider.update(world_mouse, self.left_mouse_down) {
+                    self.blip_volume = self.volume_slider.value;
+                }
+                let slider_rects = self.volume_slider.build_rects();
+                let projection = self.renderer.screen_projection();
+
+                self.renderer.render_solid_rects(
+                    frame,
+                    &slider_rects,
+                    projection,
+                    glam::Mat4::IDENTITY,
+                );
+            }
+        }
     }
 }
 
@@ -344,173 +373,15 @@ impl ApplicationHandler for App {
                     );
                 }
 
-                if let Some(dialogue) = &mut state.dialogue {
-                    if dialogue.tick(delta.as_secs_f32()) {
-                        let step = state.blip_step_counter;
-                        state.blip_step_counter = state.blip_step_counter.wrapping_add(1);
-                        state.play_blip(step);
-                    }
-                }
-
-                let speed = 80.0 * state.multiplying_factor; // pixels per second scaled up to the factor
-                let movement = actions::resolve_movement(&state.input);
-                if movement != Vec2::ZERO {
-                    if let Some(dir) = crate::engine::entity::Direction::from_movement(movement) {
-                        state.scene.player_mut().facing = dir;
-                    }
-                    let delta_move = movement.normalize() * speed * delta.as_secs_f32();
-                    state.scene.try_move_player(delta_move);
-                    if let Some((target_scene, target_warp_id)) =
-                        state.scene.check_triggers(state.show_debug_info)
-                    {
-                        state.change_scene(target_scene);
-                        if let Some(spawn_position) = state.scene.activate_warp(target_warp_id) {
-                            state.scene.player_mut().position = spawn_position;
-                        }
-                    }
-                }
-                state.scene.update_interact_prompts();
-
-                let camera_target = match state.scene.camera_mode {
-                    CameraMode::Static(anchor) => anchor,
-                    CameraMode::Follow => state.scene.player().position,
-                };
-                state.renderer.camera_position = camera_target;
+                state.tick_dialogue(delta.as_secs_f32());
+                state.update_player(delta.as_secs_f32());
 
                 match state.renderer.acquire_frame() {
                     Ok(Some(frame)) => {
                         state
                             .renderer
                             .render_scene(&frame, &state.scene, state.show_colliders);
-
-                        // DEBUG::Notifications Text
-                        if !state.notifications.is_empty() {
-                            let screen_size = state.renderer.screen_size();
-                            let notification_height = crate::engine::text::GLYPH_SIZE.y
-                                * crate::engine::text::DEBUG_TEXT_SCALE
-                                + crate::engine::text::DEBUG_TEXT_PADDING * 2.0;
-                            let notification_gap = 10.0;
-                            for (i, notification) in state.notifications.iter().enumerate() {
-                                let origin = crate::engine::text::centered_text_origin(
-                                    &notification.message,
-                                    screen_size.x * 0.5,
-                                    screen_size.y
-                                        - 25.0
-                                        - i as f32 * (notification_height + notification_gap),
-                                    crate::engine::text::DEBUG_TEXT_SCALE,
-                                );
-                                let glyphs = crate::engine::text::layout_text_scaled(
-                                    &notification.message,
-                                    origin,
-                                    crate::engine::text::DEBUG_TEXT_SCALE,
-                                );
-                                state.renderer.render_text_with_bg(&frame, &glyphs);
-                            }
-                            state.notifications.retain(|n| !n.expired());
-                        }
-                        // HUD::Displayed Text
-                        if let Some(dialogue) = &state.dialogue {
-                            state
-                                .renderer
-                                .render_dialogue_panel(&frame, dialogue.current_register());
-                            let text_pos = state.renderer.dialogue_text_position();
-                            let max_width = state.renderer.dialogue_text_max_width();
-
-                            let colored_chars: Vec<(char, [f32; 4])> = dialogue
-                                .visible_chars()
-                                .into_iter()
-                                .map(|rc| (rc.ch, rc.color))
-                                .collect();
-
-                            let wrapped_lines = crate::engine::text::wrap_colored_text(
-                                &colored_chars,
-                                max_width,
-                                crate::engine::text::DIALOGUE_TEXT_SCALE,
-                            );
-
-                            let line_height = crate::engine::text::GLYPH_SIZE.y
-                                * crate::engine::text::DIALOGUE_TEXT_SCALE
-                                + 4.0;
-                            for (i, line_chars) in wrapped_lines.iter().enumerate() {
-                                let line_origin = text_pos + Vec2::new(0.0, i as f32 * line_height);
-                                let glyphs = crate::engine::text::layout_colored_text_scaled(
-                                    line_chars,
-                                    line_origin,
-                                    crate::engine::text::DIALOGUE_TEXT_SCALE,
-                                );
-                                state.renderer.render_text(&frame, &glyphs);
-                            }
-
-                            if dialogue.caret_visible() {
-                                let caret_pos = state.renderer.dialogue_caret_position();
-                                let caret_glyphs = crate::engine::text::layout_colored_text_scaled(
-                                    &[('▼', [1.0, 1.0, 1.0, 1.0])],
-                                    caret_pos,
-                                    crate::engine::text::DIALOGUE_TEXT_SCALE + 2.0,
-                                );
-                                state.renderer.render_text(&frame, &caret_glyphs);
-                            }
-                        }
-                        if state.show_debug_info {
-                            // DEBUG::FPS Counter
-                            {
-                                let fps_text = format!("FPS: {:.0}", state.smoothed_fps);
-                                let glyphs = crate::engine::text::layout_text_scaled(
-                                    &fps_text,
-                                    Vec2::new(10.0, 10.0),
-                                    crate::engine::text::DEBUG_TEXT_SCALE,
-                                );
-                                state.renderer.render_text_with_bg(&frame, &glyphs);
-                            }
-
-                            // DEBUG::Mouse Position
-                            {
-                                let screen_pos = Vec2::new(
-                                    state.screen_mouse_position.0 as f32,
-                                    state.screen_mouse_position.1 as f32,
-                                );
-                                let world_pos = state.renderer.screen_to_world(screen_pos);
-                                let authoring_pos = world_pos / state.multiplying_factor;
-                                let mouse_text = format!(
-                                    "Mouse Pos: {:.0}, {:.0}",
-                                    authoring_pos.x, authoring_pos.y
-                                );
-                                let screen_size = state.renderer.screen_size();
-                                let mouse_text_pos = Vec2::new(
-                                    crate::engine::text::DEBUG_TEXT_PADDING,
-                                    screen_size.y - 25.0,
-                                );
-                                let glyphs = crate::engine::text::layout_text_scaled(
-                                    &mouse_text,
-                                    mouse_text_pos,
-                                    crate::engine::text::DEBUG_TEXT_SCALE,
-                                );
-                                state.renderer.render_text_with_bg(&frame, &glyphs);
-                            }
-
-                            // DEBUG:: Volume slider
-                            {
-                                let world_mouse = Vec2::new(
-                                    state.screen_mouse_position.0 as f32,
-                                    state.screen_mouse_position.1 as f32,
-                                );
-                                if state
-                                    .volume_slider
-                                    .update(world_mouse, state.left_mouse_down)
-                                {
-                                    state.blip_volume = state.volume_slider.value;
-                                }
-                                let slider_rects = state.volume_slider.build_rects();
-                                let projection = state.renderer.screen_projection();
-
-                                state.renderer.render_solid_rects(
-                                    &frame,
-                                    &slider_rects,
-                                    projection,
-                                    glam::Mat4::IDENTITY,
-                                );
-                            }
-                        }
+                        state.draw_hud(&frame);
                         state.renderer.present_frame(frame);
                     }
                     Ok(None) => {} // surface not ready yet, skip this frame
