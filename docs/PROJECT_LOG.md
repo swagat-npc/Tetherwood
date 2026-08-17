@@ -3,8 +3,8 @@
 
 **Document type:** Living project record (docs-as-code)
 **Started:** July 2026
-**Revision:** v7
-**Status:** M1–M4 complete. M4 (The Voice) closed — scene transitions, dialogue machinery (typewriter, registers, per-span color, word-wrap), blip audio, and Beat 2's real content all built and verified. Beat 2's underlying lore re-derived this session (ADR-074–076) — the shipped dialogue text is unaffected and remains accurate, but its causal foundation is now load-bearing rather than assumed. M5 (The Village) next: ambient NPCs, full clue chain, second enemy tier, menus. A structural code-organization pass is planned as its own dedicated session before M5 begins. Companion document: `docs/DERIVATION.md`.
+**Revision:** v8
+**Status:** M1–M4 complete. M4 (The Voice) closed — scene transitions, dialogue machinery (typewriter, registers, per-span color, word-wrap), blip audio, and Beat 2's real content all built and verified. Beat 2's underlying lore re-derived in Phase 22 (ADR-074–076) — the shipped dialogue text is unaffected and remains accurate, but its causal foundation is now load-bearing rather than assumed. The structural refactor/reorganization pass flagged at M4's close is now complete (Phase 23, ADR-077–083) — renderer split by concern, engine files organized by owning module, `ids.rs` eliminated in favor of ownership-based type placement, ADR-035's input abstraction resolved. M5 (The Village) starts next: ambient NPCs, full clue chain, second enemy tier, menus. Companion document: `docs/DERIVATION.md`.
 **Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated when decisions accumulate, not on a timer.
 **Screenshots at each visual milestone** are part of this ritual, not an afterthought — historically the step most likely to be skipped (M4's first two phases shipped with none until caught retroactively); a phase isn't fully closed until its screenshots exist and are named.
 
@@ -870,6 +870,89 @@ preparation time, never rank-and-file initiates, mirroring how the
 game already reveals cult capability gradually (ADR-016). Recorded in
 full under Section 5's parked ideas.
 
+### Phase 23 — Structural Refactor & Reorganization (completed)
+
+A dedicated session, flagged at M4's close (Phase 21) and explicitly
+deferred until now, addressing accumulated structural debt before M5
+begins: `platform.rs`'s CPU/GPU-mixed renderer, a single giant
+`RedrawRequested` handler, and scattered debug/editor tooling, plus
+several items that surfaced mid-session.
+
+**Renderer split into CPU/GPU/draw submodules.** `renderer.rs`'s
+single file was split into `renderer/mesh.rs` (pure CPU vertex-
+building: `Vertex`, `SolidVertex`, mesh construction), `renderer/
+gpu.rs` (`Frame`/`Renderer` struct definitions and GPU lifecycle:
+`new`, `acquire_frame`, `present_frame`, `resize`, coordinate-space
+queries), and `renderer/draw.rs` (the `impl Renderer` draw-call
+methods). `renderer.rs` itself became a thin facade — `mod`
+declarations plus `pub use gpu::{Frame, Renderer}; pub use
+mesh::SolidRect;` — see ADR-077.
+
+**Debug tooling consolidated** under `engine/debug/` — F1/F3 overlay
+code and toast notifications first, the volume slider and HUD drawing
+folded in later in the same session — rather than staying scattered
+across `renderer.rs`/`platform.rs` as each was added ad hoc.
+
+**Scene-building content extracted from Scene itself.**
+`Scene::new_home`/`Scene::new_outside` — genuinely game content (which
+furniture, which warps, which dialogue triggers), not engine machinery
+— moved to `game/scenes/home.rs`/`outside.rs` as `pub fn build(...)`,
+leaving `Scene` holding only mechanics any scene needs — the
+machinery/content test (§2.2) applied to the engine's own internals,
+not just game features — see ADR-078.
+
+**ADR-035's input abstraction resolved.** `InputState` (engine) holds
+raw held-key state behind `press`/`release`/`is_held`; `Action`
+(`game/actions.rs`) is the semantic, press-triggered enum a game maps
+raw input onto. Movement stays a direct `InputState` read
+(`resolve_movement`), deliberately excluded from `Action`, since it's
+continuous held-state, not a discrete press — see ADR-079.
+
+**`RedrawRequested` broken up.** The single event-loop match arm
+handling dialogue ticking, player movement, and HUD drawing split into
+`tick_dialogue`/`update_player`/`draw_hud` methods on `AppState`;
+`DialogueState` itself moved out to its own file (`platform/
+dialogue.rs`, later `app/dialogue.rs`).
+
+**`engine/ids.rs` eliminated.** The file grouping `EntityId`/
+`TextureId`/`WarpId`/`SceneId` together — built specifically to break
+a circular dependency between `entity.rs` and `scene.rs` — was judged,
+on reflection, not idiomatic Rust (types grouped by kind rather than
+by the struct they belong to). Each type moved next to its owner;
+`Trigger`/`TriggerKind`/`Background` moved from `entity.rs` to
+`scene.rs` in the same pass, following the same ownership test —
+`entity.rs` now imports nothing from `scene.rs` at all, a real fix
+rather than a relocated version of the same coupling — see ADR-080.
+
+**Files reorganized by owning/consuming module**, a second flat-
+`engine/`-directory problem raised independently of the above: shaders
+moved into `renderer/shaders/`, `text.rs`/`texture.rs` into
+`renderer/`, `input.rs` into `app/` (formerly `platform/`; `platform.rs`
+itself renamed to `app.rs` to match its actual contents and read
+better at the call site), and `ui.rs` into `debug/` once its only
+current use — a `show_debug_info`-gated volume slider — showed it
+wasn't the general-purpose widget its name implied — see ADR-081.
+
+**`Scene`'s `impl` block split out**, mirroring `draw.rs` holding
+`Renderer`'s implementation separately from `renderer.rs`, once
+`scene.rs` reached the same rough size (~470 lines) that had motivated
+the renderer split — see ADR-082.
+
+**Debug HUD drawing extracted** from `AppState::draw_hud` into
+`engine/debug/hud.rs`, each function taking only the specific data it
+draws rather than `AppState` itself, mirroring `debug::overlay::
+build_debug_rects` already taking just `&Scene` — see ADR-083.
+
+**Crate-wide import convention settled**, generalizing what was
+already the de facto pattern in `renderer/`: `super::` imports first,
+then `crate::` imports, then external crates and same-module relative
+imports together, all alphabetized, with a blank line only between
+`mod` declarations and the `use` block.
+
+Every change in this phase was verified via `cargo check`/`cargo run`
+and committed independently at each step. No gameplay behavior changed
+at any point — this phase is purely structural.
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -1527,6 +1610,48 @@ full under Section 5's parked ideas.
 - **Rationale:** "She was quietly investigating something spooky" makes her an unlucky bystander; "she was doing dangerous, secret work to protect others, alone, and told no one" makes her exactly the kind of unregretted, unknown sacrifice the ritual requires (ADR-007), and gives the cult a sharper motive (neutralizing a real threat, not grabbing a convenient target) that fits the acknowledgment-ladder enemy dialogue design (ADR-016) better than incidental victimhood.
 - **Consequences:** Beat 4's actual dialogue is still unwritten (per DERIVATION, Phase 1 scope) — this is a framing constraint for whenever it's drafted, not a content change today. What the candles/chalk/scarf are *specifically for* (ward materials, ward locations) remains open and does not need resolving now.
 
+### ADR-077: Renderer split into mesh/gpu/draw submodules
+- **Context:** `renderer.rs` mixed pure CPU vertex-building math with GPU resource lifetime (`Frame`/`Renderer` init, frame acquire/present) and the actual per-frame draw-call methods, all in one file.
+- **Decision:** Three submodules under `renderer/`: `mesh.rs` (CPU-only geometry building, no `wgpu` handles touched), `gpu.rs` (`Frame`/`Renderer` struct definitions and GPU lifecycle), `draw.rs` (the `impl Renderer` draw-call methods). `renderer.rs` becomes a thin facade — `mod` declarations plus `pub use gpu::{Frame, Renderer}; pub use mesh::SolidRect;`.
+- **Rationale:** CPU math and GPU state have genuinely different failure modes and different things a reader needs to know to safely change them; separating them makes each file's job legible from its name alone. Draw-call methods stayed `pub fn`, not `pub(super)`, since they're called from `app.rs`, a sibling of `renderer` rather than a descendant of it — Rust module privacy only extends to descendants of the declaring module.
+- **Consequences:** `include_wgsl!` paths in `gpu.rs` needed updating (macro paths resolve relative to the file they're written in, not the crate root) when the shaders later moved into `renderer/shaders/` (ADR-081).
+
+### ADR-078: Scene-building content extracted from Scene into game/scenes
+- **Context:** `Scene::new_home`/`Scene::new_outside` — which furniture, which warps, which dialogue triggers exist in each scene — lived as methods on the engine's own `Scene` type, mixing reusable scene mechanics with Beat-1-specific authored content.
+- **Decision:** Both moved to `game/scenes/home.rs`/`outside.rs` as free functions (`pub fn build(device, queue, multiplying_factor) -> Result<Scene>`), leaving `Scene` holding only mechanics any scene needs.
+- **Rationale:** Direct application of the project's machinery/content test (§2.2) to the engine's own internals: could a different game reuse `Scene`'s collision and trigger-resolution code unedited? Yes. Could it reuse `new_home`'s furniture placement? No — that's this game's content.
+- **Consequences:** `game/scenes.rs` becomes the project's second real `src/game/` content module (after `game/dialogue.rs`, Phase 14) — the pattern later scenes (M5's village) should follow rather than growing `Scene` itself.
+
+### ADR-079: Input abstraction resolved — InputState (engine) vs. Action (game) (resolves ADR-035)
+- **Context:** ADR-035 flagged raw `KeyCode` handling inline in `App` as temporary debt, deferred until a second input-consuming system existed to teach the right abstraction shape.
+- **Decision:** `InputState` (engine) holds a `HashSet<KeyCode>` of currently-held keys behind `press`/`release`/`is_held`. `Action` (`game/actions.rs`) is a small enum (`Interact`, `AdvanceOrSkip`) covering discrete, press-triggered things a player can do; `resolve_key_press(code, dialogue_active) -> Option<Action>` maps a raw press to one, contextually. Movement stays a direct `resolve_movement(&InputState) -> Vec2` reading raw WASD state, deliberately excluded from `Action`, since it's continuous held-state, not a discrete press.
+- **Rationale:** Dialogue's advance/skip input was the second real consumer ADR-035 was waiting on. Splitting raw engine-level input from game-level semantic actions keeps `engine` ignorant of what E or Space *mean* to this specific game, matching ADR-026's engine/game module boundary.
+- **Consequences:** F1/F3/Escape/Ctrl+R dev-tooling bindings stayed in `app.rs` directly, not routed through `Action` — they're legitimately engine-level (any game built on this engine would want the same debug toggles), not game content.
+
+### ADR-080: ids.rs eliminated; identifiers and Trigger/Background relocated to their owning module
+- **Context:** `engine/ids.rs` grouped `EntityId`, `TextureId`, `WarpId`, `SceneId` together, specifically to break a circular dependency: `Trigger` (living in `entity.rs`) needed `SceneId`/`WarpId`, which conceptually belong to scene identity, not entity identity. On review, grouping types by *kind* rather than by the struct each belongs to was judged not idiomatic Rust.
+- **Decision:** `EntityId` and `WarpId` moved into `entity.rs`; `TextureId` moved into `texture.rs`. `Trigger`, `TriggerKind`, `WarpId`, and `Background` all moved out of `entity.rs` into `scene.rs` — not because `Trigger` resembles `Collider` (a genuinely different mechanism: `Trigger` uses a point-in-rect test against the player's center, `Collider` uses full AABB-vs-AABB overlap), but because `Scene` is what actually owns a `Vec<Trigger>`/`Vec<Background>`, while `Entity` never held a reference to either. `SceneId` moved into `scene.rs` alongside them.
+- **Rationale:** The deciding test, applied consistently: a type lives wherever a `Vec<T>`/`Option<T>` of it is actually held as a struct field, not wherever it happens to be referenced from or resembles a neighboring type. This resolves the original circular-dependency concern more honestly than `ids.rs` did — `entity.rs` ends with zero imports from `scene.rs`, a genuine one-directional dependency, rather than a neutral third file hiding a coupling that was real either way.
+- **Consequences:** `TextureId`/`Texture`/`TextureStore` were briefly marked `pub(crate)` (an autocomplete suggestion, after a `pub(super)` attempt failed since the real callers — `entity.rs`, `scene.rs`, `game/scenes/*.rs` — aren't descendants of `renderer`) before reverting to plain `pub`, matching every other type in the crate; `pub(crate)` vs. `pub` is behaviorally identical in a single, unpublished binary crate (ADR-026), so adopting it project-wide is a separate, deliberate style decision for later, not one to make by accident in one file.
+
+### ADR-081: Engine files reorganized by owning/consuming module
+- **Context:** Flat `engine/` mixed thin mod-declaration facades (`debug.rs`, `renderer.rs`, `platform.rs`) with substantial single-purpose files (`entity.rs`, `input.rs`, `text.rs`, `texture.rs`, `ui.rs`) and two loose `.wgsl` shader files, with no organization beyond "lives directly under `engine/`."
+- **Decision:** `shader.wgsl`/`debug_shader.wgsl` moved into `renderer/shaders/` (their sole consumer, `gpu.rs`, is one directory away). `text.rs` moved into `renderer/` (used only by `renderer/mesh.rs`/`draw.rs`). `texture.rs` moved into `renderer/` too, after weighing `Scene`'s ownership of the `TextureStore` field against `texture.rs`'s content being entirely wgpu resource plumbing that only `gpu.rs` does anything mechanical with — the latter won out. `input.rs` moved into `platform/` (its only holder is `AppState`), and `platform.rs`/`platform/` renamed to `app.rs`/`app/` to match its actual contents (`App`/`AppState`) and read better at the call site (`engine::run` vs. `engine::platform::run`). `ui.rs` moved into `debug/` once its only current use — a `show_debug_info`-gated volume slider, sitting in the same conditional block as the FPS counter and mouse-position debug readout — showed it wasn't the general-purpose widget its name implied; a `TODO` marks the eventual rename to `inspector.rs` once it holds more than one widget, deliberately not renamed now (nothing to generalize yet, per ADR-025).
+- **Rationale:** A folder should exist because more than one file genuinely belongs together, not for its own sake — `entity.rs`/`scene.rs` stayed flat despite sitting beside folder-having siblings, since neither had a second file to share a folder with yet.
+- **Consequences:** `engine.rs`, `renderer.rs`, and `app.rs` needed their `mod`/`pub mod` visibility widened in a few places (`pub mod app`, `pub mod renderer`) specifically because `game/`-side content now reaches across the `engine`/`game` boundary into `renderer::texture` and `app::input` — a real, necessary widening, not overexposure, since privacy otherwise already covered every same-crate case that mattered.
+
+### ADR-082: Scene's impl block split into scene/mechanics.rs
+- **Context:** `scene.rs`, once it absorbed `Trigger`/`TriggerKind`/`Background`/`SceneId` (ADR-080), reached ~470 lines — comparable to `platform.rs`/`app.rs` before its own `dialogue`/`input` extraction — with type definitions and the dozen-method `impl Scene` block both in one file.
+- **Decision:** `impl Scene { ... }` (`player`, `collider_blocked`, `check_triggers`, `try_interact`, `update_interact_prompts`, `activate_warp`, `try_move_player`, `toggle_entity`, `consume_entity`) moved to `scene/mechanics.rs`, importing what it needs from `scene.rs` via `super::`. `scene.rs` keeps the type definitions and the `Scene` struct itself.
+- **Rationale:** Directly mirrors `draw.rs` holding `Renderer`'s implementation separately from `renderer.rs`'s type/facade role — the same split applied to `Scene` once it grew to the size that motivated the renderer split in the first place.
+- **Consequences:** `entity.rs` did not receive the same treatment — at 110 lines, with no seam as clear as "types vs. a large impl block," forcing a folder onto it would organize for symmetry's sake rather than a real reason.
+
+### ADR-083: Debug HUD drawing extracted from app.rs into debug/hud.rs
+- **Context:** `AppState::draw_hud` mixed three unrelated concerns: the toast-notification renderer (not gated by `show_debug_info`, but exclusively fed by the Ctrl+R dev-reset action today), the dialogue panel (core gameplay HUD, unrelated to debug), and the actually `show_debug_info`-gated FPS counter, mouse position readout, and volume slider.
+- **Decision:** The notification, FPS-counter, mouse-position, and slider-drawing logic moved to new functions in `engine/debug/hud.rs`, each taking only the specific data it draws (`&mut Vec<Notification>`, `smoothed_fps: f32`, `&[SolidRect]`) rather than `&mut AppState`. `app.rs`'s `draw_hud` stays the orchestrator, calling these and making the actual `self.renderer.render_*` calls itself. The volume slider's mouse-driven value update stayed in `app.rs`, kept separate from its own drawing.
+- **Rationale:** Mirrors `debug::overlay::build_debug_rects` already taking just `&Scene` rather than reaching into caller state — `debug` stays a leaf module every other part of the engine can call into, rather than needing to know `AppState`'s shape, the same reasoning behind `entity.rs` not depending on `scene.rs` (ADR-080).
+- **Consequences:** Notification rendering's move into `debug/` is provisional on its current single producer being dev-tooling; a real gameplay toast system would be the second-consumer moment (per ADR-025) to reconsider whether it still belongs there.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -1554,10 +1679,17 @@ full under Section 5's parked ideas.
   machinery (typewriter, advance/skip, two registers, per-span color,
   word-wrap), blip audio, and Beat 2's real bed/necklace content —
   all built, verified, and confirmed against real content rather than
-  placeholders. Two items deliberately not part of M4's own scope:
-  the code-organization/refactor pass (explicitly deferred to its own
-  future session), and grid-based spatial partitioning for collision
-  (parked, revisit at M5 content scale).
+  placeholders. Grid-based spatial partitioning for collision remains
+  parked, revisit at M5 content scale.
+- ✅ **Structural refactor & reorganization (Phase 23):** the pass
+  deferred at M4's close is done — renderer split by concern
+  (mesh/gpu/draw), scene content extracted to `game/scenes`, ADR-035's
+  input abstraction resolved, `RedrawRequested` broken up, `ids.rs`
+  eliminated in favor of ownership-based type placement, engine files
+  reorganized by owning module, `Scene`'s impl split out, `platform.rs`
+  renamed to `app.rs`, debug HUD drawing extracted, and import
+  ordering made consistent crate-wide (ADR-077–083). No gameplay
+  behavior changed. **M5 (The Village) starts next.**
 
 ### Open questions
 
@@ -1566,9 +1698,9 @@ full under Section 5's parked ideas.
 2. **Writing pending:** unchanged from v3.
 3. **Narrator identity:** parked, unchanged.
 4. **ECS / serde re-evaluation:** unchanged, Phase 1.
-5. **Input abstraction (ADR-035):** deferred until a second
-   input-consuming system exists — watch for the natural trigger at
-   M4 (dialogue advance) or M5 (menu nav); don't build early.
+5. **Input abstraction (ADR-035):** resolved in Phase 23 — see
+   ADR-079. `InputState` (engine) vs. `Action` (game), dialogue
+   advance/skip was the second consumer.
 6. **Engine name; open-source license:** deferred, unchanged.
 7. **New:** current single-sprite scaffolding on `Renderer`
    (`sprite_position`, `camera_position`, `transform_buffer`) needs to
