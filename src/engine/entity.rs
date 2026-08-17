@@ -1,6 +1,5 @@
-use glam::Vec2;
-
 use crate::engine::renderer::texture::TextureId;
+use glam::Vec2;
 
 /// Indexes into a Scene's entities Vec (ADR-025). Stays valid for the
 /// scene's whole lifetime — entities are only ever appended, never

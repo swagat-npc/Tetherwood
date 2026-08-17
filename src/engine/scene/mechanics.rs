@@ -1,13 +1,10 @@
-use std::collections::HashMap;
-
-use glam::Vec2;
-
-use crate::engine::renderer::texture::TextureId;
-
 use super::{
     Collider, Entity, EntityId, InteractResult, Rect, Scene, SceneId, TriggerKind, WarpId,
     aabb_overlap, point_in_rect,
 };
+use crate::engine::renderer::texture::TextureId;
+use glam::Vec2;
+use std::collections::HashMap;
 
 impl Scene {
     pub fn player(&self) -> &Entity {

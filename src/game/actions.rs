@@ -1,7 +1,6 @@
+use crate::engine::app::input::InputState;
 use glam::Vec2;
 use winit::keyboard::KeyCode;
-
-use crate::engine::app::input::InputState;
 
 /// Discrete, press-triggered things a player can do. Movement doesn't
 /// belong here — it's continuous held-state, not a single press event

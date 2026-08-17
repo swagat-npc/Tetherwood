@@ -1,6 +1,14 @@
 mod dialogue;
 pub mod input;
 
+use crate::engine::debug::notifications::Notification;
+use crate::engine::debug::ui::Slider;
+use crate::engine::entity::Direction;
+use crate::engine::renderer::{Frame, Renderer, text};
+use crate::engine::scene::{CameraMode, InteractResult, Scene, SceneId};
+use crate::game::actions::{self, Action};
+use crate::game::dialogue::{Register, line_for};
+use crate::game::scenes::{home, outside};
 use dialogue::DialogueState;
 use glam::Vec2;
 use input::InputState;
@@ -14,15 +22,6 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowId},
 };
-
-use crate::engine::debug::notifications::Notification;
-use crate::engine::debug::ui::Slider;
-use crate::engine::entity::Direction;
-use crate::engine::renderer::{Frame, Renderer, text};
-use crate::engine::scene::{CameraMode, InteractResult, Scene, SceneId};
-use crate::game::actions::{self, Action};
-use crate::game::dialogue::{Register, line_for};
-use crate::game::scenes::{home, outside};
 
 pub fn run() {
     let event_loop = EventLoop::new().expect("failed to create event loop");

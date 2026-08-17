@@ -1,11 +1,10 @@
 mod mechanics;
 
-use glam::Vec2;
-
 use crate::engine::entity::{
     Collider, Direction, Entity, EntityId, Rect, aabb_overlap, point_in_rect,
 };
 use crate::engine::renderer::texture::{TextureId, TextureStore};
+use glam::Vec2;
 
 /// Per-scene camera behavior (ADR-041). Static holds its own fixed
 /// anchor point; Follow has no stored data — it reads the player's

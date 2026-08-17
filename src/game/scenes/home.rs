@@ -1,9 +1,8 @@
-use anyhow::Result;
-use glam::Vec2;
-
 use crate::engine::entity::{Collider, Direction, Entity, EntityId, Rect};
 use crate::engine::renderer::texture::TextureStore;
 use crate::engine::scene::{Background, CameraMode, Scene, SceneId, Trigger, TriggerKind, WarpId};
+use anyhow::Result;
+use glam::Vec2;
 
 /// Beat 1's home: player's bedroom with a working south-door warp to
 /// the outside scene (SceneId::Outside, WarpId("door")). Sizes scale
