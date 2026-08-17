@@ -1,6 +1,6 @@
 use super::mesh::{INDICES, SolidVertex, VERTICES, Vertex};
+use super::texture::{Texture, TextureId, TextureStore};
 use crate::engine::scene::Scene;
-use crate::engine::texture::{Texture, TextureId, TextureStore};
 use anyhow::Result;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
@@ -83,7 +83,7 @@ impl Renderer {
             .copied()
             .unwrap_or(surface_capabilities.formats[0]);
 
-        let shader = device.create_shader_module(wgpu::include_wgsl!("../shader.wgsl"));
+        let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/shader.wgsl"));
 
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -215,7 +215,8 @@ impl Renderer {
             ],
         });
 
-        let debug_shader = device.create_shader_module(wgpu::include_wgsl!("../debug_shader.wgsl"));
+        let debug_shader =
+            device.create_shader_module(wgpu::include_wgsl!("shaders/debug_shader.wgsl"));
 
         let debug_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

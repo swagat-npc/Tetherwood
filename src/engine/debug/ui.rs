@@ -1,6 +1,8 @@
 use crate::engine::renderer::SolidRect;
 use glam::Vec2;
 
+// TODO: Rename this file to `inspector.rs` once additional inspector elements
+// are added as this file is expected to grow into the main inspector UI.
 pub struct Slider {
     pub position: Vec2,
     pub size: Vec2,

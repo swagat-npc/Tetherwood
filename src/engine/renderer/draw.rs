@@ -1,9 +1,9 @@
 use super::gpu::{Frame, Renderer};
 use super::mesh::{SolidRect, build_solid_rect_mesh, build_text_mesh, model_matrix};
+use super::text;
 use crate::engine::debug::overlay;
 use crate::engine::entity;
 use crate::engine::scene::Scene;
-use crate::engine::text;
 use crate::game::dialogue::Register;
 use wgpu::util::DeviceExt;
 
@@ -196,11 +196,7 @@ impl Renderer {
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 
-    pub fn render_dialogue_panel(
-        &mut self,
-        frame: &Frame,
-        register: Option<&Register>,
-    ) {
+    pub fn render_dialogue_panel(&mut self, frame: &Frame, register: Option<&Register>) {
         const MARGIN: f32 = 20.0;
         const NARRATOR_BORDER: [f32; 4] = [1.0, 1.0, 1.0, 1.0]; // Neutral gray border for narrator
         const MONOLOGUE_BORDER: [f32; 4] = [0.5, 0.5, 1.0, 1.0]; // Blue border for inner monologue
@@ -289,11 +285,7 @@ impl Renderer {
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 
-    pub fn render_text_with_bg(
-        &mut self,
-        frame: &Frame,
-        glyphs: &[text::PositionedGlyph],
-    ) {
+    pub fn render_text_with_bg(&mut self, frame: &Frame, glyphs: &[text::PositionedGlyph]) {
         self.render_text_bg(
             frame,
             glyphs,

@@ -1,7 +1,9 @@
 mod dialogue;
+pub mod input;
 
 use dialogue::DialogueState;
 use glam::Vec2;
+use input::InputState;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
 use pollster::block_on;
 use std::{sync::Arc, time::Instant};
@@ -14,12 +16,10 @@ use winit::{
 };
 
 use crate::engine::debug::notifications::Notification;
+use crate::engine::debug::ui::Slider;
 use crate::engine::entity::Direction;
-use crate::engine::input::InputState;
-use crate::engine::renderer::{Frame, Renderer};
+use crate::engine::renderer::{Frame, Renderer, text};
 use crate::engine::scene::{CameraMode, InteractResult, Scene, SceneId};
-use crate::engine::text;
-use crate::engine::ui::Slider;
 use crate::game::actions::{self, Action};
 use crate::game::dialogue::{Register, line_for};
 use crate::game::scenes::{home, outside};

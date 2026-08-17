@@ -1,4 +1,4 @@
-use crate::engine::text;
+use super::text;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]

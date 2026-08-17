@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::engine::entity::{
     Collider, Direction, Entity, EntityId, Rect, aabb_overlap, point_in_rect,
 };
-use crate::engine::texture::{TextureId, TextureStore};
+use crate::engine::renderer::texture::{TextureId, TextureStore};
 
 /// Per-scene camera behavior (ADR-041). Static holds its own fixed
 /// anchor point; Follow has no stored data — it reads the player's
