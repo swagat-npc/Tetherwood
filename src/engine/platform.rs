@@ -1,7 +1,6 @@
 use glam::Vec2;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
 use pollster::block_on;
-use std::collections::HashSet;
 use std::{sync::Arc, time::Instant};
 use winit::{
     application::ApplicationHandler,
@@ -11,11 +10,13 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::engine::debug::notifications::Notification;
-use crate::engine::ids::SceneId;
+use crate::engine::input::InputState;
 use crate::engine::renderer::Renderer;
 use crate::engine::scene::{CameraMode, Scene};
+use crate::engine::{debug::notifications::Notification, scene::InteractResult};
+use crate::game::actions::{self, Action};
 use crate::game::dialogue::Register;
+use crate::{engine::ids::SceneId, game::dialogue::line_for};
 
 struct DialogueState {
     lines: Vec<crate::game::dialogue::DialogueLine>,
@@ -168,7 +169,7 @@ struct AppState {
     scene: Scene,
     last_frame: Instant,
     frame_count: u32,
-    held_keys: HashSet<KeyCode>,
+    input: InputState,
     multiplying_factor: f32, // TODO: migrate this to a config struct to supply everywhere
     show_colliders: bool,
     show_debug_info: bool,
@@ -282,7 +283,7 @@ impl ApplicationHandler for App {
             scene: initial_scene,
             last_frame: Instant::now(),
             frame_count: 0,
-            held_keys: HashSet::new(),
+            input: InputState::new(),
             multiplying_factor,
             show_colliders: true, // DEBUG: set to true for debugging
             show_debug_info: false,
@@ -351,21 +352,8 @@ impl ApplicationHandler for App {
                     }
                 }
 
-                // TODO(engine): raw KeyCode handling here is content, not machinery (ADR-035).
                 let speed = 80.0 * state.multiplying_factor; // pixels per second scaled up to the factor
-                let mut movement = Vec2::ZERO;
-                if state.held_keys.contains(&KeyCode::KeyW) {
-                    movement.y -= 1.0;
-                }
-                if state.held_keys.contains(&KeyCode::KeyS) {
-                    movement.y += 1.0;
-                }
-                if state.held_keys.contains(&KeyCode::KeyA) {
-                    movement.x -= 1.0;
-                }
-                if state.held_keys.contains(&KeyCode::KeyD) {
-                    movement.x += 1.0;
-                }
+                let movement = actions::resolve_movement(&state.input);
                 if movement != Vec2::ZERO {
                     if let Some(dir) = crate::engine::entity::Direction::from_movement(movement) {
                         state.scene.player_mut().facing = dir;
@@ -562,25 +550,27 @@ impl ApplicationHandler for App {
                                 "Hide"
                             }
                         );
-                    } else if code == KeyCode::KeyE || code == KeyCode::Space {
-                        if let Some(dialogue) = &mut state.dialogue {
-                            let consumed = dialogue
-                                .lines
-                                .get(dialogue.current_line)
-                                .and_then(|l| l.consumes_entity);
-                            if !dialogue.advance_or_skip() {
-                                if let Some(entity_id) = consumed {
-                                    state.scene.consume_entity(entity_id);
+                    } else if let Some(action) =
+                        actions::resolve_key_press(code, state.dialogue.is_some())
+                    {
+                        match action {
+                            Action::AdvanceOrSkip => {
+                                if let Some(dialogue) = &mut state.dialogue {
+                                    let consumed = dialogue
+                                        .lines
+                                        .get(dialogue.current_line)
+                                        .and_then(|l| l.consumes_entity);
+                                    if !dialogue.advance_or_skip() {
+                                        if let Some(entity_id) = consumed {
+                                            state.scene.consume_entity(entity_id);
+                                        }
+                                        state.dialogue = None;
+                                    }
                                 }
-                                state.dialogue = None;
                             }
-                        } else if code == KeyCode::KeyE {
-                            match state.scene.try_interact() {
-                                Some(crate::engine::scene::InteractResult::Dialogue(
-                                    id,
-                                    consumes_entity,
-                                )) => {
-                                    let mut lines = crate::game::dialogue::line_for(id);
+                            Action::Interact => match state.scene.try_interact() {
+                                Some(InteractResult::Dialogue(id, consumes_entity)) => {
+                                    let mut lines = line_for(id);
                                     if let (Some(last), Some(entity_id)) =
                                         (lines.last_mut(), consumes_entity)
                                     {
@@ -588,15 +578,15 @@ impl ApplicationHandler for App {
                                     }
                                     state.dialogue = Some(DialogueState::new(lines));
                                 }
-                                Some(crate::engine::scene::InteractResult::Toggle(entity_id)) => {
+                                Some(InteractResult::Toggle(entity_id)) => {
                                     state.scene.toggle_entity(entity_id);
                                 }
                                 None => {}
-                            }
+                            },
                         }
                     } else if code == KeyCode::KeyR
-                        && (state.held_keys.contains(&KeyCode::ControlLeft)
-                            || state.held_keys.contains(&KeyCode::ControlRight))
+                        && (state.input.is_held(KeyCode::ControlLeft)
+                            || state.input.is_held(KeyCode::ControlRight))
                     {
                         state.reset_scene();
                         state.notifications.push(Notification {
@@ -608,10 +598,10 @@ impl ApplicationHandler for App {
                     if state.show_debug_info {
                         println!("{code:?} pressed");
                     }
-                    state.held_keys.insert(code);
+                    state.input.press(code);
                 }
                 winit::event::ElementState::Released => {
-                    state.held_keys.remove(&code);
+                    state.input.release(code);
                 }
             },
             WindowEvent::CursorMoved { position, .. } => {

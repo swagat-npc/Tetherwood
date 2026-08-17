@@ -1,6 +1,7 @@
 mod debug;
 pub mod entity;
 pub mod ids;
+pub mod input;
 mod platform;
 mod renderer;
 pub mod scene;
