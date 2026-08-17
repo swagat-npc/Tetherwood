@@ -15,10 +15,9 @@ use winit::{
 
 use crate::engine::debug::notifications::Notification;
 use crate::engine::entity::Direction;
-use crate::engine::ids::SceneId;
 use crate::engine::input::InputState;
 use crate::engine::renderer::{Frame, Renderer};
-use crate::engine::scene::{CameraMode, InteractResult, Scene};
+use crate::engine::scene::{CameraMode, InteractResult, Scene, SceneId};
 use crate::engine::text;
 use crate::engine::ui::Slider;
 use crate::game::actions::{self, Action};

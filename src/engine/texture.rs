@@ -1,7 +1,10 @@
 use anyhow::{Context, Result};
 use image::GenericImageView;
 
-use crate::engine::ids::TextureId;
+/// Identifies a texture within a scene-scoped TextureStore (ADR-036).
+/// Simple newtype wrapper around a usize index, made distinct to avoid accidental mixup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextureId(pub usize);
 
 pub struct TextureStore {
     textures: Vec<Texture>,

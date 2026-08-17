@@ -1,7 +1,6 @@
 use super::mesh::{INDICES, SolidVertex, VERTICES, Vertex};
-use crate::engine::ids::TextureId;
 use crate::engine::scene::Scene;
-use crate::engine::texture::{Texture, TextureStore};
+use crate::engine::texture::{Texture, TextureId, TextureStore};
 use anyhow::Result;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;

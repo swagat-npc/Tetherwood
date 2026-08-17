@@ -1,9 +1,8 @@
 use anyhow::Result;
 use glam::Vec2;
 
-use crate::engine::entity::{Background, Collider, Direction, Entity, Rect, Trigger, TriggerKind};
-use crate::engine::ids::{EntityId, SceneId, WarpId};
-use crate::engine::scene::{CameraMode, Scene};
+use crate::engine::entity::{Collider, Direction, Entity, EntityId, Rect};
+use crate::engine::scene::{Background, CameraMode, Scene, SceneId, Trigger, TriggerKind, WarpId};
 use crate::engine::texture::TextureStore;
 
 /// Beat 1's home: player's bedroom with a working south-door warp to

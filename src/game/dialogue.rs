@@ -1,4 +1,4 @@
-use crate::engine::ids::EntityId;
+use crate::engine::entity::EntityId;
 
 /// Which visual/narrative voice a line is spoken in (ADR-021). Only
 /// the two registers Beat 2 needs — NPC dialogue (avatar + standard

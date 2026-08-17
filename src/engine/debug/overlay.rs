@@ -1,6 +1,6 @@
-use crate::engine::entity::{self, TriggerKind};
+use crate::engine::entity;
 use crate::engine::renderer::SolidRect;
-use crate::engine::scene::Scene;
+use crate::engine::scene::{Scene, TriggerKind};
 
 fn push_center_marker(debug_rects: &mut Vec<SolidRect>, center: glam::Vec2, scale: f32) {
     const ARM_LENGTH: f32 = 8.0;
