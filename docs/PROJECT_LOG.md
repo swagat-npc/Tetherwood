@@ -3,7 +3,7 @@
 
 **Document type:** Living project record (docs-as-code)
 **Started:** July 2026
-**Revision:** v8
+**Revision:** v9
 **Status:** M1–M4 complete. M4 (The Voice) closed — scene transitions, dialogue machinery (typewriter, registers, per-span color, word-wrap), blip audio, and Beat 2's real content all built and verified. Beat 2's underlying lore re-derived in Phase 22 (ADR-074–076) — the shipped dialogue text is unaffected and remains accurate, but its causal foundation is now load-bearing rather than assumed. The structural refactor/reorganization pass flagged at M4's close is now complete (Phase 23, ADR-077–083) — renderer split by concern, engine files organized by owning module, `ids.rs` eliminated in favor of ownership-based type placement, ADR-035's input abstraction resolved. M5 (The Village) starts next: ambient NPCs, full clue chain, second enemy tier, menus. Companion document: `docs/DERIVATION.md`.
 **Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated when decisions accumulate, not on a timer.
 **Screenshots at each visual milestone** are part of this ritual, not an afterthought — historically the step most likely to be skipped (M4's first two phases shipped with none until caught retroactively); a phase isn't fully closed until its screenshots exist and are named.
@@ -953,6 +953,110 @@ Every change in this phase was verified via `cargo check`/`cargo run`
 and committed independently at each step. No gameplay behavior changed
 at any point — this phase is purely structural.
 
+### Phase 24 — M5 Opening: Spatial Partitioning & Debug Grid Visualization (completed)
+
+M5's first concrete work, reframed mid-session from "pre-M5
+foundational work" to M5 itself — a spatial index is infrastructure
+the village genuinely needs, not a prerequisite bolted on before it.
+
+Collision broad-phase moved from a linear scan over every wall and
+entity to a sparse spatial grid. `SpatialGrid` (`engine/grid.rs`)
+buckets `CollisionHandle`s (`Wall(WallId)` or `Entity(EntityId)`, both
+Copy newtypes per ADR-025/036's indices-over-references pattern) into
+a `HashMap<(i32, i32), Vec<CollisionHandle>>` keyed by cell
+coordinate — sparse, so only cells something actually occupies cost
+anything. A wall or entity collider wider than one cell is filed
+under every cell its bounding box touches (`cells_for_rect`), so a
+query from any of those cells finds it. `Scene::build_static_grid`
+populates this once per scene load (wired into `AppState::build_scene`,
+the single chokepoint both scene changes and Ctrl+R resets already
+funnel through) from every wall and every non-player entity's
+resolved world-space collider (`Entity::world_collider`, built on the
+existing `collider_center` helper). The player is deliberately
+excluded — it moves every frame, and a cell entry only stays correct
+for content that doesn't; a dynamic grid for movers is a named,
+deliberate follow-up, not yet built.
+
+`collider_blocked` now queries `collision_handles_around_position`
+(a 3x3-cell neighborhood around the check point, radius tunable)
+instead of scanning the whole scene, resolves each candidate handle
+back to a real `Rect`, and runs the same `aabb_overlap` test as
+before — collision math itself is unchanged, only the candidate set
+feeding it shrank.
+
+A real naming pass happened over the course of building this, worth
+recording since the end result is the vocabulary the rest of M5 will
+build on: `cell_at_position` (world position -> cell, the grid's most
+basic operation), `neighboring_cells` (pure geometry — every cell
+coordinate within a radius, occupied or not, no lookup), and
+`collision_handles_around_cell`/`collision_handles_around_position`
+(the collision-specific narrowing built on top of `neighboring_cells`,
+returning only cells' actual contents). The split between
+`neighboring_cells` (geometry) and the `collision_handles_*` family
+(contents) exists specifically because debug visualization and
+collision queries turned out to want different things from "adjacent
+cells" — debug wants to highlight a neighborhood regardless of
+occupancy (pink boxes over empty space are fine), collision only
+cares what's actually there. Building this as one function first,
+then splitting it once the two real consumers' needs diverged, is
+the same "generalize once a second consumer exists, not before"
+pattern the project has followed since ADR-025 — just applied at
+function-naming scale, not architecture scale.
+
+Debug visualization built on top, gated behind new toggles (see
+below): `build_occupied_cells_mesh` (every cell with a stored handle,
+faint green) and `build_grid_lines_mesh` (visible-viewport grid lines,
+computed from camera bounds each frame rather than the whole grid, to
+stay cheap regardless of scene size) both read `Scene.static_grid`
+directly with zero new GPU pipeline work — both reuse the existing
+batched `SolidRect`/`render_solid_rects` path (ADR-063/067) exactly as
+built. `build_player_neighborhood_mesh` highlights the player's
+current cell (lighter fill) plus its radius-1 neighbors (stronger
+fill, pink), keyed off `collider_center()` rather than raw `position`
+— a real, felt bug during development: keying off sprite-center
+position caused the highlight to visibly desync from the player's
+actual physical footprint, since the sprite's visual center and its
+collider center are not the same point on this project's art
+(ADR-033 vs. the collider-center convention already used by
+`check_triggers`/`update_interact_prompts`). Confirms `collider_center()`,
+not `position`, is the right default for anything reasoning about
+"where is this entity, physically."
+
+A real, minor artifact was noticed and understood, not fixed: walls
+whose edges land at or near a cell boundary can round up into an
+extra occupied cell under the debug highlight (floor-based boundary
+math, the same category of hairline issue ADR-069 already hit for
+collision resolution) — cosmetic only, doesn't affect actual
+`aabb_overlap` correctness, not worth chasing further right now.
+
+Debug toggles were consolidated from two loose `AppState` bools into
+a `DebugFlags` struct (`engine/debug.rs`) holding six flags, each with
+a `toggle_*` method that flips its bool and returns a status string —
+feeding directly into the existing notification system (Phase 20)
+via a new `AppState::notify(impl Into<String>)` helper, replacing six
+near-identical `Notification` literals (and the F1/F3 console-log-only
+feedback that existed before). Key bindings deliberately remapped:
+F1 (debug info/console logging), F2 (collider/trigger overlay), F3
+(the debug screen's master switch — framed as an inspector-in-progress,
+not just "the volume slider"), F4 (grid lines), F5 (player
+neighborhood), F6 (occupied cells). Grid lines are gated on both F3
+and F4 (`show_debug_renderer && show_grid`) by deliberate design —
+collider overlay, FPS counter, and mouse-position readout are not yet
+nested under the same master switch, a named, tracked follow-up, not
+an oversight.
+
+Committed as three separate, scoped commits: the grid + collision
+query itself, the debug visualization built on top, and the
+`DebugFlags` restructure — kept apart specifically so the
+gameplay-affecting change (collision behavior) has a clean, isolated
+diff from the two debug-only changes layered after it.
+
+Docs-as-code extended: docs/screenshots/ now covers m5-01 through
+m5-04 — the spatial grid's lines against the neutral background
+(m5-01), occupied-cell highlighting layered on top (m5-02), the
+player-neighborhood highlight (m5-03), and the F-key toggle ->
+notification pipeline confirmed end to end (m5-04).
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -1652,6 +1756,88 @@ at any point — this phase is purely structural.
 - **Rationale:** Mirrors `debug::overlay::build_debug_rects` already taking just `&Scene` rather than reaching into caller state — `debug` stays a leaf module every other part of the engine can call into, rather than needing to know `AppState`'s shape, the same reasoning behind `entity.rs` not depending on `scene.rs` (ADR-080).
 - **Consequences:** Notification rendering's move into `debug/` is provisional on its current single producer being dev-tooling; a real gameplay toast system would be the second-consumer moment (per ADR-025) to reconsider whether it still belongs there.
 
+### ADR-084: Spatial grid for collision broad-phase, static grid only for now
+- **Context:** `collider_blocked` scanned every wall and every entity
+  in the scene on every collision check, twice per frame per moving
+  entity (once per axis) — fine at M3/M4 content scale, named as a
+  parked concern once M5's populated village would make the cost
+  measurable (Phase 20's parked item).
+- **Decision:** A sparse `SpatialGrid` (`HashMap<(i32,i32), Vec<CollisionHandle>>`)
+  buckets walls and non-player entity colliders by cell at scene-load
+  time. `CollisionHandle` is a `Copy` enum (`Wall(WallId)` |
+  `Entity(EntityId)`), extending ADR-025/036's indices-over-references
+  principle rather than storing borrowed rects. Collision checks query
+  a fixed-radius neighborhood (`collision_handles_around_position`)
+  instead of the whole scene, then run the same `aabb_overlap` test
+  against only those candidates. The player is excluded from this
+  grid — it's the one thing in the scene that moves every frame, and
+  a static, build-once structure can't stay correct for that. A
+  dynamic grid for movers is scoped as a deliberate, separate
+  follow-up, not built in this pass.
+- **Rationale:** Matches the parked item's own stated trigger
+  (M5's village) and its own proposed mechanism (grid cells, `usize`/
+  typed-index membership) closely. Splitting static (build-once) from
+  dynamic (updated-on-move) rather than one combined grid avoids
+  paying re-bucketing cost for content that never moves, and is
+  already the correct shape for the player alone today, not just a
+  hedge against future NPCs.
+- **Consequences:** `Scene.walls` moved from `Vec<Rect>`'s originally
+  documented shape (ADR-038) to `Vec<Collider>` at some point between
+  ADR-038 and this pass — noted here since `WallId` indexes into that
+  Vec and the drift wasn't otherwise recorded. `Scene` gained its
+  first non-`pub` field (`static_grid`) and, as a direct consequence,
+  its first real constructor (`Scene::new`) — every `Ok(Scene { ... })`
+  struct-literal construction (`home::build`, `outside::build`) had to
+  change, since private fields can't be set via struct literal from
+  outside the struct's own module. The dynamic grid, quadrant-narrowed
+  neighbor queries (vs. today's flat radius), and scene draw-call
+  batching (Phase 20's other parked item, independently relevant here
+  since debug visualization adds more per-frame rects) remain open,
+  named follow-ups.
+
+### ADR-085: DebugFlags consolidates debug toggles; debug screen has a master switch
+- **Context:** Debug display state had grown from two independent
+  `AppState` bools (`show_colliders`, `show_debug_info`) to needing
+  six, once grid-line/occupied-cell/player-neighborhood visualization
+  each wanted their own toggle — the point ADR-081's `ui.rs` TODO had
+  already named as the trigger for treating debug tooling as a real,
+  growing surface rather than one-off flags.
+- **Decision:** A `DebugFlags` struct groups all six flags off
+  `AppState` as one `debug` field. Each flag has a `toggle_*(&mut self)
+  -> &'static str` method — flips the bool, returns a human-readable
+  status string — rather than `AppState` flipping bools directly and
+  separately constructing feedback text at each call site. One flag,
+  `show_debug_renderer`, is treated as the debug screen's master
+  switch (bound to F3): grid-line visualization checks
+  `show_debug_renderer && show_grid` rather than `show_grid` alone.
+  Collider overlay, FPS counter, and mouse-position readout are not
+  yet nested under this same master switch — a deliberate, named gap,
+  not an inconsistency.
+- **Rationale:** Six near-identical `Notification` construction sites
+  in the F-key handler collapsed to two lines each via a shared
+  `AppState::notify(impl Into<String>)` helper, itself accepting
+  `impl Into<String>` (not just `&str`) specifically so both plain
+  string-literal toggle messages and `format!`-built messages (e.g.
+  the existing scene-reset notification) work through one signature
+  without call-site borrowing gymnastics. The master-switch framing
+  treats the debug screen as an inspector-in-progress (per ADR-081's
+  parked `inspector.rs` rename) rather than a flat list of unrelated
+  toggles — grid visualization is the first thing built with that
+  hierarchy in mind from the start, rather than needing to be
+  retrofitted into it later.
+- **Consequences:** Key bindings changed from the established F1
+  (colliders) / F3 (debug info) layout to F1 (debug info) / F2
+  (colliders) / F3 (debug screen master) / F4 (grid lines) / F5
+  (player neighborhood) / F6 (occupied cells) — a deliberate breaking
+  change to existing muscle memory, not incidental drift. Nesting
+  colliders/FPS/mouse-position under the same master switch grid
+  visualization now uses is a named, tracked follow-up. A hotkey-
+  reference panel and a possible second, smaller-legible font
+  (bitmap-atlas redraw vs. a genuine TTF/OTF rasterization pipeline —
+  the latter would reopen ADR-056's scope, not just extend it) are
+  both parked as real, near-term needs once `ui.rs` becomes the
+  inspector ADR-081 already anticipated — not built in this pass.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -1690,6 +1876,17 @@ at any point — this phase is purely structural.
   renamed to `app.rs`, debug HUD drawing extracted, and import
   ordering made consistent crate-wide (ADR-077–083). No gameplay
   behavior changed. **M5 (The Village) starts next.**
+- ✅ **M5 opening — spatial partitioning (Phase 24):** static spatial
+  grid for collision broad-phase, `collider_blocked` querying it
+  instead of scanning the scene, and debug visualization (grid lines,
+  occupied cells, player neighborhood) under a consolidated
+  `DebugFlags` toggle system. Dynamic grid for movers, quadrant-
+  narrowed neighbor queries, and nesting collider/FPS/mouse-position
+  debug views under the same master switch remain open. **Isometric
+  projection work (scoped in a dedicated pre-M5 planning session,
+  superseding ADR-028's flat-orthographic framing) and actual village
+  content authoring are next — in that order, since content placed
+  before the projection lands would need redoing.**
 
 ### Open questions
 
