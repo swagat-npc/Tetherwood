@@ -8,13 +8,30 @@ use crate::game::dialogue::Register;
 use wgpu::util::DeviceExt;
 
 impl Renderer {
-    pub fn render_scene(&mut self, frame: &Frame, scene: &Scene, debug: &DebugFlags) {
+    pub fn render_scene(
+        &mut self,
+        frame: &Frame,
+        scene: &Scene,
+        debug: &DebugFlags,
+        is_isometric: bool,
+    ) {
         let projection = self.screen_projection();
+        let iso_projection = self.isometric_projection();
         let screen_center = self.screen_size() * 0.5;
 
-        // camera_position is set per-frame by the caller based on scene.camera_mode (ADR-041).
-        let camera_view =
-            glam::Mat4::from_translation((screen_center - self.camera_position).extend(0.0));
+        // Shears a single world-space point into iso space - used for
+        // camera offset and, per-entity, for anchor position. Never
+        // applied to a whole shape here; that's the debug_view's job below.
+        let shear = |p: glam::Vec2| iso_projection.transform_point3(p.extend(0.0)).truncate();
+
+        // Camera_position is set per-frame by the caller based on scene.camera_mode (ADR-041).
+        // For isometric mode, camera_position is sheared first so it lands in the same space
+        // as each entity's sheared anchor - shape is never touched by this matrix.
+        let sprite_camera_view = if is_isometric {
+            glam::Mat4::from_translation((screen_center - shear(self.camera_position)).extend(0.0))
+        } else {
+            glam::Mat4::from_translation((screen_center - self.camera_position).extend(0.0))
+        };
 
         // y-sort: entities drawn in ascending order of baseline
         // (bottom edge = position.y + half height), so entities with a
@@ -74,8 +91,15 @@ impl Renderer {
             if *facing == entity::Direction::Left {
                 draw_size.x = -draw_size.x;
             }
-            let model = mesh::model_matrix(*position, draw_size);
-            let transform = projection * camera_view * model;
+            // Shear the anchor only - isometric art is expected to already
+            // look correct from that angle; this only decides placement.
+            let effective_position = if is_isometric {
+                shear(*position)
+            } else {
+                *position
+            };
+            let model = mesh::model_matrix(effective_position, draw_size);
+            let transform = projection * sprite_camera_view * model;
             self.queue.write_buffer(
                 &self.transform_buffer,
                 0,
@@ -129,8 +153,19 @@ impl Renderer {
             self.queue.submit(std::iter::once(encoder.finish()));
         }
 
+        // Debug overlay is procedural geometry, not art. A grid cell IS a
+        // flat world-space square, and it should genuinely look like a
+        // diamond from this angle. So debug rects get the full shear baked
+        // into their view matrix, deforming the whole shape.
+        let debug_view = if is_isometric {
+            glam::Mat4::from_translation((screen_center - shear(self.camera_position)).extend(0.0))
+                * iso_projection
+        } else {
+            sprite_camera_view
+        };
+
         if !debug_rects.is_empty() {
-            self.render_solid_rects(frame, &debug_rects, projection, camera_view);
+            self.render_solid_rects(frame, &debug_rects, projection, debug_view);
         }
     }
 

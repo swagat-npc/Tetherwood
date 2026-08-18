@@ -57,6 +57,7 @@ struct AppState {
     left_mouse_down: bool,
     debug: DebugFlags,
     volume_slider: Slider,
+    is_isometric: bool,
 }
 
 impl AppState {
@@ -283,6 +284,7 @@ impl ApplicationHandler for App {
             left_mouse_down: false,
             volume_slider,
             debug: DebugFlags::new(),
+            is_isometric: false,
         };
 
         self.state = Some(state);
@@ -335,9 +337,12 @@ impl ApplicationHandler for App {
 
                 match state.renderer.acquire_frame() {
                     Ok(Some(frame)) => {
-                        state
-                            .renderer
-                            .render_scene(&frame, &state.scene, &state.debug);
+                        state.renderer.render_scene(
+                            &frame,
+                            &state.scene,
+                            &state.debug,
+                            state.is_isometric,
+                        );
                         state.draw_hud(&frame);
                         state.renderer.present_frame(frame);
                     }
@@ -380,6 +385,8 @@ impl ApplicationHandler for App {
                     } else if code == KeyCode::F6 {
                         let state_msg = state.debug.toggle_occupied_cells();
                         state.notify(state_msg);
+                    } else if code == KeyCode::F10 {
+                        state.is_isometric = !state.is_isometric;
                     } else if let Some(action) =
                         actions::resolve_key_press(code, state.dialogue.is_some())
                     {

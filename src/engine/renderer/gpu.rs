@@ -321,6 +321,19 @@ impl Renderer {
         )
     }
 
+    pub fn isometric_projection(&self) -> glam::Mat4 {
+        const K: f32 = 1.0; // starting guess, tune by feel once visible
+
+        // Column-major: transforms
+        // (x, y) -> ((x - y) * k, (x + y) * k * 0.5)
+        glam::Mat4::from_cols(
+            glam::Vec4::new(K, K * 0.5, 0.0, 0.0),
+            glam::Vec4::new(-K, K * 0.5, 0.0, 0.0),
+            glam::Vec4::new(0.0, 0.0, 1.0, 0.0),
+            glam::Vec4::new(0.0, 0.0, 0.0, 1.0),
+        )
+    }
+
     pub fn dialogue_text_position(&self) -> glam::Vec2 {
         const MARGIN: f32 = 20.0;
         const TEXT_PADDING: f32 = 32.0; // inset from the panel's own edges
