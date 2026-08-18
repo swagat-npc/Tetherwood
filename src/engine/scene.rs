@@ -3,6 +3,7 @@ mod mechanics;
 use crate::engine::entity::{
     Collider, Direction, Entity, EntityId, Rect, aabb_overlap, point_in_rect,
 };
+use crate::engine::grid::SpatialGrid;
 use crate::engine::renderer::texture::{TextureId, TextureStore};
 use glam::Vec2;
 
@@ -117,8 +118,12 @@ pub enum SceneId {
     Outside,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct WallId(pub usize);
+
 pub struct Scene {
     pub id: SceneId,
+    static_grid: SpatialGrid,
     pub background: Vec<Background>,
     pub walls: Vec<Collider>,
     pub triggers: Vec<Trigger>,

@@ -264,14 +264,14 @@ pub fn build(device: &wgpu::Device, queue: &wgpu::Queue, multiplying_factor: f32
         active: true,
     });
 
-    Ok(Scene {
-        id: SceneId::Home,
+    Ok(Scene::new(
+        SceneId::Home,
         background,
         walls,
         triggers,
         entities,
         texture_store,
         player_index,
-        camera_mode: CameraMode::Static(floor_position),
-    })
+        CameraMode::Static(floor_position),
+    ))
 }

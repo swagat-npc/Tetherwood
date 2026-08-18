@@ -2,17 +2,65 @@ use super::{
     Collider, Entity, EntityId, InteractResult, Rect, Scene, SceneId, TriggerKind, WarpId,
     aabb_overlap, point_in_rect,
 };
-use crate::engine::renderer::texture::TextureId;
+use crate::engine::grid::{self, SpatialGrid};
+use crate::engine::renderer::texture::{TextureId, TextureStore};
+use crate::engine::scene::{Background, CameraMode, Trigger, WallId};
 use glam::Vec2;
 use std::collections::HashMap;
 
 impl Scene {
+    pub fn new(
+        id: SceneId,
+        background: Vec<Background>,
+        walls: Vec<Collider>,
+        triggers: Vec<Trigger>,
+        entities: Vec<Entity>,
+        texture_store: TextureStore,
+        player_index: usize,
+        camera_mode: CameraMode,
+    ) -> Self {
+        Self {
+            id,
+            static_grid: grid::SpatialGrid::new(grid::STATIC_CELL_SIZE),
+            background,
+            walls,
+            triggers,
+            entities,
+            texture_store,
+            player_index,
+            camera_mode,
+        }
+    }
+
     pub fn player(&self) -> &Entity {
         &self.entities[self.player_index]
     }
 
     pub fn player_mut(&mut self) -> &mut Entity {
         &mut self.entities[self.player_index]
+    }
+
+    pub fn static_grid(&self) -> &SpatialGrid {
+        &self.static_grid
+    }
+
+    pub fn build_static_grid(&mut self) {
+        self.static_grid = grid::SpatialGrid::new(grid::STATIC_CELL_SIZE);
+
+        for (i, wall) in self.walls.iter().enumerate() {
+            self.static_grid
+                .insert(&wall.rect, grid::CollisionHandle::Wall(WallId(i)));
+        }
+
+        for (i, entity) in self.entities.iter().enumerate() {
+            if i == self.player_index {
+                continue;
+            }
+            if let Some(rect) = entity.world_collider() {
+                self.static_grid
+                    .insert(&rect, grid::CollisionHandle::Entity(EntityId(i)));
+            }
+        }
     }
 
     /// Checks whether a proposed world-space collider (center + half-size)
@@ -25,40 +73,33 @@ impl Scene {
         half_size: Vec2,
         skip_index: usize,
     ) -> Option<Rect> {
-        for wall in &self.walls {
+        let candidates = self
+            .static_grid
+            .collision_handles_around_position(world_center, 1);
+
+        for handle in candidates {
+            let candidate_rect = match handle {
+                grid::CollisionHandle::Wall(wall_id) => self.walls[wall_id.0].rect,
+                grid::CollisionHandle::Entity(entity_id) => {
+                    if entity_id.0 == skip_index {
+                        continue;
+                    }
+                    match self.entities[entity_id.0].world_collider() {
+                        Some(rect) => rect,
+                        None => continue,
+                    }
+                }
+            };
+
             if aabb_overlap(
                 world_center,
                 half_size,
-                wall.rect.center,
-                wall.rect.half_size,
+                candidate_rect.center,
+                candidate_rect.half_size,
             ) {
-                return Some(Rect {
-                    center: wall.rect.center,
-                    half_size: wall.rect.half_size,
-                });
+                return Some(candidate_rect);
             }
         }
-
-        for (i, entity) in self.entities.iter().enumerate() {
-            if i == skip_index {
-                continue;
-            }
-            if let Some(collider) = &entity.collider {
-                let other_center = entity.position + collider.rect.center;
-                if aabb_overlap(
-                    world_center,
-                    half_size,
-                    other_center,
-                    collider.rect.half_size,
-                ) {
-                    return Some(Rect {
-                        center: other_center,
-                        half_size: collider.rect.half_size,
-                    });
-                }
-            }
-        }
-
         None
     }
 

@@ -63,7 +63,7 @@ impl AppState {
     /// before AppState exists (resumed()'s first scene) as well as
     /// from change_scene, which just assigns the result afterward.
     fn build_scene(renderer: &mut Renderer, scene_id: SceneId, multiplying_factor: f32) -> Scene {
-        let new_scene = match scene_id {
+        let mut new_scene = match scene_id {
             SceneId::Home => home::build(renderer.device(), renderer.queue(), multiplying_factor)
                 .expect("failed to build home scene"),
             SceneId::Outside => {
@@ -71,6 +71,7 @@ impl AppState {
                     .expect("failed to build outside scene")
             }
         };
+        new_scene.build_static_grid();
         renderer.prepare_scene(&new_scene);
         new_scene
     }

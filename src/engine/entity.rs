@@ -35,6 +35,13 @@ impl Entity {
             None => self.position,
         }
     }
+
+    pub fn world_collider(&self) -> Option<Rect> {
+        self.collider.as_ref().map(|c| Rect {
+            center: self.position + c.rect.center,
+            half_size: c.rect.half_size,
+        })
+    }
 }
 
 /// Axis-aligned rectangle (AABB): center offset + half-extents.

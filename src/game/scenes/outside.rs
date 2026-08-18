@@ -182,14 +182,14 @@ pub fn build(device: &wgpu::Device, queue: &wgpu::Queue, multiplying_factor: f32
         active: true,
     });
 
-    Ok(Scene {
-        id: SceneId::Outside,
+    Ok(Scene::new(
+        SceneId::Outside,
         background,
         walls,
         triggers,
         entities,
         texture_store,
         player_index,
-        camera_mode: CameraMode::Follow,
-    })
+        CameraMode::Follow,
+    ))
 }
