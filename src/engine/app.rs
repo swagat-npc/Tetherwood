@@ -112,6 +112,9 @@ impl AppState {
     }
 
     fn update_player(&mut self, delta: f32) {
+        if self.dialogue.is_some() {
+            return;
+        }
         let speed = 80.0 * self.multiplying_factor;
         let movement = actions::resolve_movement(&self.input);
         if movement != Vec2::ZERO {
