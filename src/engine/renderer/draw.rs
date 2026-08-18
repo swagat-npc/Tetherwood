@@ -1,14 +1,14 @@
 use super::gpu::{Frame, Renderer};
 use super::mesh::{self, SolidRect};
 use super::text;
-use crate::engine::debug::overlay;
+use crate::engine::debug::{DebugFlags, overlay};
 use crate::engine::entity;
 use crate::engine::scene::Scene;
 use crate::game::dialogue::Register;
 use wgpu::util::DeviceExt;
 
 impl Renderer {
-    pub fn render_scene(&mut self, frame: &Frame, scene: &Scene, show_colliders: bool) {
+    pub fn render_scene(&mut self, frame: &Frame, scene: &Scene, debug: &DebugFlags) {
         let projection = self.screen_projection();
         let screen_center = self.screen_size() * 0.5;
 
@@ -42,20 +42,24 @@ impl Renderer {
             }
         }
 
-        let debug_rects = if show_colliders {
-            let mut rects = overlay::build_debug_rects(scene);
+        let mut debug_rects = Vec::new();
+        if debug.show_colliders {
+            debug_rects.extend(overlay::build_debug_rects(scene));
+        }
 
+        if debug.show_debug_renderer && debug.show_grid {
             let half_screen = self.screen_size() * 0.5;
             let visible_min = self.camera_position - half_screen;
             let visible_max = self.camera_position + half_screen;
 
-            rects.extend(mesh::build_grid_lines_mesh(scene, visible_min, visible_max));
-            rects.extend(mesh::build_occupied_cells_mesh(scene));
-            rects.extend(mesh::build_player_neighborhood_mesh(scene));
-            rects
-        } else {
-            Vec::new()
-        };
+            debug_rects.extend(mesh::build_grid_lines_mesh(scene, visible_min, visible_max));
+            if debug.show_occupied_cells {
+                debug_rects.extend(mesh::build_occupied_cells_mesh(scene));
+            }
+            if debug.show_player_neighbours {
+                debug_rects.extend(mesh::build_player_neighborhood_mesh(scene));
+            }
+        }
 
         // Each draw gets its own encoder and its own submit. See the
         // explanation above the code block in this message: repeatedly

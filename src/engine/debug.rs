@@ -2,3 +2,79 @@ pub mod hud;
 pub mod notifications;
 pub mod overlay;
 pub mod ui;
+
+pub struct DebugFlags {
+    pub show_debug_info: bool,
+    pub show_debug_renderer: bool,
+    pub show_grid: bool,
+    pub show_colliders: bool,
+    pub show_player_neighbours: bool,
+    pub show_occupied_cells: bool,
+}
+
+impl DebugFlags {
+    pub fn new() -> Self {
+        Self {
+            show_debug_info: false,
+            show_debug_renderer: true, // DEBUG: set to true for debugging
+            show_colliders: false,
+            show_grid: true, // DEBUG: set to true for debugging
+            show_player_neighbours: false,
+            show_occupied_cells: false,
+        }
+    }
+
+    pub fn toggle_debug_info(&mut self) -> &'static str {
+        self.show_debug_info = !self.show_debug_info;
+        if self.show_debug_info {
+            "Debug Info: ON"
+        } else {
+            "Debug Info: OFF"
+        }
+    }
+
+    pub fn toggle_debug_renderer(&mut self) -> &'static str {
+        self.show_debug_renderer = !self.show_debug_renderer;
+        if self.show_debug_renderer {
+            "Debug Renderer: ON"
+        } else {
+            "Debug Renderer: OFF"
+        }
+    }
+
+    pub fn toggle_colliders(&mut self) -> &'static str {
+        self.show_colliders = !self.show_colliders;
+        if self.show_colliders {
+            "Colliders: ON"
+        } else {
+            "Colliders: OFF"
+        }
+    }
+
+    pub fn toggle_grid(&mut self) -> &'static str {
+        self.show_grid = !self.show_grid;
+        if self.show_grid {
+            "Grid: ON"
+        } else {
+            "Grid: OFF"
+        }
+    }
+
+    pub fn toggle_player_neighbours(&mut self) -> &'static str {
+        self.show_player_neighbours = !self.show_player_neighbours;
+        if self.show_player_neighbours {
+            "Grid - Player Neighbours: ON"
+        } else {
+            "Grid - Player Neighbours: OFF"
+        }
+    }
+
+    pub fn toggle_occupied_cells(&mut self) -> &'static str {
+        self.show_occupied_cells = !self.show_occupied_cells;
+        if self.show_occupied_cells {
+            "Grid - Occupied Cells: ON"
+        } else {
+            "Grid - Occupied Cells: OFF"
+        }
+    }
+}

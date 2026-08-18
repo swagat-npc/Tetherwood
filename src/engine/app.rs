@@ -1,6 +1,7 @@
 mod dialogue;
 pub mod input;
 
+use super::debug::DebugFlags;
 use crate::engine::debug::hud;
 use crate::engine::debug::notifications::Notification;
 use crate::engine::debug::ui::Slider;
@@ -15,6 +16,7 @@ use glam::Vec2;
 use input::InputState;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
 use pollster::block_on;
+use std::time::Duration;
 use std::{sync::Arc, time::Instant};
 use winit::{
     application::ApplicationHandler,
@@ -44,8 +46,6 @@ struct AppState {
     frame_count: u32,
     input: InputState,
     multiplying_factor: f32, // TODO: migrate this to a config struct to supply everywhere
-    show_colliders: bool,
-    show_debug_info: bool,
     dialogue: Option<DialogueState>,
     screen_mouse_position: (f64, f64),
     smoothed_fps: f32,
@@ -55,6 +55,7 @@ struct AppState {
     blip_volume: f32,
     notifications: Vec<Notification>,
     left_mouse_down: bool,
+    debug: DebugFlags,
     volume_slider: Slider,
 }
 
@@ -82,6 +83,14 @@ impl AppState {
 
     fn reset_scene(&mut self) {
         self.scene = Self::build_scene(&mut self.renderer, self.scene.id, self.multiplying_factor);
+    }
+
+    fn notify(&mut self, message: impl Into<String>) {
+        self.notifications.push(Notification {
+            message: message.into(),
+            duration: Duration::from_secs(2),
+            start_time: Instant::now(),
+        })
     }
 
     const BLIP_PITCH_STEPS: [f64; 4] = [0.95, 1.05, 1.0, 1.1]; // semitone-ish multipliers, cycling
@@ -125,7 +134,7 @@ impl AppState {
             let delta_move = movement.normalize() * speed * delta;
             self.scene.try_move_player(delta_move);
             if let Some((target_scene, target_warp_id)) =
-                self.scene.check_triggers(self.show_debug_info)
+                self.scene.check_triggers(self.debug.show_debug_info)
             {
                 self.change_scene(target_scene);
                 if let Some(spawn_position) = self.scene.activate_warp(target_warp_id) {
@@ -184,7 +193,7 @@ impl AppState {
             }
         }
 
-        if self.show_debug_info {
+        if self.debug.show_debug_info {
             // DEBUG::FPS Counter
             hud::draw_fps_counter(&mut self.renderer, frame, self.smoothed_fps);
 
@@ -195,7 +204,9 @@ impl AppState {
                 self.screen_mouse_position,
                 self.multiplying_factor,
             );
+        }
 
+        if self.debug.show_debug_renderer {
             // DEBUG:: Volume slider
             let world_mouse = Vec2::new(
                 self.screen_mouse_position.0 as f32,
@@ -261,8 +272,6 @@ impl ApplicationHandler for App {
             frame_count: 0,
             input: InputState::new(),
             multiplying_factor,
-            show_colliders: true, // DEBUG: set to true for debugging
-            show_debug_info: false,
             dialogue: None,
             screen_mouse_position: (0.0, 0.0),
             smoothed_fps: 60.0,
@@ -273,6 +282,7 @@ impl ApplicationHandler for App {
             notifications: Vec::new(),
             left_mouse_down: false,
             volume_slider,
+            debug: DebugFlags::new(),
         };
 
         self.state = Some(state);
@@ -327,7 +337,7 @@ impl ApplicationHandler for App {
                     Ok(Some(frame)) => {
                         state
                             .renderer
-                            .render_scene(&frame, &state.scene, state.show_colliders);
+                            .render_scene(&frame, &state.scene, &state.debug);
                         state.draw_hud(&frame);
                         state.renderer.present_frame(frame);
                     }
@@ -353,21 +363,23 @@ impl ApplicationHandler for App {
                         println!("Escape key pressed; stopping");
                         event_loop.exit();
                     } else if code == KeyCode::F1 {
-                        state.show_colliders = !state.show_colliders;
-                        println!(
-                            "{} Colliders",
-                            if state.show_colliders { "Show" } else { "Hide" }
-                        );
+                        let state_msg = state.debug.toggle_debug_info();
+                        state.notify(state_msg);
+                    } else if code == KeyCode::F2 {
+                        let state_msg = state.debug.toggle_colliders();
+                        state.notify(state_msg);
                     } else if code == KeyCode::F3 {
-                        state.show_debug_info = !state.show_debug_info;
-                        println!(
-                            "{} Debug Info",
-                            if state.show_debug_info {
-                                "Show"
-                            } else {
-                                "Hide"
-                            }
-                        );
+                        let state_msg = state.debug.toggle_debug_renderer();
+                        state.notify(state_msg);
+                    } else if code == KeyCode::F4 {
+                        let state_msg = state.debug.toggle_grid();
+                        state.notify(state_msg);
+                    } else if code == KeyCode::F5 {
+                        let state_msg = state.debug.toggle_player_neighbours();
+                        state.notify(state_msg);
+                    } else if code == KeyCode::F6 {
+                        let state_msg = state.debug.toggle_occupied_cells();
+                        state.notify(state_msg);
                     } else if let Some(action) =
                         actions::resolve_key_press(code, state.dialogue.is_some())
                     {
@@ -407,13 +419,9 @@ impl ApplicationHandler for App {
                             || state.input.is_held(KeyCode::ControlRight))
                     {
                         state.reset_scene();
-                        state.notifications.push(Notification {
-                            message: format!("Scene ({:?}) reset", state.scene.id),
-                            duration: std::time::Duration::from_secs(2),
-                            start_time: Instant::now(),
-                        });
+                        state.notify(format!("Scene ({:?}) reset", state.scene.id));
                     }
-                    if state.show_debug_info {
+                    if state.debug.show_debug_info {
                         println!("{code:?} pressed");
                     }
                     state.input.press(code);
