@@ -124,6 +124,7 @@ pub struct WallId(pub usize);
 pub struct Scene {
     pub id: SceneId,
     static_grid: SpatialGrid,
+    dynamic_grid: SpatialGrid,
     pub background: Vec<Background>,
     pub walls: Vec<Collider>,
     pub triggers: Vec<Trigger>,

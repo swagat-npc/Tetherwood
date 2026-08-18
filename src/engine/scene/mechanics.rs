@@ -2,7 +2,7 @@ use super::{
     Collider, Entity, EntityId, InteractResult, Rect, Scene, SceneId, TriggerKind, WarpId,
     aabb_overlap, point_in_rect,
 };
-use crate::engine::grid::{self, SpatialGrid};
+use crate::engine::grid;
 use crate::engine::renderer::texture::{TextureId, TextureStore};
 use crate::engine::scene::{Background, CameraMode, Trigger, WallId};
 use glam::Vec2;
@@ -21,7 +21,8 @@ impl Scene {
     ) -> Self {
         Self {
             id,
-            static_grid: grid::SpatialGrid::new(grid::STATIC_CELL_SIZE),
+            static_grid: grid::SpatialGrid::new(grid::CELL_SIZE),
+            dynamic_grid: grid::SpatialGrid::new(grid::CELL_SIZE),
             background,
             walls,
             triggers,
@@ -40,12 +41,12 @@ impl Scene {
         &mut self.entities[self.player_index]
     }
 
-    pub fn static_grid(&self) -> &SpatialGrid {
+    pub fn static_grid(&self) -> &grid::SpatialGrid {
         &self.static_grid
     }
 
     pub fn build_static_grid(&mut self) {
-        self.static_grid = grid::SpatialGrid::new(grid::STATIC_CELL_SIZE);
+        self.static_grid = grid::SpatialGrid::new(grid::CELL_SIZE);
 
         for (i, wall) in self.walls.iter().enumerate() {
             self.static_grid
@@ -73,9 +74,13 @@ impl Scene {
         half_size: Vec2,
         skip_index: usize,
     ) -> Option<Rect> {
-        let candidates = self
+        let mut candidates = self
             .static_grid
             .collision_handles_around_position(world_center, 1);
+        candidates.extend(
+            self.dynamic_grid
+                .collision_handles_around_position(world_center, 1),
+        );
 
         for handle in candidates {
             let candidate_rect = match handle {
@@ -239,12 +244,25 @@ impl Scene {
         None
     }
 
+    fn rebuild_dynamic_grid(&mut self) {
+        self.dynamic_grid = grid::SpatialGrid::new(grid::CELL_SIZE);
+        if let Some(rect) = self.player().world_collider() {
+            self.dynamic_grid.insert(
+                &rect,
+                grid::CollisionHandle::Entity(EntityId(self.player_index)),
+            );
+        }
+    }
+
     /// Attempts to move the player by `delta`. Resolves collisions
     /// sequentially, per axis — x first, then y from the (possibly
     /// already-updated) x — which is what produces sliding along a
     /// wall or furniture edge on diagonal movement, per the M3
     /// collision design.
     pub fn try_move_player(&mut self, delta: Vec2) {
+        // Rebuild the dynamic grid to account for entity movement before collision detection
+        self.rebuild_dynamic_grid();
+
         let idx = self.player_index;
 
         // `let ... else` — new syntax: if the pattern on the left
