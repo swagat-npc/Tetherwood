@@ -1,5 +1,5 @@
 use super::gpu::{Frame, Renderer};
-use super::mesh::{SolidRect, build_solid_rect_mesh, build_text_mesh, model_matrix};
+use super::mesh::{self, SolidRect};
 use super::text;
 use crate::engine::debug::overlay;
 use crate::engine::entity;
@@ -43,7 +43,16 @@ impl Renderer {
         }
 
         let debug_rects = if show_colliders {
-            overlay::build_debug_rects(scene)
+            let mut rects = overlay::build_debug_rects(scene);
+
+            let half_screen = self.screen_size() * 0.5;
+            let visible_min = self.camera_position - half_screen;
+            let visible_max = self.camera_position + half_screen;
+
+            rects.extend(mesh::build_grid_lines_mesh(scene, visible_min, visible_max));
+            rects.extend(mesh::build_occupied_cells_mesh(scene));
+            rects.extend(mesh::build_player_neighborhood_mesh(scene));
+            rects
         } else {
             Vec::new()
         };
@@ -61,7 +70,7 @@ impl Renderer {
             if *facing == entity::Direction::Left {
                 draw_size.x = -draw_size.x;
             }
-            let model = model_matrix(*position, draw_size);
+            let model = mesh::model_matrix(*position, draw_size);
             let transform = projection * camera_view * model;
             self.queue.write_buffer(
                 &self.transform_buffer,
@@ -78,9 +87,9 @@ impl Renderer {
             {
                 let load_op = if i == 0 {
                     wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.0,
-                        g: 1.0,
-                        b: 1.0,
+                        r: 0.15,
+                        g: 0.15,
+                        b: 0.15,
                         a: 1.0,
                     })
                 } else {
@@ -138,7 +147,7 @@ impl Renderer {
         if rects.is_empty() {
             return;
         }
-        let (vertices, indices) = build_solid_rect_mesh(rects);
+        let (vertices, indices) = mesh::build_solid_rect_mesh(rects);
         let solid_vertex_buffer =
             self.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -227,7 +236,7 @@ impl Renderer {
             return;
         }
 
-        let (vertices, indices) = build_text_mesh(glyphs);
+        let (vertices, indices) = mesh::build_text_mesh(glyphs);
         let vertex_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {

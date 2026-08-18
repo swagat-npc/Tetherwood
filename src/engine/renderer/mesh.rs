@@ -1,4 +1,6 @@
 use super::text;
+use crate::engine::scene::Scene;
+use glam::Vec2;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -220,4 +222,116 @@ pub(super) fn build_solid_rect_mesh(rects: &[SolidRect]) -> (Vec<SolidVertex>, V
         indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 3, base + 2]);
     }
     (vertices, indices)
+}
+
+pub(super) fn build_grid_lines_mesh(
+    scene: &Scene,
+    visible_min: Vec2,
+    visible_max: Vec2,
+) -> Vec<SolidRect> {
+    const LINE_THICKNESS: f32 = 1.0;
+    let line_color = [0.0, 0.0, 0.0, 0.35];
+
+    let grid = scene.static_grid();
+    let cell_size = grid.cell_size();
+
+    let min_cell = (
+        (visible_min.x / cell_size).floor() as i32,
+        (visible_min.y / cell_size).floor() as i32,
+    );
+    let max_cell = (
+        (visible_max.x / cell_size).floor() as i32,
+        (visible_max.y / cell_size).floor() as i32,
+    );
+
+    let world_top = min_cell.1 as f32 * cell_size;
+    let world_bottom = (max_cell.1 + 1) as f32 * cell_size;
+    let world_left = min_cell.0 as f32 * cell_size;
+    let world_right = (max_cell.0 + 1) as f32 * cell_size;
+
+    let mut rects = Vec::new();
+
+    // Vertical lines: one per x boundary between mincell.0 and max_cell.0 + 1
+    for cx in min_cell.0..=(max_cell.0 + 1) {
+        let x = cx as f32 * cell_size;
+        rects.push(SolidRect {
+            position: Vec2::new(x, (world_top + world_bottom) * 0.5),
+            size: Vec2::new(LINE_THICKNESS, world_bottom - world_top),
+            fill_color: line_color,
+            border_color: line_color,
+            border_thickness_px: 0.0,
+        });
+    }
+
+    // Horizontal lines: one per y boundary between mincell.1 and max_cell.1 + 1
+    for cy in min_cell.1..=(max_cell.1 + 1) {
+        let y = cy as f32 * cell_size;
+        rects.push(SolidRect {
+            position: Vec2::new((world_left + world_right) * 0.5, y),
+            size: Vec2::new(world_right - world_left, LINE_THICKNESS),
+            fill_color: line_color,
+            border_color: line_color,
+            border_thickness_px: 0.0,
+        });
+    }
+    rects
+}
+
+pub(super) fn build_occupied_cells_mesh(scene: &Scene) -> Vec<SolidRect> {
+    let grid = scene.static_grid();
+    let cell_size = grid.cell_size();
+
+    grid.occupied_cells()
+        .map(|(cx, cy)| {
+            let center = Vec2::new(
+                cx as f32 * cell_size + cell_size * 0.5,
+                cy as f32 * cell_size + cell_size * 0.5,
+            );
+            SolidRect {
+                position: center,
+                size: Vec2::new(cell_size, cell_size),
+                fill_color: [0.0, 1.0, 0.0, 0.15], // faint green fill
+                border_color: [0.0, 1.0, 0.0, 0.6],
+                border_thickness_px: 1.0,
+            }
+        })
+        .collect()
+}
+
+pub(super) fn build_player_neighborhood_mesh(scene: &Scene) -> Vec<SolidRect> {
+    let grid = scene.static_grid();
+    let cell_size = grid.cell_size();
+    let player_cell = grid.cell_at_position(scene.player().collider_center());
+
+    let cell_rect = |cx: i32, cy: i32, fill: [f32; 4], border: [f32; 4]| {
+        let center = Vec2::new(
+            cx as f32 * cell_size + cell_size * 0.5,
+            cy as f32 * cell_size + cell_size * 0.5,
+        );
+        SolidRect {
+            position: center,
+            size: Vec2::new(cell_size, cell_size),
+            fill_color: fill,
+            border_color: border,
+            border_thickness_px: 1.0,
+        }
+    };
+
+    // First add the player's own cell
+    let mut rects = vec![cell_rect(
+        player_cell.0,
+        player_cell.1,
+        [1.0, 0.4, 0.7, 0.1],
+        [1.0, 0.4, 0.7, 0.7],
+    )];
+
+    // Then add the neighboring cells
+    rects.extend(
+        grid.neighboring_cells(player_cell, 1)
+            .into_iter()
+            .filter(|&cell| cell != player_cell)
+            .map(|(cx, cy)| cell_rect(cx, cy, [1.0, 0.4, 0.7, 0.25], [1.0, 0.4, 0.7, 0.7])),
+    );
+
+    rects
 }

@@ -53,7 +53,7 @@ impl SpatialGrid {
 
     /// Return which cell a world position falls into.
     /// The grid's basic unit of "where," everything else builds on this.
-    fn cell_at_position(&self, pos: Vec2) -> (i32, i32) {
+    pub fn cell_at_position(&self, pos: Vec2) -> (i32, i32) {
         (
             (pos.x / self.cell_size).floor() as i32,
             (pos.y / self.cell_size).floor() as i32,
