@@ -101,7 +101,7 @@ pub fn line_for(id: &str, progression: &ProgressionTracker) -> Vec<DialogueLine>
                 register: Register::InnerMonologue,
             },
         ],
-        "villager_1_examine" => {
+        "villager_1_interact" => {
             if progression.is_set("necklace_consumed") {
                 vec![DialogueLine {
                     spans: vec![ColoredSpan {

@@ -185,6 +185,36 @@ pub fn build(
         },
     ));
 
+    let villager_1_tex = texture_store.load(device, queue, "assets/villager_1.aseprite")?;
+    entities.push(Entity {
+        position: Vec2::new(150.0, 150.0) * multiplying_factor,
+        size: Vec2::new(12.0, 24.0) * multiplying_factor,
+        collider: Some(Collider {
+            rect: Rect {
+                center: Vec2::new(0.0, 0.0) * multiplying_factor,
+                half_size: Vec2::new(6.0, 6.0) * multiplying_factor,
+            },
+        }),
+        texture_id: Some(villager_1_tex),
+        facing: Direction::Left,
+        active: true,
+    });
+
+    triggers.push(Trigger::new(
+        Rect {
+            center: Vec2::new(150.0, 150.0) * multiplying_factor,
+            half_size: Vec2::new(12.0, 6.0) * multiplying_factor,
+        },
+        TriggerKind::Dialogue {
+            id: "villager_1_interact",
+            prompt_entity: None,
+            prompt_texture: None,
+            required_facing: &[Direction::Right],
+            consumes_entity: None,
+            sets_flag: None,
+        },
+    ));
+
     Ok(Scene::new(
         SceneId::Village,
         background,
