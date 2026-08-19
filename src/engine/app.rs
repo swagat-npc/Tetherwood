@@ -10,6 +10,7 @@ use crate::engine::renderer::{Frame, Renderer, text};
 use crate::engine::scene::{CameraMode, InteractResult, Scene, SceneId};
 use crate::game::actions::{self, Action};
 use crate::game::dialogue::{Register, line_for};
+use crate::game::progression::ProgressionTracker;
 use crate::game::scenes::{home, outside};
 use dialogue::DialogueState;
 use glam::Vec2;
@@ -58,6 +59,7 @@ struct AppState {
     debug: DebugSettings,
     volume_slider: Slider,
     is_isometric: bool,
+    progression: ProgressionTracker,
 }
 
 impl AppState {
@@ -69,6 +71,7 @@ impl AppState {
         scene_id: SceneId,
         multiplying_factor: f32,
         is_isometric: bool,
+        progression: &mut ProgressionTracker,
     ) -> Scene {
         let mut new_scene = match scene_id {
             SceneId::Home => home::build(
@@ -76,6 +79,7 @@ impl AppState {
                 renderer.queue(),
                 multiplying_factor,
                 is_isometric,
+                progression,
             )
             .expect("failed to build home scene"),
             SceneId::Outside => outside::build(
@@ -83,6 +87,7 @@ impl AppState {
                 renderer.queue(),
                 multiplying_factor,
                 is_isometric,
+                progression,
             )
             .expect("failed to build outside scene"),
         };
@@ -97,6 +102,7 @@ impl AppState {
             scene_id,
             self.multiplying_factor,
             self.is_isometric,
+            &mut self.progression,
         );
     }
 
@@ -106,6 +112,7 @@ impl AppState {
             self.scene.id,
             self.multiplying_factor,
             self.is_isometric,
+            &mut self.progression,
         );
     }
 
@@ -267,9 +274,15 @@ impl ApplicationHandler for App {
         let mut renderer =
             block_on(Renderer::new(window.clone())).expect("failed to initialize renderer");
         let multiplying_factor = 5.0;
+        let mut progression = ProgressionTracker::new();
 
-        let initial_scene =
-            AppState::build_scene(&mut renderer, SceneId::Home, multiplying_factor, false);
+        let initial_scene = AppState::build_scene(
+            &mut renderer,
+            SceneId::Home,
+            multiplying_factor,
+            false,
+            &mut progression,
+        );
 
         let audio =
             kira::AudioManager::<kira::DefaultBackend>::new(kira::AudioManagerSettings::default())
@@ -312,6 +325,7 @@ impl ApplicationHandler for App {
             volume_slider,
             debug: DebugSettings::new(),
             is_isometric: false,
+            progression: ProgressionTracker::new(),
         };
 
         self.state = Some(state);
@@ -425,27 +439,24 @@ impl ApplicationHandler for App {
                         match action {
                             Action::AdvanceOrSkip => {
                                 if let Some(dialogue) = &mut state.dialogue {
-                                    let consumed = dialogue
-                                        .lines
-                                        .get(dialogue.current_line)
-                                        .and_then(|l| l.consumes_entity);
+                                    let consumed = dialogue.consumes_entity();
+                                    let flag = dialogue.sets_flag();
                                     if !dialogue.advance_or_skip() {
                                         if let Some(entity_id) = consumed {
                                             state.scene.consume_entity(entity_id);
+                                        }
+                                        if let Some(flag) = flag {
+                                            state.progression.set(flag, true);
                                         }
                                         state.dialogue = None;
                                     }
                                 }
                             }
                             Action::Interact => match state.scene.try_interact() {
-                                Some(InteractResult::Dialogue(id, consumes_entity)) => {
-                                    let mut lines = line_for(id);
-                                    if let (Some(last), Some(entity_id)) =
-                                        (lines.last_mut(), consumes_entity)
-                                    {
-                                        last.consumes_entity = Some(entity_id);
-                                    }
-                                    state.dialogue = Some(DialogueState::new(lines));
+                                Some(InteractResult::Dialogue(id, consumes_entity, sets_flag)) => {
+                                    let lines = line_for(id);
+                                    state.dialogue =
+                                        Some(DialogueState::new(lines, consumes_entity, sets_flag));
                                 }
                                 Some(InteractResult::Toggle(entity_id)) => {
                                     state.scene.toggle_entity(entity_id);

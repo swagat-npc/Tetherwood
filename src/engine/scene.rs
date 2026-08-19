@@ -23,7 +23,7 @@ impl Default for CameraMode {
 }
 
 pub enum InteractResult {
-    Dialogue(&'static str, Option<EntityId>),
+    Dialogue(&'static str, Option<EntityId>, Option<&'static str>),
     Toggle(EntityId),
 }
 
@@ -51,6 +51,17 @@ pub struct Trigger {
     /// recently_used, which is transient (re-arms on leaving the
     /// rect); this is permanent for the scene's remaining lifetime.
     pub active: bool,
+}
+
+impl Trigger {
+    pub fn new(rect: Rect, kind: TriggerKind) -> Self {
+        Self {
+            rect,
+            kind,
+            recently_used: false,
+            active: true,
+        }
+    }
 }
 
 /// Identifies a single warp point within one scene, and doubles as a
@@ -104,6 +115,7 @@ pub enum TriggerKind {
         /// removing itself after being picked up. None for dialogue that
         /// doesn't remove anything (the bed's lore-drop).
         consumes_entity: Option<EntityId>,
+        sets_flag: Option<&'static str>,
     },
     Toggle {
         target_entity: EntityId,

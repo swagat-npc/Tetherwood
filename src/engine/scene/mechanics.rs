@@ -193,12 +193,13 @@ impl Scene {
                     id,
                     required_facing,
                     consumes_entity,
+                    sets_flag,
                     ..
                 } => {
                     if point_in_rect(player.collider_center(), &trigger.rect)
                         && required_facing.contains(&player.facing)
                     {
-                        return Some(InteractResult::Dialogue(*id, *consumes_entity));
+                        return Some(InteractResult::Dialogue(*id, *consumes_entity, *sets_flag));
                     }
                 }
                 TriggerKind::Toggle {
@@ -415,8 +416,7 @@ impl Scene {
 
     // Scene method, mirroring toggle_entity's search pattern
     pub fn consume_entity(&mut self, entity_id: EntityId) {
-        self.entities[entity_id.0].texture_id = None;
-        self.entities[entity_id.0].collider = None;
+        self.entities[entity_id.0].deactivate();
         for trigger in self.triggers.iter_mut() {
             if let TriggerKind::Dialogue {
                 consumes_entity: Some(id),
@@ -427,7 +427,7 @@ impl Scene {
                 if id == entity_id {
                     trigger.active = false;
                     if let Some(prompt_entity) = prompt_entity {
-                        self.entities[prompt_entity.0].texture_id = None;
+                        self.entities[prompt_entity.0].deactivate();
                     }
                 }
             }

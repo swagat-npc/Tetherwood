@@ -1,5 +1,3 @@
-use crate::engine::entity::EntityId;
-
 /// Which visual/narrative voice a line is spoken in (ADR-021). Only
 /// the two registers Beat 2 needs — NPC dialogue (avatar + standard
 /// frame) is M5's job, once the village exists to speak it.
@@ -16,12 +14,6 @@ pub struct ColoredSpan {
 pub struct DialogueLine {
     pub spans: Vec<ColoredSpan>,
     pub register: Register,
-    /// If set, this entity's texture is cleared (ADR-037's visibility
-    /// toggle) the moment this line is the *last* line and dialogue
-    /// closes. Narrow, single-purpose — not a general post-dialogue
-    /// callback; built specifically for item-pickup lines like the
-    /// necklace's last line.
-    pub consumes_entity: Option<EntityId>,
 }
 
 const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
@@ -41,7 +33,6 @@ pub fn line_for(id: &str) -> Vec<DialogueLine> {
                     color: WHITE,
                 }],
                 register: Register::Narrator,
-                consumes_entity: None,
             },
             DialogueLine {
                 spans: vec![ColoredSpan {
@@ -49,7 +40,6 @@ pub fn line_for(id: &str) -> Vec<DialogueLine> {
                     color: WHITE,
                 }],
                 register: Register::Narrator,
-                consumes_entity: None,
             },
             DialogueLine {
                 spans: vec![ColoredSpan {
@@ -57,7 +47,6 @@ pub fn line_for(id: &str) -> Vec<DialogueLine> {
                     color: WHITE,
                 }],
                 register: Register::InnerMonologue,
-                consumes_entity: None,
             },
             DialogueLine {
                 spans: vec![ColoredSpan {
@@ -65,7 +54,6 @@ pub fn line_for(id: &str) -> Vec<DialogueLine> {
                     color: WHITE,
                 }],
                 register: Register::Narrator,
-                consumes_entity: None,
             },
             DialogueLine {
                 spans: vec![
@@ -79,7 +67,6 @@ pub fn line_for(id: &str) -> Vec<DialogueLine> {
                     },
                 ],
                 register: Register::InnerMonologue,
-                consumes_entity: None,
             },
         ],
         "necklace_examine" => vec![
@@ -89,7 +76,6 @@ pub fn line_for(id: &str) -> Vec<DialogueLine> {
                     color: WHITE,
                 }],
                 register: Register::Narrator,
-                consumes_entity: None,
             },
             DialogueLine {
                 spans: vec![ColoredSpan {
@@ -97,7 +83,6 @@ pub fn line_for(id: &str) -> Vec<DialogueLine> {
                     color: WHITE,
                 }],
                 register: Register::Narrator,
-                consumes_entity: None,
             },
             DialogueLine {
                 spans: vec![ColoredSpan {
@@ -105,7 +90,6 @@ pub fn line_for(id: &str) -> Vec<DialogueLine> {
                     color: WHITE,
                 }],
                 register: Register::InnerMonologue,
-                consumes_entity: None,
             },
             DialogueLine {
                 spans: vec![ColoredSpan {
@@ -113,7 +97,6 @@ pub fn line_for(id: &str) -> Vec<DialogueLine> {
                     color: UNEASE_TINT,
                 }],
                 register: Register::InnerMonologue,
-                consumes_entity: None,
             },
         ],
         _ => vec![DialogueLine {
@@ -122,7 +105,6 @@ pub fn line_for(id: &str) -> Vec<DialogueLine> {
                 color: WHITE,
             }],
             register: Register::Narrator,
-            consumes_entity: None,
         }],
     }
 }

@@ -19,6 +19,8 @@ pub struct Entity {
     pub texture_id: Option<TextureId>,
     /// Last non-idle movement direction. Defaults to Down at construction; updated only when movement is nonzero.
     pub facing: Direction,
+    /// Whether this entity is active and should be rendered/updated.
+    pub active: bool,
 }
 
 impl Entity {
@@ -41,6 +43,12 @@ impl Entity {
             center: self.position + c.rect.center,
             half_size: c.rect.half_size,
         })
+    }
+
+    pub fn deactivate(&mut self) {
+        self.active = false;
+        self.collider = None;
+        self.texture_id = None;
     }
 }
 

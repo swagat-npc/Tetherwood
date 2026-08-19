@@ -1,6 +1,7 @@
 use crate::engine::entity::{Collider, Direction, Entity, EntityId, Rect};
 use crate::engine::renderer::texture::TextureStore;
 use crate::engine::scene::{Background, CameraMode, Scene, SceneId, Trigger, TriggerKind, WarpId};
+use crate::game::progression::ProgressionTracker;
 use anyhow::Result;
 use glam::Vec2;
 
@@ -9,6 +10,7 @@ pub fn build(
     queue: &wgpu::Queue,
     multiplying_factor: f32,
     is_isometric: bool,
+    _progression: &ProgressionTracker,
 ) -> Result<Scene> {
     let mut texture_store = TextureStore::new();
 
@@ -92,20 +94,18 @@ pub fn build(
     let door_position = Vec2::new(64.0, 64.0) * multiplying_factor;
     let door_size = Vec2::new(16.0, 24.0) * multiplying_factor;
 
-    triggers.push(Trigger {
-        rect: Rect {
+    triggers.push(Trigger::new(
+        Rect {
             center: door_position,
             half_size: door_size * 0.5,
         },
-        recently_used: false,
-        kind: TriggerKind::Warp {
+        TriggerKind::Warp {
             warp_id: WarpId("door"),
             target_scene: SceneId::Home,
             target_warp_id: WarpId("door"),
             spawn_offset: Vec2::new(0.0, 20.0 * multiplying_factor), // down, into the patio
         },
-        active: true,
-    });
+    ));
 
     // Create Entities
     let mut entities = Vec::new();
@@ -122,6 +122,7 @@ pub fn build(
         }),
         texture_id: Some(player_tex),
         facing: Direction::Down,
+        active: true,
     });
     let player_index = entities.len() - 1;
 
@@ -140,6 +141,7 @@ pub fn build(
         }),
         texture_id: Some(patio_door_closed_tex),
         facing: Direction::Down,
+        active: true,
     });
     let patio_door_entity = EntityId(entities.len() - 1);
 
@@ -155,37 +157,33 @@ pub fn build(
         Vec2::new(patio_door_position.x, 136.0 * multiplying_factor);
     let patio_door_bottom_toggle_half_height = 8.0 * multiplying_factor;
 
-    triggers.push(Trigger {
-        rect: Rect {
+    triggers.push(Trigger::new(
+        Rect {
             center: patio_door_top_toggle_center,
             half_size: Vec2::new(patio_door_half_width, patio_door_top_toggle_half_height),
         },
-        recently_used: false,
-        kind: TriggerKind::Toggle {
+        TriggerKind::Toggle {
             target_entity: patio_door_entity,
             closed_texture: patio_door_closed_tex,
             open_texture: patio_door_open_tex,
             closed_collider,
             required_facing: &[Direction::Down],
         },
-        active: true,
-    });
+    ));
 
-    triggers.push(Trigger {
-        rect: Rect {
+    triggers.push(Trigger::new(
+        Rect {
             center: patio_door_bottom_toggle_center,
             half_size: Vec2::new(patio_door_half_width, patio_door_bottom_toggle_half_height),
         },
-        recently_used: false,
-        kind: TriggerKind::Toggle {
+        TriggerKind::Toggle {
             target_entity: patio_door_entity,
             closed_texture: patio_door_closed_tex,
             open_texture: patio_door_open_tex,
             closed_collider,
             required_facing: &[Direction::Up],
         },
-        active: true,
-    });
+    ));
 
     Ok(Scene::new(
         SceneId::Outside,

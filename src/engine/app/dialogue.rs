@@ -1,4 +1,7 @@
-use crate::game::dialogue::{DialogueLine, Register};
+use crate::{
+    engine::entity::EntityId,
+    game::dialogue::{DialogueLine, Register},
+};
 
 pub(super) struct DialogueState {
     pub(super) lines: Vec<DialogueLine>,
@@ -14,6 +17,8 @@ pub(super) struct DialogueState {
     /// reveal_timer, since blinking should run continuously once the
     /// line is fully revealed, not restart with each new line.
     caret_timer: f32,
+    consumes_entity: Option<EntityId>,
+    sets_flag: Option<&'static str>,
 }
 
 const REVEAL_INTERVAL: f32 = 0.03;
@@ -29,13 +34,19 @@ pub(super) struct RevealedChar {
 }
 
 impl DialogueState {
-    pub(super) fn new(lines: Vec<DialogueLine>) -> Self {
+    pub(super) fn new(
+        lines: Vec<DialogueLine>,
+        consumes_entity: Option<EntityId>,
+        sets_flag: Option<&'static str>,
+    ) -> Self {
         Self {
             lines,
             current_line: 0,
             revealed_chars: 0,
             reveal_timer: 0.0,
             caret_timer: 0.0,
+            consumes_entity,
+            sets_flag,
         }
     }
 
@@ -130,5 +141,13 @@ impl DialogueState {
 
     pub(super) fn current_register(&self) -> Option<&Register> {
         self.lines.get(self.current_line).map(|l| &l.register)
+    }
+
+    pub(super) fn consumes_entity(&self) -> Option<EntityId> {
+        self.consumes_entity
+    }
+
+    pub(super) fn sets_flag(&self) -> Option<&'static str> {
+        self.sets_flag
     }
 }

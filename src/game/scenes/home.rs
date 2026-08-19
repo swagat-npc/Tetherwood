@@ -1,6 +1,7 @@
 use crate::engine::entity::{Collider, Direction, Entity, EntityId, Rect};
 use crate::engine::renderer::texture::TextureStore;
 use crate::engine::scene::{Background, CameraMode, Scene, SceneId, Trigger, TriggerKind, WarpId};
+use crate::game::progression::ProgressionTracker;
 use anyhow::Result;
 use glam::Vec2;
 
@@ -12,6 +13,7 @@ pub fn build(
     queue: &wgpu::Queue,
     multiplying_factor: f32,
     is_isometric: bool,
+    progression: &ProgressionTracker,
 ) -> Result<Scene> {
     let mut texture_store = TextureStore::new();
 
@@ -109,20 +111,18 @@ pub fn build(
 
     let mut triggers: Vec<Trigger> = Vec::new();
 
-    triggers.push(Trigger {
-        rect: Rect {
+    triggers.push(Trigger::new(
+        Rect {
             center: Vec2::new(door_center_x, door_trigger_center_y),
             half_size: Vec2::new(door_half_width, door_trigger_depth),
         },
-        recently_used: false,
-        kind: TriggerKind::Warp {
+        TriggerKind::Warp {
             warp_id: WarpId("door"),
             target_scene: SceneId::Outside,
             target_warp_id: WarpId("door"),
             spawn_offset: Vec2::new(0.0, -20.0 * multiplying_factor), // up, into the room
         },
-        active: true,
-    });
+    ));
 
     // Create Entities
     let mut entities: Vec<Entity> = Vec::new();
@@ -139,6 +139,7 @@ pub fn build(
         }),
         texture_id: Some(wardrobe_tex),
         facing: Direction::Down,
+        active: true,
     });
 
     let bed_tex = texture_store.load(device, queue, "assets/bed.aseprite")?;
@@ -158,6 +159,7 @@ pub fn build(
         }),
         texture_id: Some(bed_tex),
         facing: Direction::Down,
+        active: true,
     });
 
     entities.push(Entity {
@@ -171,6 +173,7 @@ pub fn build(
         }),
         texture_id: Some(bed_tex),
         facing: Direction::Down,
+        active: true,
     });
 
     let bed_prompt_tex = texture_store.load(device, queue, "assets/prompt.aseprite")?;
@@ -180,24 +183,24 @@ pub fn build(
         collider: None,
         texture_id: Some(bed_prompt_tex),
         facing: Direction::Down,
+        active: true,
     });
     let bed_prompt = EntityId(entities.len() - 1);
 
-    triggers.push(Trigger {
-        rect: Rect {
+    triggers.push(Trigger::new(
+        Rect {
             center: Vec2::new(94.0, 40.0) * multiplying_factor,
             half_size: Vec2::new(7.0, 8.0) * multiplying_factor,
         },
-        recently_used: false,
-        kind: TriggerKind::Dialogue {
+        TriggerKind::Dialogue {
             id: "bed_examine",
             prompt_entity: Some(bed_prompt),
             prompt_texture: Some(bed_prompt_tex),
             required_facing: &[Direction::Right],
             consumes_entity: None,
+            sets_flag: None,
         },
-        active: true,
-    });
+    ));
 
     let nightstand_tex = texture_store.load(device, queue, "assets/nightstand.aseprite")?;
     entities.push(Entity {
@@ -211,6 +214,7 @@ pub fn build(
         }),
         texture_id: Some(nightstand_tex),
         facing: Direction::Down,
+        active: true,
     });
 
     let player_tex = texture_store.load(device, queue, "assets/player.aseprite")?;
@@ -225,6 +229,7 @@ pub fn build(
         }),
         texture_id: Some(player_tex),
         facing: Direction::Down,
+        active: true,
     });
     let player_index = entities.len() - 1;
 
@@ -235,6 +240,7 @@ pub fn build(
         collider: None,
         texture_id: Some(necklace_prompt_tex),
         facing: Direction::Down,
+        active: true,
     });
     let necklace_prompt = EntityId(entities.len() - 1);
 
@@ -250,24 +256,30 @@ pub fn build(
         }),
         texture_id: Some(necklace_tex),
         facing: Direction::Down,
+        active: true,
     });
     let necklace_entity = EntityId(entities.len() - 1);
 
-    triggers.push(Trigger {
-        rect: Rect {
+    triggers.push(Trigger::new(
+        Rect {
             center: Vec2::new(112.0, 10.0) * multiplying_factor,
             half_size: Vec2::new(12.0, 12.0) * multiplying_factor,
         },
-        recently_used: false,
-        kind: TriggerKind::Dialogue {
+        TriggerKind::Dialogue {
             id: "necklace_examine",
             prompt_entity: Some(necklace_prompt),
             prompt_texture: Some(necklace_prompt_tex),
             required_facing: &[Direction::Right],
             consumes_entity: Some(necklace_entity),
+            sets_flag: Some("necklace_consumed"),
         },
-        active: true,
-    });
+    ));
+
+    if progression.is_set("necklace_consumed") {
+        entities[necklace_entity.0].deactivate();
+        triggers.last_mut().unwrap().active = false;
+        entities[necklace_prompt.0].deactivate();
+    }
 
     Ok(Scene::new(
         SceneId::Home,
