@@ -1,5 +1,5 @@
 mod draw;
-mod gpu;
+pub mod gpu;
 mod mesh;
 pub mod text;
 pub mod texture;

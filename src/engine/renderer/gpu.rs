@@ -2,6 +2,7 @@ use super::mesh::{INDICES, SolidVertex, VERTICES, Vertex};
 use super::texture::{Texture, TextureId, TextureStore};
 use crate::engine::scene::Scene;
 use anyhow::Result;
+use glam::Vec2;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
@@ -38,7 +39,7 @@ pub struct Renderer {
     #[allow(dead_code)]
     font_atlas: Texture,
     pub(super) glyph_atlas_bind_group: wgpu::BindGroup,
-    pub camera_position: glam::Vec2,
+    pub camera_position: Vec2,
 }
 
 impl Renderer {
@@ -294,7 +295,7 @@ impl Renderer {
             font_atlas,
             glyph_atlas_bind_group,
             bind_groups: Vec::new(),
-            camera_position: glam::Vec2::ZERO,
+            camera_position: Vec2::ZERO,
         })
     }
 
@@ -306,8 +307,8 @@ impl Renderer {
         &self.queue
     }
 
-    pub fn screen_size(&self) -> glam::Vec2 {
-        glam::Vec2::new(self.config.width as f32, self.config.height as f32)
+    pub fn screen_size(&self) -> Vec2 {
+        Vec2::new(self.config.width as f32, self.config.height as f32)
     }
 
     pub fn screen_projection(&self) -> glam::Mat4 {
@@ -334,20 +335,20 @@ impl Renderer {
         )
     }
 
-    pub fn dialogue_text_position(&self) -> glam::Vec2 {
+    pub fn dialogue_text_position(&self) -> Vec2 {
         const MARGIN: f32 = 20.0;
         const TEXT_PADDING: f32 = 32.0; // inset from the panel's own edges
         let screen = self.screen_size();
         let panel_height = screen.y / 3.0 - MARGIN;
         let panel_top = screen.y - panel_height - MARGIN;
-        glam::Vec2::new(MARGIN + TEXT_PADDING, panel_top + TEXT_PADDING)
+        Vec2::new(MARGIN + TEXT_PADDING, panel_top + TEXT_PADDING)
     }
 
-    pub fn dialogue_caret_position(&self) -> glam::Vec2 {
+    pub fn dialogue_caret_position(&self) -> Vec2 {
         const MARGIN: f32 = 40.0;
         const CARET_INSET: (f32, f32) = (40.0, 60.0); // from the panel's bottom-right corner
         let screen = self.screen_size();
-        glam::Vec2::new(
+        Vec2::new(
             screen.x - MARGIN - CARET_INSET.0,
             screen.y - MARGIN - CARET_INSET.1,
         )
@@ -368,8 +369,8 @@ impl Renderer {
     /// other direction: world = screen - screen_center + camera_position.
     /// Always reads self.camera_position fresh, so results stay correct
     /// across CameraMode::Follow's per-frame camera movement.
-    pub fn screen_to_world(&self, screen_pos: glam::Vec2) -> glam::Vec2 {
-        let screen_center = glam::Vec2::new(
+    pub fn screen_to_world(&self, screen_pos: Vec2) -> Vec2 {
+        let screen_center = Vec2::new(
             self.config.width as f32 / 2.0,
             self.config.height as f32 / 2.0,
         );

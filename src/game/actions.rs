@@ -15,21 +15,60 @@ pub enum Action {
 /// Held-state movement axes → a single vector. Same WASD checks the
 /// code already had, just named and relocated — this is the concrete
 /// binding table ADR-035 deferred building an abstraction around.
-pub fn resolve_movement(input: &InputState) -> Vec2 {
-    let mut movement = Vec2::ZERO;
-    if input.is_held(KeyCode::KeyW) {
-        movement.y -= 1.0;
+pub fn resolve_movement(input: &InputState, is_isometric: bool) -> Vec2 {
+    let w = input.is_held(KeyCode::KeyW);
+    let s = input.is_held(KeyCode::KeyS);
+    let a = input.is_held(KeyCode::KeyA);
+    let d = input.is_held(KeyCode::KeyD);
+
+    if is_isometric {
+        resolve_isometric_movement(w, a, s, d)
+    } else {
+        resolve_flat_movement(w, a, s, d)
     }
-    if input.is_held(KeyCode::KeyS) {
-        movement.y += 1.0;
+}
+
+fn resolve_flat_movement(w: bool, a: bool, s: bool, d: bool) -> Vec2 {
+    let mut dir = Vec2::ZERO;
+    if w {
+        dir.y -= 1.0;
     }
-    if input.is_held(KeyCode::KeyA) {
-        movement.x -= 1.0;
+    if s {
+        dir.y += 1.0;
     }
-    if input.is_held(KeyCode::KeyD) {
-        movement.x += 1.0;
+    if a {
+        dir.x -= 1.0;
     }
-    movement
+    if d {
+        dir.x += 1.0;
+    }
+    if dir == Vec2::ZERO {
+        Vec2::ZERO
+    } else {
+        dir.normalize()
+    }
+}
+
+/// Isometric control scheme: a single key looks screen-cardinal
+/// (matches straight up/down/left/right on screen) and moves along a
+/// world-space 45deg diagonal; two keys together look grid-diagonal
+/// on screen (matching the isometric tile edges, for diagonal sprite
+/// art) and move along a single world axis. Not the pure mathematical
+/// inverse of the projection for the two-key case - a deliberate
+/// control-scheme/art choice, hence a hand-authored table rather than
+/// one formula covering all 8 cases.
+fn resolve_isometric_movement(w: bool, a: bool, s: bool, d: bool) -> Vec2 {
+    match (w, a, s, d) {
+        (true, false, false, true) => Vec2::new(0.0, -1.0), // W+D
+        (true, true, false, false) => Vec2::new(-1.0, 0.0), // W+A
+        (false, false, true, true) => Vec2::new(1.0, 0.0),  // S+D
+        (false, true, true, false) => Vec2::new(0.0, 1.0),  // S+A
+        (true, false, false, false) => Vec2::new(-0.7071068, -0.7071068), // W
+        (false, false, true, false) => Vec2::new(0.7071068, 0.7071068), // S
+        (false, true, false, false) => Vec2::new(-0.7071068, 0.7071068), // A
+        (false, false, false, true) => Vec2::new(0.7071068, -0.7071068), // D
+        _ => Vec2::ZERO, // no keys, or conflicting opposite pairs (W+S, A+D)
+    }
 }
 
 /// Resolves one key press into at most one Action. `KeyE` alone is

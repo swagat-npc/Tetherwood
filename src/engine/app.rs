@@ -150,12 +150,15 @@ impl AppState {
             return;
         }
         let speed = 80.0 * self.multiplying_factor;
-        let movement = actions::resolve_movement(&self.input);
+        let movement = actions::resolve_movement(&self.input, self.is_isometric);
         if movement != Vec2::ZERO {
+            // TODO: Direction::from_movement doesn't account for the isometric
+            // movement table's diagonal/cardinal split - facing may be wrong in
+            // isometric mode. Deferred until facing-while-isometric is a real need.
             if let Some(dir) = Direction::from_movement(movement) {
                 self.scene.player_mut().facing = dir;
             }
-            let delta_move = movement.normalize() * speed * delta;
+            let delta_move = movement * speed * delta;
             self.scene.try_move_player(delta_move);
             if let Some((target_scene, target_warp_id)) =
                 self.scene.check_triggers(self.debug.show_debug_info)
