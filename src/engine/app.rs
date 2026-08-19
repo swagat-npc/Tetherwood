@@ -11,7 +11,7 @@ use crate::engine::scene::{CameraMode, InteractResult, Scene, SceneId};
 use crate::game::actions::{self, Action};
 use crate::game::dialogue::{Register, line_for};
 use crate::game::progression::ProgressionTracker;
-use crate::game::scenes::{home, outside};
+use crate::game::scenes::{home, village};
 use dialogue::DialogueState;
 use glam::Vec2;
 use input::InputState;
@@ -82,14 +82,14 @@ impl AppState {
                 progression,
             )
             .expect("failed to build home scene"),
-            SceneId::Outside => outside::build(
+            SceneId::Village => village::build(
                 renderer.device(),
                 renderer.queue(),
                 multiplying_factor,
                 is_isometric,
                 progression,
             )
-            .expect("failed to build outside scene"),
+            .expect("failed to build village scene"),
         };
         new_scene.build_static_grid();
         renderer.prepare_scene(&new_scene);

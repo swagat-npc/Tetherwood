@@ -133,7 +133,7 @@ pub enum TriggerKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SceneId {
     Home,
-    Outside,
+    Village,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

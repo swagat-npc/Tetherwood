@@ -6,7 +6,7 @@ use anyhow::Result;
 use glam::Vec2;
 
 /// Beat 1's home: player's bedroom with a working south-door warp to
-/// the outside scene (SceneId::Outside, WarpId("door")). Sizes scale
+/// the village scene (SceneId::Village, WarpId("door")). Sizes scale
 /// via multiplying_factor (ADR-042).
 pub fn build(
     device: &wgpu::Device,
@@ -118,7 +118,7 @@ pub fn build(
         },
         TriggerKind::Warp {
             warp_id: WarpId("door"),
-            target_scene: SceneId::Outside,
+            target_scene: SceneId::Village,
             target_warp_id: WarpId("door"),
             spawn_offset: Vec2::new(0.0, -20.0 * multiplying_factor), // up, into the room
         },

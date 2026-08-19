@@ -16,7 +16,7 @@ pub fn build(
 
     // Create Background
     let mut background = Vec::new();
-    let village = texture_store.load(device, queue, "assets/ai_outside.png")?;
+    let village = texture_store.load(device, queue, "assets/ai_village.png")?;
     let village_position = Vec2::new(64.0, 64.0) * multiplying_factor;
     let village_size = Vec2::new(128.0, 128.0) * multiplying_factor;
     background.push(Background {
@@ -186,7 +186,7 @@ pub fn build(
     ));
 
     Ok(Scene::new(
-        SceneId::Outside,
+        SceneId::Village,
         background,
         walls,
         triggers,
