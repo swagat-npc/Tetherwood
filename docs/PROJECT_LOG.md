@@ -3,7 +3,7 @@
 
 **Document type:** Living project record (docs-as-code)
 **Started:** July 2026
-**Revision:** v9
+**Revision:** v10
 **Status:** M1–M4 complete. M4 (The Voice) closed — scene transitions, dialogue machinery (typewriter, registers, per-span color, word-wrap), blip audio, and Beat 2's real content all built and verified. Beat 2's underlying lore re-derived in Phase 22 (ADR-074–076) — the shipped dialogue text is unaffected and remains accurate, but its causal foundation is now load-bearing rather than assumed. The structural refactor/reorganization pass flagged at M4's close is now complete (Phase 23, ADR-077–083) — renderer split by concern, engine files organized by owning module, `ids.rs` eliminated in favor of ownership-based type placement, ADR-035's input abstraction resolved. M5 (The Village) starts next: ambient NPCs, full clue chain, second enemy tier, menus. Companion document: `docs/DERIVATION.md`.
 **Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated when decisions accumulate, not on a timer.
 **Screenshots at each visual milestone** are part of this ritual, not an afterthought — historically the step most likely to be skipped (M4's first two phases shipped with none until caught retroactively); a phase isn't fully closed until its screenshots exist and are named.
@@ -1057,6 +1057,204 @@ m5-04 — the spatial grid's lines against the neutral background
 player-neighborhood highlight (m5-03), and the F-key toggle ->
 notification pipeline confirmed end to end (m5-04).
 
+### Phase 25 — Dynamic Grid for the Player (completed)
+
+Closes out the spatial-partitioning arc opened in Phase 24. `Scene`
+gained a second `SpatialGrid` (`dynamic_grid`), rebuilt from scratch
+at the start of every `try_move_player` call from the player's
+current collider — a full rebuild rather than incremental
+cell-boundary tracking, since a single mover makes that complexity
+unearned right now. `collider_blocked` queries both grids and unions
+the results before running `aabb_overlap`.
+
+With exactly one mover (the player, which already excludes itself via
+`skip_index`), this is architecturally inert today — no observable
+behavior change. Its value is establishing the "snapshot every
+mover's position before anyone moves this frame, query both grids
+uniformly" pattern correctly now, before a second mover (an NPC)
+exists to actually depend on it being right. `STATIC_CELL_SIZE`
+renamed to `CELL_SIZE`, now shared by both grids.
+
+### Phase 26 — Isometric Projection: Design & Rendering Foundation (completed)
+
+A dedicated pre-M5 planning session (separate chat) resolved the
+isometric-projection question left ambiguous since ADR-028, producing
+a clear directive: isometric-ness is render-time-only. All game
+logic — entity positions, wall/collider Rects, trigger zones, spawn
+points, camera targets — stays in plain orthogonal 2D world space
+exactly as M1–M4 built it. The isometric look is produced entirely by
+a projection transform (shear + scale) applied at draw time. AABB
+collision (ADR-038) is retained unchanged; OBB was evaluated and
+rejected as unneeded for any currently-designed content. This
+supersedes ADR-028's "isometric is art direction only, straight
+orthographic renderer" framing while keeping the rest of ADR-028
+(no tilemap engine, hand-authored scenes) intact.
+
+`Renderer::isometric_projection()` implements the shear as a 2x2
+matrix (`screenX = (x-y)*K`, `screenY = (x+y)*K*0.5`), with `K` a
+placeholder (1.0) deliberately tuned by eye rather than derived —
+same "tune by feel" approach as `CELL_SIZE`. An F10 toggle
+(`is_isometric` on `AppState`, threaded through `render_scene`) makes
+flat/isometric a live, comparable debug view.
+
+A real, corrected design split emerged mid-implementation, after an
+initial version (shear folded into `camera_view`, applied to every
+sprite's full quad) visibly skewed the player sprite's shape rather
+than just repositioning it. The fix, and the actual standing
+principle going forward: sprites/background are point-sheared only —
+`sprite_camera_view` stays translation-only, applied after shearing
+`camera_position` and each entity's position individually, since
+isometric sprite art is expected to already look correct from that
+angle and should never have its quad reshaped. Debug geometry (grid
+lines, occupied cells, collider/trigger overlay) gets the opposite
+treatment — the full shear is baked into a separate `debug_view`
+matrix, deforming the whole rect, since a flat world-space square
+genuinely should render as a diamond from this angle. No changes were
+needed to any debug-rect-building code — only which view matrix
+`render_solid_rects` receives.
+
+Docs-as-code extended: docs/screenshots/ now covers m5-05 through
+m5-07 — the scene in normal/orthographic projection (m5-05), the same
+scene isometric (m5-06), and a confirming shot that sprites stay
+unskewed while debug collider geometry correctly renders as diamonds
+(m5-07).
+
+### Phase 27 — Isometric Movement, Per-Scene Camera Modes, Tunable Debug Grid (completed)
+
+Three related pieces of follow-up work once the isometric projection
+itself was proven, plus one real false start worth recording in full
+since it produced a genuine, re-derivable lesson.
+
+**Movement — two wrong approaches before the right one.** The first
+attempt derived the true mathematical inverse of the projection's
+shear submatrix (`to_isometric_direction`) and used it to remap raw
+WASD input, on the theory that pressing "up" should always look
+straight up on screen. Two real bugs surfaced from this: normalizing
+*after* the remap (in `update_player`) discarded the per-axis
+weighting the remap depended on, making up/down feel slower than
+left/right; and `try_move_player`'s existing diagonal wall-slide
+boost, tuned for flat mode's genuine two-key case, double-applied
+weighting the remap had already done, causing wall-hugging players to
+visibly speed up. Both were fixed (normalize before remap; an
+isometric-specific fixed slide constant, `2/sqrt(5)`, derived from the
+projection's fixed 1:0.5 axis ratio) — but a third, deeper issue
+remained: diagonal movement (two keys held) still drifted at a plain
+45 degrees rather than the isometric grid's true (steeper) diagonal
+angle, causing a player sliding along a wall to slowly drift into it.
+Debug-rect visualization of the player's facing direction, cross-
+referenced against manual play of MegaMan Battle Network 6 for a real
+isometric-movement reference, resolved the actual design question:
+MMBN's scheme is not "always look screen-cardinal," it's the reverse
+for one axis — a single key press looks screen-cardinal and moves
+along a world-space 45-degree diagonal; two keys together look
+grid-diagonal on screen (matching the isometric tile edges) and move
+along a single world axis. Verified algebraically that this scheme is
+*not* derivable as one linear formula (screen-cardinal singles and
+grid-diagonal doubles are mutually exclusive under any
+sum-then-transform approach, since the shear is linear) — it is a
+deliberate control-scheme/art choice, matching the shape needed for
+planned diagonal player sprites, and implemented as
+`resolve_isometric_movement`: a direct 8-entry match on the four WASD
+keys, each returning a pre-derived unit vector. Because every table
+entry is unit-length, the earlier isometric-specific slide-boost
+branch, `ISO_SLIDE_FACTOR`, and the `step`/`is_isometric` parameters
+threaded through `try_move_player` all proved unnecessary and were
+removed — the flat-mode boost logic already handles any unit-vector
+direction correctly, isometric included. `to_isometric_direction` and
+the formula-inverse approach were deleted outright, not left dangling.
+Facing (`Direction::from_movement`) does not yet account for the new
+table's diagonal/cardinal split — left as a tracked TODO, deferred
+until facing while isometric is a real, felt need (expected once a
+second mover, an NPC, exists).
+
+**Per-scene, independently-authored camera modes.** A diamond-shaped
+room no longer fits a fixed viewport the way a square room did, so
+`CameraMode::Static` needed reconsidering for isometric scenes. After
+two rejected designs — mutating a scene's active camera mode on F10
+toggle (broke on scene transitions, since a freshly-rebuilt scene had
+no way to know the current `is_isometric` state) and unconditionally
+forcing `Follow` whenever isometric (wrongly assumed every scene wants
+the same isometric behavior) — the shape that stuck: `Scene` stores
+two authored `CameraMode`s (`orthographic_camera_mode`,
+`isometric_camera_mode`), resolved to one active `current_camera_mode`
+via `Scene::resolve_camera_mode`, called identically from `Scene::new`
+and from `sync_camera_mode` (the F10 handler), so scene load and the
+toggle can never disagree. Each scene authors both independently —
+Home stays Static in orthographic / Follow in isometric; Outside stays
+Follow in both. `CameraMode` gained `Default` (`Follow`) for scenes
+that don't need to distinguish the two.
+
+**Tunable debug grid display size.** Numpad8/Numpad2 increase/decrease
+a new `grid_display_cell_size` field in 8px steps (clamped [8, 128]),
+each firing a notification. `build_grid_lines_mesh` takes this as a
+parameter instead of reading the real `SpatialGrid`'s `cell_size`,
+letting the debug overlay be visually resized independently of actual
+collision geometry; `build_occupied_cells_mesh`/
+`build_player_neighborhood_mesh` are deliberately untouched, since
+those show real grid contents, not a reference grid. `DebugFlags`
+renamed to `DebugSettings`, since it now holds a tunable value, not
+just booleans, and "flags" stopped accurately describing its
+contents.
+
+Docs-as-code extended: docs/screenshots/ now covers m5-08 through
+m5-09 — increased and decreased debug grid display size. The
+movement-table correction and per-scene camera mode work in this
+phase have no distinct visual signature beyond what m5-05–m5-09
+already show; no additional screenshots taken.
+
+### Phase 28 — Progression Tracking & Trigger-Owned Dialogue Outcomes (completed)
+
+`ProgressionTracker` (`game/progression.rs` — deliberately placed in
+`game/`, not `engine/`, since nothing engine-level ever reads or
+writes it, only content code does, mirroring `game/dialogue.rs`'s
+existing precedent for this kind of `engine`-imports-from-`game`
+crossing) is a minimal, in-memory `HashMap<&'static str, bool>` living
+on `AppState` for the session's runtime, surviving scene transitions
+per ADR-048. Deliberately no persistence to disk — nothing in M5's
+actual need requires it, and ADR-027 already defers serde/data-files
+until real content volume forces it; an inspector's eventual
+save-to-file need was explicitly named as a future justification, not
+a present one.
+
+`Entity` gained `active: bool` and a `deactivate()` method
+consolidating what `consume_entity` previously did by hand (clear
+texture, clear collider) into one call — a real cohesion improvement,
+not just a rename, since it replaces four independently-tracked
+`Option`-clearing sites with one.
+
+`TriggerKind::Dialogue` gained `sets_flag: Option<&'static str>`
+alongside its existing `consumes_entity` — both live on the trigger,
+not per-`DialogueLine`, since the trigger is dialogue's actual entry
+and exit point; a multi-line conversation would otherwise need the
+same value padded onto every line just to reach the last one, exactly
+the padding problem ADR-071 already reasoned about once for
+`consumes_entity` alone. `InteractResult::Dialogue` and
+`DialogueState::new` both thread the value through, replacing the
+earlier construct-then-mutate pattern
+(`lines.last_mut().consumes_entity = ...`) with a single, fully-formed
+construction call — `line_for`'s output stays pure, untouched authored
+content.
+
+Scene construction (`home::build`) checks `progression.is_set(...)`
+once per relevant entity and calls `deactivate()` up front for
+anything already consumed in an earlier visit — the necklace is the
+first real content built against this, confirmed end to end (picked
+up, walked out, walked back in, stayed gone). `outside::build` takes
+`&ProgressionTracker` too, for signature consistency, currently
+unused.
+
+Flag-conditioned dialogue *content* (different lines depending on
+which flags are already set, not just whether a flag gets set) is
+explicitly out of scope for this phase — `line_for` still takes only
+an `id`, no `ProgressionTracker` visibility. Named as the next real
+step once actual NPC dialogue authoring begins.
+
+Docs-as-code note: no new screenshots this phase — ProgressionTracker
+and the trigger-owned dialogue outcomes are confirmed by behavior
+(picked up the necklace, walked out, walked back in, stayed gone),
+not by anything with a visual signature distinct from Phase 21's
+existing necklace-removal screenshots.
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -1838,6 +2036,146 @@ notification pipeline confirmed end to end (m5-04).
   both parked as real, near-term needs once `ui.rs` becomes the
   inspector ADR-081 already anticipated — not built in this pass.
 
+### ADR-086: Dynamic grid for the player, merged with static grid at query time
+- **Context:** `static_grid` (ADR-084) can't represent movers — the
+  player needed its own grid, rebuilt as it moves, without inventing
+  a second collision-query code path.
+- **Decision:** `Scene.dynamic_grid`, a second `SpatialGrid`, rebuilt
+  from scratch at the start of every `try_move_player` call from the
+  player's current collider. `collider_blocked` queries both grids
+  and unions the results before `aabb_overlap`.
+- **Rationale:** A full per-frame rebuild, not incremental
+  cell-boundary tracking, since a single mover makes incremental
+  bookkeeping unearned complexity right now — the same "build the
+  version that fits today's actual need" instinct as every prior
+  deferred-generalization ADR.
+- **Consequences:** Architecturally inert today (the player already
+  excludes itself via `skip_index`) but establishes the
+  "snapshot-then-query-uniformly" pattern correctly before a second
+  mover (an NPC) exists to depend on it. `STATIC_CELL_SIZE` renamed
+  `CELL_SIZE`, shared by both grids.
+
+### ADR-087: Isometric projection is render-time-only; point-shear for sprites, shape-shear for debug geometry (supersedes ADR-028's flat-renderer framing)
+- **Context:** ADR-028 committed to a straight orthographic renderer,
+  deferring true isometric projection indefinitely. A dedicated
+  planning session revisited this ahead of M5 village content, since
+  the project's actual visual identity target was isometric from
+  Phase 1's original concept discovery.
+- **Decision:** All game logic (entity positions, colliders, triggers,
+  spawn points, camera targets) stays plain orthogonal 2D world
+  space, unchanged. The isometric look is produced entirely by a
+  render-time projection transform. AABB collision (ADR-038) is
+  retained unchanged; OBB evaluated and rejected as unneeded.
+  Sprites/background are point-sheared only (anchor position
+  transformed, quad shape untouched) since isometric art is expected
+  to already look correct from that angle; debug geometry (grid
+  lines, colliders) is shape-sheared (the whole rect deformed), since
+  a flat world-space square genuinely renders as a diamond from this
+  angle. An F10 toggle makes both projections live-comparable.
+- **Rationale:** The point-vs-shape split was arrived at after an
+  initial version (shear folded uniformly into `camera_view`)
+  visibly skewed sprite shapes — sprites need placement to move, not
+  their geometry to deform; debug geometry needs the opposite,
+  since it's showing real world-space shapes from an oblique angle,
+  not pre-drawn art.
+- **Consequences:** `K` (the shear's scale factor) is a placeholder,
+  tuned by eye rather than derived, matching `CELL_SIZE`'s precedent.
+  Every other part of ADR-028 (no tilemap engine, hand-authored
+  scenes) remains in force.
+
+### ADR-088: Isometric movement as a hand-authored 8-direction table, not the projection's formula inverse
+- **Context:** The natural first approach — remap raw WASD input via
+  the true mathematical inverse of the isometric shear — produced
+  movement where every key combination looked screen-cardinal.
+  Manual comparison against MegaMan Battle Network 6 (the project's
+  actual isometric-overworld reference) showed this was the wrong
+  scheme entirely: MMBN's single-key presses look screen-cardinal
+  and move world-diagonal; two keys together look grid-diagonal and
+  move along one world axis.
+- **Decision:** `resolve_isometric_movement` is a direct match on the
+  four WASD keys, returning one of 8 pre-derived unit vectors — not
+  a formula applied uniformly to all 8 cases.
+- **Rationale:** Verified algebraically that the desired scheme is
+  not achievable as one linear transform: the shear's linearity
+  forces "single-key screen-cardinal" and "two-key screen-diagonal"
+  to be mutually exclusive under any sum-then-transform approach.
+  This is a deliberate control-scheme/art choice (matching diagonal
+  player sprites planned for later), not a formula gap.
+- **Consequences:** Every table entry is unit-length, so
+  `try_move_player`'s existing flat-mode wall-slide boost needed no
+  isometric-specific branch after all — a whole category of
+  compensation code (`ISO_SLIDE_FACTOR`, the `step`/`is_isometric`
+  parameters threaded through collision resolution) built while
+  chasing the wrong approach was removed outright, not left dangling.
+  Facing (`Direction::from_movement`) does not yet account for the
+  table's diagonal/cardinal split — deferred until a second mover
+  makes it a real, felt need.
+
+### ADR-089: Per-scene, independently-authored orthographic and isometric camera modes
+- **Context:** A diamond-shaped room (isometric) doesn't fit a fixed
+  viewport the way a square room (orthographic) does, so a scene
+  authored `Static` for flat mode may need `Follow` in isometric mode
+  — but not every scene agrees (Outside wants `Follow` in both).
+- **Decision:** `Scene` stores two authored `CameraMode`s
+  (`orthographic_camera_mode`, `isometric_camera_mode`), resolved to
+  one active mode via `Scene::resolve_camera_mode` — called
+  identically at construction and on the F10 toggle
+  (`sync_camera_mode`), so the two can never disagree.
+- **Rationale:** Two rejected designs preceded this: mutating the
+  active mode only on F10 toggle broke across scene transitions
+  (a freshly-built scene had no way to know the current isometric
+  state); unconditionally forcing `Follow` whenever isometric wrongly
+  assumed every scene wants identical behavior. Storing both authored
+  values and resolving fresh from a single function, callable from
+  both triggers, closes both gaps at once.
+- **Consequences:** `CameraMode` gained `Default` (`Follow`) for
+  scenes that don't need to distinguish the two cases explicitly.
+
+### ADR-090: Debug grid display size decoupled from real CELL_SIZE; DebugFlags renamed DebugSettings
+- **Context:** Wanted to visually inspect the debug grid at different
+  granularities without changing actual collision-grid behavior.
+- **Decision:** `grid_display_cell_size`, tunable live via
+  Numpad8/Numpad2 (8px steps, clamped [8,128]), passed as a parameter
+  into `build_grid_lines_mesh` instead of reading the real
+  `SpatialGrid`'s `cell_size`. `DebugFlags` renamed `DebugSettings`,
+  since a tunable value no longer fits "flags" as an accurate name.
+- **Rationale:** `build_occupied_cells_mesh`/
+  `build_player_neighborhood_mesh` deliberately still read the real
+  grid's `cell_size`, since those show actual grid contents; only the
+  line overlay is a pure visual reference and safe to decouple.
+- **Consequences:** Collision itself (`SpatialGrid::insert`/query,
+  `CELL_SIZE`) is completely unaffected by this display setting.
+
+### ADR-091: ProgressionTracker (game-scoped) and trigger-owned dialogue outcomes
+- **Context:** The necklace needed to stay picked-up across a scene
+  revisit — nothing survives scene reconstruction except what's
+  explicitly re-consulted at build time (ADR-048) — and
+  `consumes_entity` living per-`DialogueLine` (ADR-071/Phase 18)
+  meant a multi-line conversation would need it padded onto every
+  line just to reach the last one.
+- **Decision:** `ProgressionTracker` (`game/progression.rs`) is a
+  minimal in-memory `HashMap<&'static str, bool>` on `AppState`,
+  surviving scene transitions. Deliberately placed in `game/`, not
+  `engine/`, since only content code ever reads/writes it — mirroring
+  `game/dialogue.rs`'s existing precedent for `engine`-imports-from-
+  `game`. `TriggerKind::Dialogue` gains `sets_flag: Option<&'static
+  str>` alongside `consumes_entity`, both now the trigger's
+  responsibility, not the dialogue line's — the trigger is dialogue's
+  actual entry and exit point. `Entity` gains `active: bool` and
+  `deactivate()`, consolidating what `consume_entity` did by hand.
+- **Rationale:** No persistence to disk — ADR-027 already defers
+  serde/data-files until real content volume forces it; nothing in
+  M5's actual need (one-time pickups, NPC dialogue conditions)
+  requires surviving a process restart, only a scene transition
+  within one.
+- **Consequences:** Scene construction (`home::build`) checks
+  `progression.is_set(...)` and calls `deactivate()` up front for
+  anything already consumed. Flag-conditioned dialogue *content*
+  (different lines depending on flags already set, not just whether a
+  flag gets set) is explicitly out of scope — `line_for` still takes
+  only an `id` — named as the next real step once NPC dialogue
+  authoring begins.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -1876,17 +2214,20 @@ notification pipeline confirmed end to end (m5-04).
   renamed to `app.rs`, debug HUD drawing extracted, and import
   ordering made consistent crate-wide (ADR-077–083). No gameplay
   behavior changed. **M5 (The Village) starts next.**
-- ✅ **M5 opening — spatial partitioning (Phase 24):** static spatial
-  grid for collision broad-phase, `collider_blocked` querying it
-  instead of scanning the scene, and debug visualization (grid lines,
-  occupied cells, player neighborhood) under a consolidated
-  `DebugFlags` toggle system. Dynamic grid for movers, quadrant-
-  narrowed neighbor queries, and nesting collider/FPS/mouse-position
-  debug views under the same master switch remain open. **Isometric
-  projection work (scoped in a dedicated pre-M5 planning session,
-  superseding ADR-028's flat-orthographic framing) and actual village
-  content authoring are next — in that order, since content placed
-  before the projection lands would need redoing.**
+- ✅ **M5 opening (Phases 24–28):** spatial partitioning (static +
+  dynamic grid, collision broad-phase), full isometric projection
+  foundation (render-time-only shear, point-shear/shape-shear split,
+  the 8-direction hand-authored movement table, per-scene camera
+  modes), debug tooling (tunable grid display, DebugSettings), and
+  ProgressionTracker with trigger-owned dialogue outcomes — all
+  built, verified, and committed. **Still open:** facing during
+  isometric movement (deferred to the first NPC), flag-conditioned
+  dialogue *content* (`line_for` doesn't yet read
+  `ProgressionTracker`), collider/FPS/mouse-position debug views not
+  yet nested under the same master switch as grid visualization.
+  **Next:** `outside.rs` renamed to reflect real village content;
+  flag-aware dialogue; ambient NPCs, clue chain, guard/sword per
+  DERIVATION's M5 scope.
 
 ### Open questions
 
