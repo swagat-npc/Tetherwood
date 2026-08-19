@@ -1,7 +1,7 @@
 mod dialogue;
 pub mod input;
 
-use super::debug::DebugFlags;
+use super::debug::DebugSettings;
 use crate::engine::debug::hud;
 use crate::engine::debug::notifications::Notification;
 use crate::engine::debug::ui::Slider;
@@ -55,7 +55,7 @@ struct AppState {
     blip_volume: f32,
     notifications: Vec<Notification>,
     left_mouse_down: bool,
-    debug: DebugFlags,
+    debug: DebugSettings,
     volume_slider: Slider,
     is_isometric: bool,
 }
@@ -310,7 +310,7 @@ impl ApplicationHandler for App {
             notifications: Vec::new(),
             left_mouse_down: false,
             volume_slider,
-            debug: DebugFlags::new(),
+            debug: DebugSettings::new(),
             is_isometric: false,
         };
 
@@ -459,6 +459,12 @@ impl ApplicationHandler for App {
                     {
                         state.reset_scene();
                         state.notify(format!("Scene ({:?}) reset", state.scene.id));
+                    } else if code == KeyCode::Numpad8 {
+                        let msg = state.debug.increase_grid_cell_size();
+                        state.notify(msg);
+                    } else if code == KeyCode::Numpad2 {
+                        let msg = state.debug.decrease_grid_cell_size();
+                        state.notify(msg);
                     }
                     if state.debug.show_debug_info {
                         println!("{code:?} pressed");

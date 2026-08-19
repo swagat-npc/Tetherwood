@@ -225,15 +225,13 @@ pub(super) fn build_solid_rect_mesh(rects: &[SolidRect]) -> (Vec<SolidVertex>, V
 }
 
 pub(super) fn build_grid_lines_mesh(
-    scene: &Scene,
+    _scene: &Scene,
     visible_min: Vec2,
     visible_max: Vec2,
+    cell_size: f32,
 ) -> Vec<SolidRect> {
     const LINE_THICKNESS: f32 = 1.0;
     let line_color = [0.0, 0.0, 0.0, 0.35];
-
-    let grid = scene.static_grid();
-    let cell_size = grid.cell_size();
 
     let min_cell = (
         (visible_min.x / cell_size).floor() as i32,

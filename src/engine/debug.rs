@@ -3,16 +3,19 @@ pub mod notifications;
 pub mod overlay;
 pub mod ui;
 
-pub struct DebugFlags {
+use crate::engine::grid;
+
+pub struct DebugSettings {
     pub show_debug_info: bool,
     pub show_debug_renderer: bool,
     pub show_grid: bool,
     pub show_colliders: bool,
     pub show_player_neighbours: bool,
     pub show_occupied_cells: bool,
+    pub grid_display_cell_size: f32,
 }
 
-impl DebugFlags {
+impl DebugSettings {
     pub fn new() -> Self {
         Self {
             show_debug_info: false,
@@ -21,6 +24,7 @@ impl DebugFlags {
             show_grid: true, // DEBUG: set to true for debugging
             show_player_neighbours: false,
             show_occupied_cells: false,
+            grid_display_cell_size: grid::CELL_SIZE,
         }
     }
 
@@ -76,5 +80,15 @@ impl DebugFlags {
         } else {
             "Grid - Occupied Cells: OFF"
         }
+    }
+
+    pub fn increase_grid_cell_size(&mut self) -> String {
+        self.grid_display_cell_size = (self.grid_display_cell_size + 8.0).min(128.0);
+        format!("Grid display cell size: {}", self.grid_display_cell_size)
+    }
+
+    pub fn decrease_grid_cell_size(&mut self) -> String {
+        self.grid_display_cell_size = (self.grid_display_cell_size - 8.0).max(8.0);
+        format!("Grid display cell size: {}", self.grid_display_cell_size)
     }
 }

@@ -1,7 +1,7 @@
 use super::gpu::{Frame, Renderer};
 use super::mesh::{self, SolidRect};
 use super::text;
-use crate::engine::debug::{DebugFlags, overlay};
+use crate::engine::debug::{DebugSettings, overlay};
 use crate::engine::entity;
 use crate::engine::scene::Scene;
 use crate::game::dialogue::Register;
@@ -12,7 +12,7 @@ impl Renderer {
         &mut self,
         frame: &Frame,
         scene: &Scene,
-        debug: &DebugFlags,
+        debug: &DebugSettings,
         is_isometric: bool,
     ) {
         let projection = self.screen_projection();
@@ -69,7 +69,12 @@ impl Renderer {
             let visible_min = self.camera_position - half_screen;
             let visible_max = self.camera_position + half_screen;
 
-            debug_rects.extend(mesh::build_grid_lines_mesh(scene, visible_min, visible_max));
+            debug_rects.extend(mesh::build_grid_lines_mesh(
+                scene,
+                visible_min,
+                visible_max,
+                debug.grid_display_cell_size,
+            ));
             if debug.show_occupied_cells {
                 debug_rects.extend(mesh::build_occupied_cells_mesh(scene));
             }
