@@ -17,8 +17,15 @@ impl Scene {
         entities: Vec<Entity>,
         texture_store: TextureStore,
         player_index: usize,
-        camera_mode: CameraMode,
+        orthographic_camera_mode: CameraMode,
+        isometric_camera_mode: CameraMode,
+        is_isometric: bool,
     ) -> Self {
+        let current_camera_mode = Self::resolve_camera_mode(
+            orthographic_camera_mode,
+            isometric_camera_mode,
+            is_isometric,
+        );
         Self {
             id,
             static_grid: grid::SpatialGrid::new(grid::CELL_SIZE),
@@ -29,7 +36,9 @@ impl Scene {
             entities,
             texture_store,
             player_index,
-            camera_mode,
+            orthographic_camera_mode,
+            isometric_camera_mode,
+            current_camera_mode,
         }
     }
 
@@ -39,6 +48,30 @@ impl Scene {
 
     pub fn player_mut(&mut self) -> &mut Entity {
         &mut self.entities[self.player_index]
+    }
+
+    fn resolve_camera_mode(
+        orthographic: CameraMode,
+        isometric: CameraMode,
+        is_isometric: bool,
+    ) -> CameraMode {
+        if is_isometric {
+            isometric
+        } else {
+            orthographic
+        }
+    }
+
+    pub fn camera_mode(&self) -> CameraMode {
+        self.current_camera_mode
+    }
+
+    pub fn sync_camera_mode(&mut self, is_isometric: bool) {
+        self.current_camera_mode = Self::resolve_camera_mode(
+            self.orthographic_camera_mode,
+            self.isometric_camera_mode,
+            is_isometric,
+        );
     }
 
     pub fn static_grid(&self) -> &grid::SpatialGrid {

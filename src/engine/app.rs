@@ -64,14 +64,27 @@ impl AppState {
     /// Builds and GPU-prepares a scene. Free of `self` so it can run
     /// before AppState exists (resumed()'s first scene) as well as
     /// from change_scene, which just assigns the result afterward.
-    fn build_scene(renderer: &mut Renderer, scene_id: SceneId, multiplying_factor: f32) -> Scene {
+    fn build_scene(
+        renderer: &mut Renderer,
+        scene_id: SceneId,
+        multiplying_factor: f32,
+        is_isometric: bool,
+    ) -> Scene {
         let mut new_scene = match scene_id {
-            SceneId::Home => home::build(renderer.device(), renderer.queue(), multiplying_factor)
-                .expect("failed to build home scene"),
-            SceneId::Outside => {
-                outside::build(renderer.device(), renderer.queue(), multiplying_factor)
-                    .expect("failed to build outside scene")
-            }
+            SceneId::Home => home::build(
+                renderer.device(),
+                renderer.queue(),
+                multiplying_factor,
+                is_isometric,
+            )
+            .expect("failed to build home scene"),
+            SceneId::Outside => outside::build(
+                renderer.device(),
+                renderer.queue(),
+                multiplying_factor,
+                is_isometric,
+            )
+            .expect("failed to build outside scene"),
         };
         new_scene.build_static_grid();
         renderer.prepare_scene(&new_scene);
@@ -79,11 +92,21 @@ impl AppState {
     }
 
     fn change_scene(&mut self, scene_id: SceneId) {
-        self.scene = Self::build_scene(&mut self.renderer, scene_id, self.multiplying_factor);
+        self.scene = Self::build_scene(
+            &mut self.renderer,
+            scene_id,
+            self.multiplying_factor,
+            self.is_isometric,
+        );
     }
 
     fn reset_scene(&mut self) {
-        self.scene = Self::build_scene(&mut self.renderer, self.scene.id, self.multiplying_factor);
+        self.scene = Self::build_scene(
+            &mut self.renderer,
+            self.scene.id,
+            self.multiplying_factor,
+            self.is_isometric,
+        );
     }
 
     fn notify(&mut self, message: impl Into<String>) {
@@ -145,7 +168,7 @@ impl AppState {
         }
         self.scene.update_interact_prompts();
 
-        let camera_target = match self.scene.camera_mode {
+        let camera_target = match self.scene.camera_mode() {
             CameraMode::Static(anchor) => anchor,
             CameraMode::Follow => self.scene.player().position,
         };
@@ -242,7 +265,8 @@ impl ApplicationHandler for App {
             block_on(Renderer::new(window.clone())).expect("failed to initialize renderer");
         let multiplying_factor = 5.0;
 
-        let initial_scene = AppState::build_scene(&mut renderer, SceneId::Home, multiplying_factor);
+        let initial_scene =
+            AppState::build_scene(&mut renderer, SceneId::Home, multiplying_factor, false);
 
         let audio =
             kira::AudioManager::<kira::DefaultBackend>::new(kira::AudioManagerSettings::default())
@@ -387,6 +411,11 @@ impl ApplicationHandler for App {
                         state.notify(state_msg);
                     } else if code == KeyCode::F10 {
                         state.is_isometric = !state.is_isometric;
+                        state.notify(format!(
+                            "Isometric mode: {}",
+                            if state.is_isometric { "ON" } else { "OFF" }
+                        ));
+                        state.scene.sync_camera_mode(state.is_isometric);
                     } else if let Some(action) =
                         actions::resolve_key_press(code, state.dialogue.is_some())
                     {

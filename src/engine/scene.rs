@@ -10,10 +10,16 @@ use glam::Vec2;
 /// Per-scene camera behavior (ADR-041). Static holds its own fixed
 /// anchor point; Follow has no stored data — it reads the player's
 /// current position fresh every frame, in the render path, not here.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CameraMode {
     Static(Vec2),
     Follow,
+}
+
+impl Default for CameraMode {
+    fn default() -> Self {
+        CameraMode::Follow
+    }
 }
 
 pub enum InteractResult {
@@ -131,5 +137,7 @@ pub struct Scene {
     pub entities: Vec<Entity>,
     pub texture_store: TextureStore,
     pub player_index: usize,
-    pub camera_mode: CameraMode,
+    orthographic_camera_mode: CameraMode,
+    isometric_camera_mode: CameraMode,
+    current_camera_mode: CameraMode,
 }

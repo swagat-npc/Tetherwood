@@ -7,7 +7,12 @@ use glam::Vec2;
 /// Beat 1's home: player's bedroom with a working south-door warp to
 /// the outside scene (SceneId::Outside, WarpId("door")). Sizes scale
 /// via multiplying_factor (ADR-042).
-pub fn build(device: &wgpu::Device, queue: &wgpu::Queue, multiplying_factor: f32) -> Result<Scene> {
+pub fn build(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    multiplying_factor: f32,
+    is_isometric: bool,
+) -> Result<Scene> {
     let mut texture_store = TextureStore::new();
 
     // Create Background
@@ -273,5 +278,7 @@ pub fn build(device: &wgpu::Device, queue: &wgpu::Queue, multiplying_factor: f32
         texture_store,
         player_index,
         CameraMode::Static(floor_position),
+        CameraMode::Follow,
+        is_isometric,
     ))
 }

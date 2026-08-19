@@ -4,7 +4,12 @@ use crate::engine::scene::{Background, CameraMode, Scene, SceneId, Trigger, Trig
 use anyhow::Result;
 use glam::Vec2;
 
-pub fn build(device: &wgpu::Device, queue: &wgpu::Queue, multiplying_factor: f32) -> Result<Scene> {
+pub fn build(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    multiplying_factor: f32,
+    is_isometric: bool,
+) -> Result<Scene> {
     let mut texture_store = TextureStore::new();
 
     // Create Background
@@ -191,5 +196,7 @@ pub fn build(device: &wgpu::Device, queue: &wgpu::Queue, multiplying_factor: f32
         texture_store,
         player_index,
         CameraMode::Follow,
+        CameraMode::Follow,
+        is_isometric,
     ))
 }
