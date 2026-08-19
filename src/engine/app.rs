@@ -456,7 +456,7 @@ impl ApplicationHandler for App {
                             }
                             Action::Interact => match state.scene.try_interact() {
                                 Some(InteractResult::Dialogue(id, consumes_entity, sets_flag)) => {
-                                    let lines = line_for(id);
+                                    let lines = line_for(id, &state.progression);
                                     state.dialogue =
                                         Some(DialogueState::new(lines, consumes_entity, sets_flag));
                                 }

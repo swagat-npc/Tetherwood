@@ -1,3 +1,5 @@
+use crate::game::progression::ProgressionTracker;
+
 /// Which visual/narrative voice a line is spoken in (ADR-021). Only
 /// the two registers Beat 2 needs — NPC dialogue (avatar + standard
 /// frame) is M5's job, once the village exists to speak it.
@@ -24,7 +26,7 @@ const UNEASE_TINT: [f32; 4] = [0.75, 0.75, 0.95, 1.0];
 /// (D-C) — content volume doesn't yet justify anything more. Each
 /// entry is a short sequence, since a single interaction (Beat 2's
 /// bed) mixes narrator and inner-monologue lines together.
-pub fn line_for(id: &str) -> Vec<DialogueLine> {
+pub fn line_for(id: &str, progression: &ProgressionTracker) -> Vec<DialogueLine> {
     match id {
         "bed_examine" => vec![
             DialogueLine {
@@ -99,6 +101,25 @@ pub fn line_for(id: &str) -> Vec<DialogueLine> {
                 register: Register::InnerMonologue,
             },
         ],
+        "villager_1_examine" => {
+            if progression.is_set("necklace_consumed") {
+                vec![DialogueLine {
+                    spans: vec![ColoredSpan {
+                        text: "Check your pockets.",
+                        color: WHITE,
+                    }],
+                    register: Register::Narrator,
+                }]
+            } else {
+                vec![DialogueLine {
+                    spans: vec![ColoredSpan {
+                        text: "Check behind the bed.",
+                        color: WHITE,
+                    }],
+                    register: Register::Narrator,
+                }]
+            }
+        }
         _ => vec![DialogueLine {
             spans: vec![ColoredSpan {
                 text: "...",
