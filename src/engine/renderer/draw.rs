@@ -14,6 +14,7 @@ impl Renderer {
         scene: &Scene,
         debug: &DebugSettings,
         is_isometric: bool,
+        multiplying_factor: f32,
     ) {
         let projection = self.screen_projection();
         let iso_projection = self.isometric_projection();
@@ -73,7 +74,7 @@ impl Renderer {
                 scene,
                 visible_min,
                 visible_max,
-                debug.grid_display_cell_size,
+                debug.grid_display_cell_size * multiplying_factor,
             ));
             if debug.show_occupied_cells {
                 debug_rects.extend(mesh::build_occupied_cells_mesh(scene));

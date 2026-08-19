@@ -9,7 +9,7 @@ pub enum CollisionHandle {
     Entity(EntityId),
 }
 
-pub const CELL_SIZE: f32 = 64.0;
+pub const CELL_SIZE: f32 = 12.0;
 
 pub struct SpatialGrid {
     cell_size: f32,

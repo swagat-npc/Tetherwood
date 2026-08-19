@@ -117,7 +117,7 @@ pub fn build(
         collider: Some(Collider {
             rect: Rect {
                 center: Vec2::new(0.0, 6.0) * multiplying_factor,
-                half_size: Vec2::new(7.0, 6.0) * multiplying_factor,
+                half_size: Vec2::new(6.0, 6.0) * multiplying_factor,
             },
         }),
         texture_id: Some(player_tex),
@@ -196,5 +196,6 @@ pub fn build(
         CameraMode::Follow,
         CameraMode::Follow,
         is_isometric,
+        multiplying_factor,
     ))
 }

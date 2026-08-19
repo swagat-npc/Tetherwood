@@ -91,7 +91,7 @@ impl AppState {
             )
             .expect("failed to build village scene"),
         };
-        new_scene.build_static_grid();
+        new_scene.build_static_grid(multiplying_factor);
         renderer.prepare_scene(&new_scene);
         new_scene
     }
@@ -166,7 +166,8 @@ impl AppState {
                 self.scene.player_mut().facing = dir;
             }
             let delta_move = movement * speed * delta;
-            self.scene.try_move_player(delta_move);
+            self.scene
+                .try_move_player(delta_move, self.multiplying_factor);
             if let Some((target_scene, target_warp_id)) =
                 self.scene.check_triggers(self.debug.show_debug_info)
             {
@@ -383,6 +384,7 @@ impl ApplicationHandler for App {
                             &state.scene,
                             &state.debug,
                             state.is_isometric,
+                            state.multiplying_factor,
                         );
                         state.draw_hud(&frame);
                         state.renderer.present_frame(frame);

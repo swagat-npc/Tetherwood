@@ -17,11 +17,12 @@ pub struct DebugSettings {
 
 impl DebugSettings {
     pub fn new() -> Self {
+        // DEBUG: All flags are supposed to be false by default, set to true for debugging
         Self {
             show_debug_info: false,
-            show_debug_renderer: true, // DEBUG: set to true for debugging
-            show_colliders: false,
-            show_grid: true, // DEBUG: set to true for debugging
+            show_debug_renderer: true,
+            show_colliders: true,
+            show_grid: true,
             show_player_neighbours: false,
             show_occupied_cells: false,
             grid_display_cell_size: grid::CELL_SIZE,
@@ -83,12 +84,12 @@ impl DebugSettings {
     }
 
     pub fn increase_grid_cell_size(&mut self) -> String {
-        self.grid_display_cell_size = (self.grid_display_cell_size + 8.0).min(128.0);
+        self.grid_display_cell_size = (self.grid_display_cell_size + 2.0).min(64.0);
         format!("Grid display cell size: {}", self.grid_display_cell_size)
     }
 
     pub fn decrease_grid_cell_size(&mut self) -> String {
-        self.grid_display_cell_size = (self.grid_display_cell_size - 8.0).max(8.0);
+        self.grid_display_cell_size = (self.grid_display_cell_size - 2.0).max(2.0);
         format!("Grid display cell size: {}", self.grid_display_cell_size)
     }
 }

@@ -20,16 +20,18 @@ impl Scene {
         orthographic_camera_mode: CameraMode,
         isometric_camera_mode: CameraMode,
         is_isometric: bool,
+        multiplying_factor: f32,
     ) -> Self {
         let current_camera_mode = Self::resolve_camera_mode(
             orthographic_camera_mode,
             isometric_camera_mode,
             is_isometric,
         );
+        let cell_size = grid::CELL_SIZE * multiplying_factor;
         Self {
             id,
-            static_grid: grid::SpatialGrid::new(grid::CELL_SIZE),
-            dynamic_grid: grid::SpatialGrid::new(grid::CELL_SIZE),
+            static_grid: grid::SpatialGrid::new(cell_size),
+            dynamic_grid: grid::SpatialGrid::new(cell_size),
             background,
             walls,
             triggers,
@@ -78,8 +80,9 @@ impl Scene {
         &self.static_grid
     }
 
-    pub fn build_static_grid(&mut self) {
-        self.static_grid = grid::SpatialGrid::new(grid::CELL_SIZE);
+    pub fn build_static_grid(&mut self, multiplying_factor: f32) {
+        let cell_size = grid::CELL_SIZE * multiplying_factor;
+        self.static_grid = grid::SpatialGrid::new(cell_size);
 
         for (i, wall) in self.walls.iter().enumerate() {
             self.static_grid
@@ -278,8 +281,9 @@ impl Scene {
         None
     }
 
-    fn rebuild_dynamic_grid(&mut self) {
-        self.dynamic_grid = grid::SpatialGrid::new(grid::CELL_SIZE);
+    fn rebuild_dynamic_grid(&mut self, multiplying_factor: f32) {
+        let cell_size = grid::CELL_SIZE * multiplying_factor;
+        self.dynamic_grid = grid::SpatialGrid::new(cell_size);
         if let Some(rect) = self.player().world_collider() {
             self.dynamic_grid.insert(
                 &rect,
@@ -293,9 +297,9 @@ impl Scene {
     /// already-updated) x — which is what produces sliding along a
     /// wall or furniture edge on diagonal movement, per the M3
     /// collision design.
-    pub fn try_move_player(&mut self, delta: Vec2) {
+    pub fn try_move_player(&mut self, delta: Vec2, multiplying_factor: f32) {
         // Rebuild the dynamic grid to account for entity movement before collision detection
-        self.rebuild_dynamic_grid();
+        self.rebuild_dynamic_grid(multiplying_factor);
 
         let idx = self.player_index;
 
