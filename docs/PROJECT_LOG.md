@@ -3,7 +3,7 @@
 
 **Document type:** Living project record (docs-as-code)
 **Started:** July 2026
-**Revision:** v10
+**Revision:** v11
 **Status:** M1–M4 complete. M4 (The Voice) closed — scene transitions, dialogue machinery (typewriter, registers, per-span color, word-wrap), blip audio, and Beat 2's real content all built and verified. Beat 2's underlying lore re-derived in Phase 22 (ADR-074–076) — the shipped dialogue text is unaffected and remains accurate, but its causal foundation is now load-bearing rather than assumed. The structural refactor/reorganization pass flagged at M4's close is now complete (Phase 23, ADR-077–083) — renderer split by concern, engine files organized by owning module, `ids.rs` eliminated in favor of ownership-based type placement, ADR-035's input abstraction resolved. M5 (The Village) starts next: ambient NPCs, full clue chain, second enemy tier, menus. Companion document: `docs/DERIVATION.md`.
 **Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated when decisions accumulate, not on a timer.
 **Screenshots at each visual milestone** are part of this ritual, not an afterthought — historically the step most likely to be skipped (M4's first two phases shipped with none until caught retroactively); a phase isn't fully closed until its screenshots exist and are named.
@@ -1255,6 +1255,171 @@ and the trigger-owned dialogue outcomes are confirmed by behavior
 not by anything with a visual signature distinct from Phase 21's
 existing necklace-removal screenshots.
 
+### Phase 29 — Village Content Foundation: Village Rename, Fixed cell size and Flag-Aware Dialogue (completed)
+
+CELL_SIZE (grid.rs) was discovered to be authored directly in
+world-space units (64.0) with no multiplying_factor applied to
+itself — unlike every other authored value in the codebase, which is
+written in small "authoring units" and scaled once at construction.
+Its real authoring-unit size (64 / 5 = 12.8) never matched what the
+number implied, surfaced while taking pixel measurements off the
+debug grid for a new sprite. Fixed: CELL_SIZE is now 12.0, in the
+same convention as everything else, multiplied by multiplying_factor
+once at each SpatialGrid construction site (Scene::new,
+build_static_grid, rebuild_dynamic_grid), all three now taking
+multiplying_factor as a parameter; try_move_player and render_scene
+thread it through for the same reason. grid_display_cell_size's
+tunable clamp range was rescaled to match. multiplying_factor itself
+stays a plain runtime f32, not a const — a real, named future case
+(inspector-editable content) was identified, but the inspector
+doesn't exist yet to consume it; premature to build a config struct
+around a guess.
+
+outside.rs/SceneId::Outside/the outside asset were renamed to
+village.rs/SceneId::Village — a pure rename, no logic change, done
+ahead of the first real NPC so new content wouldn't keep
+accumulating inside a name still describing the old placeholder
+scene.
+
+line_for gained a &ProgressionTracker parameter, letting a dialogue
+id branch on which flags are already set rather than always
+returning fixed lines — the actual payoff of Phase 28's progression
+work. villager_1 (sprite, entity, Dialogue trigger) is the first
+content built against this, with two branches depending on
+necklace_consumed, confirmed firing correctly both ways in play.
+
+Docs-as-code extended: docs/screenshots/ now covers m5-10 through
+m5-11 — villager's two dialogue branches, confirmed distinct
+before and after necklace_consumed is set.
+
+### Phase 30 — Facing-Direction Rework, Scene-Builder Extraction, Debug Additions (completed)
+
+A single, direction-agnostic trigger for villager (approachable
+from any side) exposed that required_facing.contains(&player.facing)
+alone can't distinguish "correctly positioned and facing toward" from
+"facing the same absolute direction from the wrong side" — ADR-060's
+original problem, previously worked around one trigger per side. Adds
+is_facing_toward(player_center, target_center, target_half_size,
+player_facing) — a relative, edge-aware check (not just center-to-
+center) — combined with reinterpreting the trigger's facing field as
+"which side(s) the object presents" rather than "which way the
+player must look," related by direction-inversion
+(Entity::match_facing_direction). A real, later-caught bug: the first
+version of is_facing_toward compared only center-to-center direction,
+which let a player standing flush against one side of a wide target
+"face toward" it while looking along a perpendicular direction —
+fixed by additionally checking the player falls within the target's
+extent on the axis perpendicular to the facing direction. Lets the
+patio door collapse from two triggers to one, and lets villager_1 be
+approached from any of four sides with a single trigger.
+
+try_interact's two branches also turned out to need genuinely
+different proximity tests: Dialogue triggers require true flush
+contact (player_flush_with, aabb_overlap against the player's actual
+collider), Toggle triggers keep a vicinity check (player_near,
+point_in_rect), since a toggled object's own collider can disappear
+(an open door has none), leaving no flush geometry to test against.
+DialogueTriggerSpec's per-NPC trigger_padding was replaced with a
+flat +1.0-authoring-unit margin around the target's own collider.
+
+The entity+trigger+prompt authoring helper (spawn_entity, spawn_player,
+spawn_dialogue_trigger) was restructured as Scene methods
+(engine/scene/builder.rs), not free functions in game/ — nothing in
+the helper is actually game-specific, matching the same test that's
+kept TextureStore/SpatialGrid in engine/ throughout. Making these
+real Scene methods required Scene to exist before its content does,
+which the old Scene::new (background/walls/triggers/entities/
+player_index all constructor arguments) didn't allow. Scene::new now
+takes none of them — all four collections start empty, player_index
+is a placeholder until spawn_player sets it (private, no other
+mutation path) — and home::build/village::build construct an
+(initially empty) Scene up front, populating it directly:
+scene.background.push(...)/scene.walls.extend(...) for hand-authored
+content (no dedicated methods needed — no texture-loading-plus-ID-
+bookkeeping problem to solve there), the three spawn_* methods for
+the entity+trigger+prompt pattern repeated across the necklace, bed,
+and villager_1.
+
+Adds TriggerId, mirroring WallId/EntityId — the necklace's
+deactivation-on-revisit logic needed to reference its own trigger by
+index, and .last_mut() was fragile (had already broken once,
+silently deactivating the wrong trigger after a reordering). An
+intermediate attempt reused EntityId to index triggers, which
+compiled but was wrong twice over (index computed against the wrong
+Vec's length; EntityId is specifically meant to index Scene.entities).
+
+Adds point_in_range, a shared one-dimensional bounds-check helper
+extracted from point_in_rect and is_facing_toward once both were
+found computing the same per-axis "is this scalar between a min and
+max" check under different variable names.
+
+Adds an F11 debug noclip toggle (DebugSettings.enable_player_collider)
+for reaching content placed away from a scene's entry point without
+fighting geometry — implemented as an early return in
+try_move_player when disabled, not a flag threaded through
+collider_blocked's call sites.
+
+### Phase 31 — Render Pipeline Layering: Draw Extraction, HUD Split, Overlay Layer (completed)
+
+First concrete steps of a longer-standing plan to organize rendering
+into purpose-grouped passes (background+entities, overlay, debug,
+dialogue/UI, debug-info) rather than one large render_scene body plus
+a separately-scattered draw_hud. A depth buffer was considered and
+deliberately not pursued — nothing in the game needs per-pixel depth
+resolution within a tier, only draw-order control between a handful
+of tiers, which purpose-grouped passes already provide without the
+real new GPU surface (depth texture, pipeline depth-stencil state) a
+depth buffer would need.
+
+draw_background_and_entities extracted from render_scene as its own
+callable method — the main y-sorted entity draw loop, unchanged in
+behavior, verified by visual comparison before/after. render_scene
+itself reduced to orchestration.
+
+The former draw_hud (three unrelated things bundled: notifications,
+dialogue, debug info, and the volume slider's *input handling*
+tangled into what was nominally a draw call) split into
+update_debug_ui (slider input handling only, called once per frame
+alongside update_player, not from inside a draw path), draw_ui
+(dialogue — permanent, player-facing UI, expected to grow toward a
+real HUD: health, inventory, map), and draw_debug_info
+(notifications, FPS, mouse position, the slider's draw call).
+engine/debug/hud.rs renamed to info.rs, freeing "hud" to mean an
+actual future player-facing HUD rather than collide with debug-only
+text. draw_slider moved off info.rs entirely, now Slider::draw in
+ui.rs — the widget owns its own update/build_rects/draw, the pattern
+future inspector widgets should follow.
+
+Entity gains is_overlay_layer: bool. Entities marked true (currently
+only prompt icons) are excluded from the main y-sorted draw loop and
+drawn in a dedicated second pass afterward, always on top regardless
+of y-sort or camera position. Fixes a real, visible bug: villager_1's
+prompt icon could be occluded by the player's sprite when approached
+from above. Both passes share submit_sprite_draw, a helper extracted
+from what was one large per-draw block, parameterized by whether that
+draw is allowed to clear the screen — built as a deliberate
+copy-paste first, verified working, then deduplicated, per this
+project's usual incremental approach to nontrivial refactors.
+
+update_interact_prompts switched from point_in_rect to aabb_overlap
+against the player's real collider — the same flush-vs-point mismatch
+already fixed for try_interact once tight, collider-sized triggers
+made a center-only check inconsistent. PROMPT_MARGIN bumped from 5.0
+to 15.0 authoring units, a felt adjustment now that the prompt
+renders reliably on top.
+
+Still open, not part of this phase: relocating draw_background_and_
+entities/debug-rect-building/draw_ui/draw_debug_info into dedicated
+files under renderer/layers/ (the file-organization half of the
+layering plan); batching multiple differently-textured sprites into
+fewer draw calls (needs a texture atlas or similar — a real step up
+in complexity, deferred until draw count is a measured cost, per
+ADR-040's original deferral).
+
+Docs-as-code extended: docs/screenshots/ now covers m5-12. The
+prompt icon rendering reliably on top of the player sprite via the
+new overlay pass, the concrete case that motivated is_overlay_layer.
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -2176,6 +2341,120 @@ existing necklace-removal screenshots.
   only an `id` — named as the next real step once NPC dialogue
   authoring begins.
 
+### ADR-092: CELL_SIZE authored in content units; multiplying_factor stays a runtime value, not a const
+- **Context:** CELL_SIZE was authored directly in world-space (post-
+  scale) units, the only authored constant in the codebase not
+  following the "small authoring unit, scaled once at construction"
+  convention every wall/entity position already used.
+- **Decision:** CELL_SIZE is now 12.0, in authoring units, multiplied
+  by multiplying_factor once at each SpatialGrid construction site.
+  multiplying_factor itself remains a plain runtime f32 (not a
+  const), passed as a parameter, per the existing TODO's own
+  eventual config-struct direction.
+- **Rationale:** A real, named future need for multiplying_factor
+  to be runtime/inspector-editable was identified — but the
+  inspector doesn't exist yet, so a config struct would be designed
+  against a guess. CELL_SIZE has no equivalent live need for
+  runtime mutability; a well-named const is sufficient for a future
+  engine-reuser to find and change in source.
+- **Consequences:** grid_display_cell_size's tunable clamp range
+  was rescaled to match the new authoring-unit space.
+
+### ADR-093: Scene construction precedes content; entity/trigger authoring lives on Scene itself
+- **Context:** The entity+trigger+prompt pattern (texture load,
+  entity push, prompt entity push, trigger rect math) was repeated
+  across the necklace, bed, and villager_1 — three real instances,
+  the signal to extract per this project's standing discipline.
+  Extracting it as Scene methods required Scene to exist before any
+  content did, which Scene::new's old constructor-argument shape
+  (background/walls/triggers/entities/player_index all passed in)
+  didn't allow.
+- **Decision:** Scene::new takes none of the four content
+  collections — all start empty; player_index is a placeholder set
+  only via the new spawn_player method. home::build/village::build
+  construct an (initially empty) Scene up front and populate it
+  directly via scene.background.push(...)/scene.walls.extend(...)
+  (hand-authored, no dedicated method needed) and
+  scene.spawn_entity(...)/spawn_player(...)/spawn_dialogue_trigger(...)
+  (engine/scene/builder.rs) for the repeated pattern.
+- **Rationale:** The helper is kept in engine/, not game/, since
+  nothing in it is actually game-specific — every string/number
+  arrives as a caller parameter, the same test that's kept
+  TextureStore/SpatialGrid in engine/ throughout.
+- **Consequences:** Adds TriggerId (mirroring WallId/EntityId) after
+  a `.last_mut()`-based deactivation reference broke once (wrong
+  trigger deactivated after a reordering) and an intermediate
+  EntityId-reused-for-triggers attempt proved wrong on two counts
+  (wrong Vec's length, wrong newtype for the collection).
+
+### ADR-094: Trigger facing reinterpreted as the object's presented side; flush-contact vs. vicinity interact checks (supersedes part of ADR-060)
+- **Context:** A single, any-side-approachable trigger (villager_1)
+  exposed that required_facing.contains(&player.facing) alone can't
+  tell "correctly positioned, facing toward" from "facing the same
+  absolute direction from the wrong side" — the exact problem
+  ADR-060 solved by requiring one trigger per approach side.
+- **Decision:** The trigger's facing field now means "which side(s)
+  the object presents," inverted via Entity::match_facing_direction
+  against the player's actual facing. is_facing_toward checks both
+  that the target is on the correct side (delta sign) and that the
+  player falls within the target's extent on the perpendicular axis
+  — the second check fixes a real bug found after the first,
+  center-only version shipped (a player flush against one side of a
+  wide target could "face toward" it while looking perpendicular to
+  it). try_interact's two trigger kinds turned out to need different
+  proximity tests: Dialogue requires true flush contact
+  (player_flush_with, aabb_overlap against the player's real
+  collider); Toggle keeps a vicinity check (player_near,
+  point_in_rect), since a toggled object's collider can vanish (an
+  open door has none) leaving nothing to be flush against.
+- **Rationale:** One trigger per any-side-approachable object,
+  instead of one per side, and a correctness fix a purely
+  center-based check couldn't provide.
+- **Consequences:** Every pre-existing single-approach trigger
+  (bed, necklace, both patio-door toggles, later merged into one)
+  had its facing value inverted to the new meaning — not just
+  renamed — verified by hand and in play. DialogueTriggerSpec's
+  per-NPC trigger_padding replaced with a flat, tight +1.0-unit
+  margin. Adds point_in_range, a shared bounds-check extracted once
+  point_in_rect and is_facing_toward were found computing the same
+  per-axis logic independently.
+
+### ADR-095: Render passes split by purpose; is_overlay_layer for occlusion-proof sprites; no depth buffer
+- **Context:** render_scene's entity loop and the former draw_hud
+  (notifications, dialogue, debug info, and the volume slider's
+  input handling, all bundled) needed disentangling before a
+  purpose-grouped, file-per-layer render structure was achievable. A
+  real bug (villager_1's prompt icon occluded by the player's sprite
+  when approached from above) needed a layering fix, not a
+  collision/proximity fix.
+- **Decision:** draw_background_and_entities extracted as its own
+  method; draw_hud split into update_debug_ui (input handling,
+  called once per frame, not from a draw path), draw_ui (dialogue,
+  the seed of a future real HUD), and draw_debug_info (notifications,
+  FPS, mouse position, slider draw). Entity gains is_overlay_layer:
+  bool — true entities draw in a dedicated pass after every normal
+  entity, always on top regardless of y-sort. A depth buffer was
+  considered and rejected: nothing in the game needs per-pixel depth
+  resolution within a tier, only draw-order control between a
+  handful of tiers, which purpose-grouped passes already provide
+  without the real new GPU surface (depth texture, pipeline
+  depth-stencil state) a depth buffer requires.
+- **Rationale:** Both new draw passes share submit_sprite_draw, a
+  helper extracted from one large per-draw block, parameterized by
+  clear-vs-load — built as a deliberate copy-paste first, verified
+  working, then deduplicated, this project's standard approach to
+  nontrivial refactors.
+- **Consequences:** engine/debug/hud.rs renamed info.rs (frees "hud"
+  for actual future player-facing UI); draw_slider relocated onto
+  Slider::draw, the pattern future inspector widgets should follow.
+  update_interact_prompts also switched to aabb_overlap (from
+  point_in_rect), the same flush-vs-point fix as ADR-094, applied to
+  prompt visibility rather than interaction. Relocating the five
+  layers into dedicated renderer/layers/ files, and batching
+  multiple differently-textured sprites into fewer draw calls
+  (needs a texture atlas or equivalent), remain open, named
+  follow-ups.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -2228,6 +2507,21 @@ existing necklace-removal screenshots.
   **Next:** `outside.rs` renamed to reflect real village content;
   flag-aware dialogue; ambient NPCs, clue chain, guard/sword per
   DERIVATION's M5 scope.
+- ✅ **Village content foundation & render-pipeline layering
+  (Phases 29-31):** CELL_SIZE authoring-unit fix, village rename,
+  flag-aware dialogue, villager_1 as the first NPC; facing-direction
+  rework (edge-aware is_facing_toward, flush-vs-vicinity interact
+  checks, TriggerId); Scene-construction restructure (spawn_entity/
+  spawn_player/spawn_dialogue_trigger as real Scene methods);
+  render_scene/draw_hud split into purpose-grouped draw methods;
+  is_overlay_layer fixing prompt-icon occlusion. **Still open:**
+  facing during isometric movement (deferred to a moving NPC),
+  relocating the five draw layers into renderer/layers/ files,
+  batching multiple differently-textured sprites into fewer draw
+  calls, nesting collider/FPS/mouse-position debug views under the
+  same master switch as grid visualization. **Next:** the layering
+  file-relocation, then remaining M5 content — the flag-conditioned
+  clue chain, additional ambient NPCs, the guard/sword moment.
 
 ### Open questions
 
