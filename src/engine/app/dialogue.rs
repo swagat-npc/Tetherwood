@@ -1,7 +1,9 @@
+use crate::engine::app::AppState;
 use crate::{
     engine::entity::EntityId,
     game::dialogue::{DialogueLine, Register},
 };
+use kira::sound::static_sound::StaticSoundSettings;
 
 pub(super) struct DialogueState {
     pub(super) lines: Vec<DialogueLine>,
@@ -149,5 +151,35 @@ impl DialogueState {
 
     pub(super) fn sets_flag(&self) -> Option<&'static str> {
         self.sets_flag
+    }
+}
+
+impl AppState {
+    const BLIP_PITCH_STEPS: [f64; 4] = [0.95, 1.05, 1.0, 1.1]; // semitone-ish multipliers, cycling
+    // const BLIP_PITCH_STEPS: [f64; 4] = [0.5, 1.0, 1.5, 2.0]; // more variation in pitch shift
+
+    fn play_blip(&mut self, step_index: usize) {
+        let Some(dialogue) = self.dialogue.as_mut() else {
+            return;
+        };
+        let sound_data = match dialogue.current_register() {
+            Some(crate::game::dialogue::Register::InnerMonologue) => &self.audio_blip[1],
+            _ => &self.audio_blip[0],
+        };
+        let pitch = Self::BLIP_PITCH_STEPS[step_index % Self::BLIP_PITCH_STEPS.len()];
+        let settings = StaticSoundSettings::new()
+            .playback_rate(kira::PlaybackRate::from(pitch))
+            .volume(kira::Decibels::from(self.blip_volume));
+        let _ = self.audio.play(sound_data.clone().with_settings(settings));
+    }
+
+    pub fn tick_dialogue(&mut self, delta: f32) {
+        if let Some(dialogue) = &mut self.dialogue {
+            if dialogue.tick(delta) {
+                let step = self.blip_step_counter;
+                self.blip_step_counter = self.blip_step_counter.wrapping_add(1);
+                self.play_blip(step);
+            }
+        }
     }
 }

@@ -1,21 +1,21 @@
 mod dialogue;
 pub mod input;
 mod layers;
+mod player;
+mod scene_lifecycle;
 
 use super::debug::DebugSettings;
 use crate::engine::debug::notifications::Notification;
 use crate::engine::debug::ui::Slider;
-use crate::engine::entity::Direction;
 use crate::engine::renderer::Renderer;
-use crate::engine::scene::{CameraMode, InteractResult, Scene, SceneId};
+use crate::engine::scene::{InteractResult, Scene, SceneId};
 use crate::game::actions::{self, Action};
-use crate::game::dialogue::{Register, line_for};
+use crate::game::dialogue::line_for;
 use crate::game::progression::ProgressionTracker;
-use crate::game::scenes::{home, village};
 use dialogue::DialogueState;
 use glam::Vec2;
 use input::InputState;
-use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
+use kira::sound::static_sound::StaticSoundData;
 use pollster::block_on;
 use std::time::Duration;
 use std::{sync::Arc, time::Instant};
@@ -63,59 +63,6 @@ struct AppState {
 }
 
 impl AppState {
-    /// Builds and GPU-prepares a scene. Free of `self` so it can run
-    /// before AppState exists (resumed()'s first scene) as well as
-    /// from change_scene, which just assigns the result afterward.
-    fn build_scene(
-        renderer: &mut Renderer,
-        scene_id: SceneId,
-        multiplying_factor: f32,
-        is_isometric: bool,
-        progression: &mut ProgressionTracker,
-    ) -> Scene {
-        let mut new_scene = match scene_id {
-            SceneId::Home => home::build(
-                renderer.device(),
-                renderer.queue(),
-                multiplying_factor,
-                is_isometric,
-                progression,
-            )
-            .expect("failed to build home scene"),
-            SceneId::Village => village::build(
-                renderer.device(),
-                renderer.queue(),
-                multiplying_factor,
-                is_isometric,
-                progression,
-            )
-            .expect("failed to build village scene"),
-        };
-        new_scene.build_static_grid(multiplying_factor);
-        renderer.prepare_scene(&new_scene);
-        new_scene
-    }
-
-    fn change_scene(&mut self, scene_id: SceneId) {
-        self.scene = Self::build_scene(
-            &mut self.renderer,
-            scene_id,
-            self.multiplying_factor,
-            self.is_isometric,
-            &mut self.progression,
-        );
-    }
-
-    fn reset_scene(&mut self) {
-        self.scene = Self::build_scene(
-            &mut self.renderer,
-            self.scene.id,
-            self.multiplying_factor,
-            self.is_isometric,
-            &mut self.progression,
-        );
-    }
-
     fn notify(&mut self, message: impl Into<String>) {
         self.notifications.push(Notification {
             message: message.into(),
@@ -124,69 +71,24 @@ impl AppState {
         })
     }
 
-    const BLIP_PITCH_STEPS: [f64; 4] = [0.95, 1.05, 1.0, 1.1]; // semitone-ish multipliers, cycling
-    // const BLIP_PITCH_STEPS: [f64; 4] = [0.5, 1.0, 1.5, 2.0]; // more variation in pitch shift
+    fn tick_frame_timing(&mut self) -> f32 {
+        let now = Instant::now();
+        let delta = now - self.last_frame;
+        self.last_frame = now;
 
-    fn play_blip(&mut self, step_index: usize) {
-        let Some(dialogue) = self.dialogue.as_mut() else {
-            return;
-        };
-        let sound_data = match dialogue.current_register() {
-            Some(Register::InnerMonologue) => &self.audio_blip[1],
-            _ => &self.audio_blip[0],
-        };
-        let pitch = Self::BLIP_PITCH_STEPS[step_index % Self::BLIP_PITCH_STEPS.len()];
-        let settings = StaticSoundSettings::new()
-            .playback_rate(kira::PlaybackRate::from(pitch))
-            .volume(kira::Decibels::from(self.blip_volume));
-        let _ = self.audio.play(sound_data.clone().with_settings(settings));
-    }
+        let instantaneous_fps = 1.0 / delta.as_secs_f32();
+        self.smoothed_fps = self.smoothed_fps * 0.9 + instantaneous_fps * 0.1;
 
-    fn tick_dialogue(&mut self, delta: f32) {
-        if let Some(dialogue) = &mut self.dialogue {
-            if dialogue.tick(delta) {
-                let step = self.blip_step_counter;
-                self.blip_step_counter = self.blip_step_counter.wrapping_add(1);
-                self.play_blip(step);
-            }
-        }
-    }
-
-    fn update_player(&mut self, delta: f32) {
-        if self.dialogue.is_some() {
-            return;
-        }
-        let speed = 80.0 * self.multiplying_factor;
-        let movement = actions::resolve_movement(&self.input, self.is_isometric);
-        if movement != Vec2::ZERO {
-            // TODO: Direction::from_movement doesn't account for the isometric
-            // movement table's diagonal/cardinal split - facing may be wrong in
-            // isometric mode. Deferred until facing-while-isometric is a real need.
-            if let Some(dir) = Direction::from_movement(movement) {
-                self.scene.player_mut().facing = dir;
-            }
-            let delta_move = movement * speed * delta;
-            self.scene.try_move_player(
-                delta_move,
-                self.multiplying_factor,
-                self.debug.enable_player_collider,
+        self.frame_count += 1;
+        if self.frame_count.is_multiple_of(60) {
+            println!(
+                "delta: {:.2?} (~{:.0} fps)",
+                delta,
+                1.0 / delta.as_secs_f32()
             );
-            if let Some((target_scene, target_warp_id)) =
-                self.scene.check_triggers(self.debug.show_debug_info)
-            {
-                self.change_scene(target_scene);
-                if let Some(spawn_position) = self.scene.activate_warp(target_warp_id) {
-                    self.scene.player_mut().position = spawn_position;
-                }
-            }
         }
-        self.scene.update_interact_prompts();
 
-        let camera_target = match self.scene.camera_mode() {
-            CameraMode::Static(anchor) => anchor,
-            CameraMode::Follow => self.scene.player().position,
-        };
-        self.renderer.camera_position = camera_target;
+        delta.as_secs_f32()
     }
 }
 
@@ -288,28 +190,9 @@ impl ApplicationHandler for App {
                 state.renderer.resize(size.width, size.height);
             }
             WindowEvent::RedrawRequested => {
-                let now = Instant::now();
-                let delta = now - state.last_frame;
-                state.last_frame = now;
-
-                let instantaneous_fps = 1.0 / delta.as_secs_f32();
-                // Exponential moving average — each new sample nudges the displayed
-                // value rather than replacing it outright, smoothing out single-frame
-                // jitter (OS scheduling noise, etc.) without the update-lag of a
-                // fixed skip-interval.
-                state.smoothed_fps = state.smoothed_fps * 0.9 + instantaneous_fps * 0.1;
-
-                state.frame_count += 1;
-                if state.frame_count.is_multiple_of(60) {
-                    println!(
-                        "delta: {:.2?} (~{:.0} fps)",
-                        delta,
-                        1.0 / delta.as_secs_f32()
-                    );
-                }
-
-                state.tick_dialogue(delta.as_secs_f32());
-                state.update_player(delta.as_secs_f32());
+                let delta = state.tick_frame_timing();
+                state.tick_dialogue(delta);
+                state.update_player(delta);
 
                 match state.renderer.acquire_frame() {
                     Ok(Some(frame)) => {
