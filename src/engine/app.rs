@@ -1,12 +1,12 @@
 mod dialogue;
 pub mod input;
+mod layers;
 
 use super::debug::DebugSettings;
-use crate::engine::debug;
 use crate::engine::debug::notifications::Notification;
 use crate::engine::debug::ui::Slider;
 use crate::engine::entity::Direction;
-use crate::engine::renderer::{Frame, Renderer, text};
+use crate::engine::renderer::Renderer;
 use crate::engine::scene::{CameraMode, InteractResult, Scene, SceneId};
 use crate::game::actions::{self, Action};
 use crate::game::dialogue::{Register, line_for};
@@ -188,81 +188,6 @@ impl AppState {
         };
         self.renderer.camera_position = camera_target;
     }
-
-    fn update_debug_ui(&mut self) {
-        // INSPECTOR:: Volume slider
-        let world_mouse = Vec2::new(
-            self.screen_mouse_position.0 as f32,
-            self.screen_mouse_position.1 as f32,
-        );
-        if self.debug.show_debug_renderer
-            && self.volume_slider.update(world_mouse, self.left_mouse_down)
-        {
-            self.blip_volume = self.volume_slider.value;
-        }
-    }
-
-    fn draw_ui(&mut self, frame: &Frame) {
-        // HUD::Display Dialogue Panel
-        if let Some(dialogue) = &self.dialogue {
-            self.renderer
-                .render_dialogue_panel(frame, dialogue.current_register());
-            let text_pos = self.renderer.dialogue_text_position();
-            let max_width = self.renderer.dialogue_text_max_width();
-
-            let colored_chars: Vec<(char, [f32; 4])> = dialogue
-                .visible_chars()
-                .into_iter()
-                .map(|rc| (rc.ch, rc.color))
-                .collect();
-
-            let wrapped_lines =
-                text::wrap_colored_text(&colored_chars, max_width, text::DIALOGUE_TEXT_SCALE);
-
-            let line_height = text::GLYPH_SIZE.y * text::DIALOGUE_TEXT_SCALE + 4.0;
-            for (i, line_chars) in wrapped_lines.iter().enumerate() {
-                let line_origin = text_pos + Vec2::new(0.0, i as f32 * line_height);
-                let glyphs = text::layout_colored_text_scaled(
-                    line_chars,
-                    line_origin,
-                    text::DIALOGUE_TEXT_SCALE,
-                );
-                self.renderer.render_text(frame, &glyphs);
-            }
-
-            if dialogue.caret_visible() {
-                let caret_pos = self.renderer.dialogue_caret_position();
-                let caret_glyphs = text::layout_colored_text_scaled(
-                    &[('▼', [1.0, 1.0, 1.0, 1.0])],
-                    caret_pos,
-                    text::DIALOGUE_TEXT_SCALE + 2.0,
-                );
-                self.renderer.render_text(frame, &caret_glyphs);
-            }
-        }
-    }
-
-    fn draw_debug_info(&mut self, frame: &Frame) {
-        // DEBUG::Notifications Text
-        debug::info::draw_notifications(&mut self.renderer, frame, &mut self.notifications);
-
-        if self.debug.show_debug_info {
-            // DEBUG::FPS Counter
-            debug::info::draw_fps_counter(&mut self.renderer, frame, self.smoothed_fps);
-
-            // DEBUG::Mouse Position
-            debug::info::draw_mouse_position(
-                &mut self.renderer,
-                frame,
-                self.screen_mouse_position,
-                self.multiplying_factor,
-            );
-        }
-
-        if self.debug.show_debug_renderer {
-            self.volume_slider.draw(&mut self.renderer, frame);
-        }
-    }
 }
 
 impl ApplicationHandler for App {
@@ -388,16 +313,29 @@ impl ApplicationHandler for App {
 
                 match state.renderer.acquire_frame() {
                     Ok(Some(frame)) => {
-                        state.renderer.render_scene(
+                        // Texture Layer
+                        state.renderer.draw_background_and_entities(
+                            &frame,
+                            &state.scene,
+                            state.is_isometric,
+                        );
+
+                        // Debug Rect Layer
+                        state.renderer.draw_debug_geometry(
                             &frame,
                             &state.scene,
                             &state.debug,
                             state.is_isometric,
                             state.multiplying_factor,
                         );
-                        state.update_debug_ui();
+
+                        // HUD Layer
                         state.draw_ui(&frame);
+
+                        // Debug Info Layer
+                        state.update_debug_ui();
                         state.draw_debug_info(&frame);
+
                         state.renderer.present_frame(frame);
                     }
                     Ok(None) => {} // surface not ready yet, skip this frame
