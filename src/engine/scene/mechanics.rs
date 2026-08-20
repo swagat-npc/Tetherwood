@@ -2,6 +2,7 @@ use super::{
     Collider, Entity, EntityId, InteractResult, Rect, Scene, SceneId, TriggerKind, WarpId,
     aabb_overlap, point_in_rect,
 };
+use crate::engine::entity::is_facing_toward;
 use crate::engine::grid;
 use crate::engine::renderer::texture::{TextureId, TextureStore};
 use crate::engine::scene::{Background, CameraMode, Trigger, WallId};
@@ -194,24 +195,34 @@ impl Scene {
             match &trigger.kind {
                 TriggerKind::Dialogue {
                     id,
-                    required_facing,
+                    facing: entity_facing,
                     consumes_entity,
                     sets_flag,
                     ..
                 } => {
                     if point_in_rect(player.collider_center(), &trigger.rect)
-                        && required_facing.contains(&player.facing)
+                        && is_facing_toward(
+                            player.collider_center(),
+                            trigger.rect.center,
+                            player.facing,
+                        )
+                        && player.match_facing_direction(entity_facing)
                     {
                         return Some(InteractResult::Dialogue(*id, *consumes_entity, *sets_flag));
                     }
                 }
                 TriggerKind::Toggle {
                     target_entity,
-                    required_facing,
+                    facing: entity_facing,
                     ..
                 } => {
                     if point_in_rect(player.collider_center(), &trigger.rect)
-                        && required_facing.contains(&player.facing)
+                        && is_facing_toward(
+                            player.collider_center(),
+                            trigger.rect.center,
+                            player.facing,
+                        )
+                        && player.match_facing_direction(entity_facing)
                     {
                         return Some(InteractResult::Toggle(*target_entity));
                     }

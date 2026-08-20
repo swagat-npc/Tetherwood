@@ -105,11 +105,12 @@ pub enum TriggerKind {
         /// Facing direction(s) that make this specific trigger's rect
         /// valid. A slice because one rect can accept more than one
         /// facing (e.g. a straight-on approach from either side of a
-        /// symmetric object) — but each rect still only knows about
-        /// facings correct for *that* rect's position; an object
+        /// symmetric object). With a looking at logic, an object
         /// reachable from multiple distinct sides needs one Trigger
-        /// per side, not one Trigger with every direction listed.
-        required_facing: &'static [Direction],
+        /// Trigger with every direction that the object is looking at.
+        /// So if the object is looking right, player.facing must be
+        /// Direction::Left for this trigger to be valid.
+        facing: &'static [Direction],
         /// Entity this dialogue's *last* line should consume (ADR-037's
         /// texture-clear pattern) once it closes — e.g. the necklace
         /// removing itself after being picked up. None for dialogue that
@@ -122,7 +123,7 @@ pub enum TriggerKind {
         closed_texture: TextureId,
         open_texture: TextureId,
         closed_collider: Rect,
-        required_facing: &'static [Direction],
+        facing: &'static [Direction],
     },
 }
 

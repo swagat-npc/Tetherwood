@@ -145,43 +145,20 @@ pub fn build(
     });
     let patio_door_entity = EntityId(entities.len() - 1);
 
-    // Two separate triggers, one per approach side — NOT one trigger
-    // with both Up and Down listed in required_facing. A single shared
-    // rect can't distinguish "standing above, facing down (correct)"
-    // from "standing below, facing down (facing away, wrong)" — see
-    // ADR-060, first discovered on the necklace's two-sided approach,
-    // now repurposed here for the same reason.
-    let patio_door_top_toggle_center = Vec2::new(patio_door_position.x, 120.0 * multiplying_factor);
-    let patio_door_top_toggle_half_height = 4.0 * multiplying_factor;
-    let patio_door_bottom_toggle_center =
-        Vec2::new(patio_door_position.x, 136.0 * multiplying_factor);
-    let patio_door_bottom_toggle_half_height = 8.0 * multiplying_factor;
-
     triggers.push(Trigger::new(
         Rect {
-            center: patio_door_top_toggle_center,
-            half_size: Vec2::new(patio_door_half_width, patio_door_top_toggle_half_height),
+            center: patio_door_position,
+            half_size: Vec2::new(
+                patio_door_half_width,
+                patio_door_half_height + 6.0 * multiplying_factor,
+            ),
         },
         TriggerKind::Toggle {
             target_entity: patio_door_entity,
             closed_texture: patio_door_closed_tex,
             open_texture: patio_door_open_tex,
             closed_collider,
-            required_facing: &[Direction::Down],
-        },
-    ));
-
-    triggers.push(Trigger::new(
-        Rect {
-            center: patio_door_bottom_toggle_center,
-            half_size: Vec2::new(patio_door_half_width, patio_door_bottom_toggle_half_height),
-        },
-        TriggerKind::Toggle {
-            target_entity: patio_door_entity,
-            closed_texture: patio_door_closed_tex,
-            open_texture: patio_door_open_tex,
-            closed_collider,
-            required_facing: &[Direction::Up],
+            facing: &[Direction::Up, Direction::Down],
         },
     ));
 
@@ -209,7 +186,12 @@ pub fn build(
             id: "villager_1_interact",
             prompt_entity: None,
             prompt_texture: None,
-            required_facing: &[Direction::Right],
+            facing: &[
+                Direction::Up,
+                Direction::Down,
+                Direction::Left,
+                Direction::Right,
+            ],
             consumes_entity: None,
             sets_flag: None,
         },

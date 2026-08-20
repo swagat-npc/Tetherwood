@@ -50,6 +50,15 @@ impl Entity {
         self.collider = None;
         self.texture_id = None;
     }
+
+    pub fn match_facing_direction(&self, facing: &'static [Direction]) -> bool {
+        match self.facing {
+            Direction::Up => facing.contains(&Direction::Down),
+            Direction::Down => facing.contains(&Direction::Up),
+            Direction::Left => facing.contains(&Direction::Right),
+            Direction::Right => facing.contains(&Direction::Left),
+        }
+    }
 }
 
 /// Axis-aligned rectangle (AABB): center offset + half-extents.
@@ -121,4 +130,20 @@ pub fn point_in_rect(point: Vec2, rect: &Rect) -> bool {
     let min = rect.center - rect.half_size;
     let max = rect.center + rect.half_size;
     point.x >= min.x && point.x <= max.x && point.y >= min.y && point.y <= max.y
+}
+
+/// True if `facing` points from `from` toward `target` i.e. the
+/// entity facing `facing`, standing at `from`, is actually looking
+/// toward `target`, not away from it. Used for interact checks where
+/// a single trigger (centered on the interactable) needs to work from
+/// any approach side, unlike required_facing's original two-sided-
+/// trigger design (ADR-060).
+pub fn is_facing_toward(from: Vec2, target: Vec2, facing: Direction) -> bool {
+    let delta = target - from;
+    match facing {
+        Direction::Up => delta.y < 0.0,
+        Direction::Down => delta.y > 0.0,
+        Direction::Left => delta.x < 0.0,
+        Direction::Right => delta.x > 0.0,
+    }
 }
