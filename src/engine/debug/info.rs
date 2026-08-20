@@ -1,6 +1,6 @@
 use super::notifications::Notification;
-use crate::engine::renderer::{Frame, Renderer, SolidRect, text};
-use glam::{Mat4, Vec2};
+use crate::engine::renderer::{Frame, Renderer, text};
+use glam::Vec2;
 
 pub fn draw_notifications(
     renderer: &mut Renderer,
@@ -50,9 +50,4 @@ pub fn draw_mouse_position(
     let mouse_text_pos = Vec2::new(text::DEBUG_TEXT_PADDING, screen_size.y - 25.0);
     let glyphs = text::layout_text_scaled(&mouse_text, mouse_text_pos, text::DEBUG_TEXT_SCALE);
     renderer.render_text_with_bg(frame, &glyphs);
-}
-
-pub fn draw_slider(renderer: &mut Renderer, frame: &Frame, rects: &[SolidRect]) {
-    let projection = renderer.screen_projection();
-    renderer.render_solid_rects(frame, rects, projection, Mat4::IDENTITY);
 }

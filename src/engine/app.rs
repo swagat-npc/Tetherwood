@@ -2,7 +2,7 @@ mod dialogue;
 pub mod input;
 
 use super::debug::DebugSettings;
-use crate::engine::debug::hud;
+use crate::engine::debug;
 use crate::engine::debug::notifications::Notification;
 use crate::engine::debug::ui::Slider;
 use crate::engine::entity::Direction;
@@ -189,11 +189,21 @@ impl AppState {
         self.renderer.camera_position = camera_target;
     }
 
-    fn draw_hud(&mut self, frame: &Frame) {
-        // DEBUG::Notifications Text
-        hud::draw_notifications(&mut self.renderer, frame, &mut self.notifications);
+    fn update_debug_ui(&mut self) {
+        // INSPECTOR:: Volume slider
+        let world_mouse = Vec2::new(
+            self.screen_mouse_position.0 as f32,
+            self.screen_mouse_position.1 as f32,
+        );
+        if self.debug.show_debug_renderer
+            && self.volume_slider.update(world_mouse, self.left_mouse_down)
+        {
+            self.blip_volume = self.volume_slider.value;
+        }
+    }
 
-        // HUD::Displayed Text
+    fn draw_ui(&mut self, frame: &Frame) {
+        // HUD::Display Dialogue Panel
         if let Some(dialogue) = &self.dialogue {
             self.renderer
                 .render_dialogue_panel(frame, dialogue.current_register());
@@ -230,13 +240,18 @@ impl AppState {
                 self.renderer.render_text(frame, &caret_glyphs);
             }
         }
+    }
+
+    fn draw_debug_info(&mut self, frame: &Frame) {
+        // DEBUG::Notifications Text
+        debug::info::draw_notifications(&mut self.renderer, frame, &mut self.notifications);
 
         if self.debug.show_debug_info {
             // DEBUG::FPS Counter
-            hud::draw_fps_counter(&mut self.renderer, frame, self.smoothed_fps);
+            debug::info::draw_fps_counter(&mut self.renderer, frame, self.smoothed_fps);
 
             // DEBUG::Mouse Position
-            hud::draw_mouse_position(
+            debug::info::draw_mouse_position(
                 &mut self.renderer,
                 frame,
                 self.screen_mouse_position,
@@ -245,16 +260,7 @@ impl AppState {
         }
 
         if self.debug.show_debug_renderer {
-            // DEBUG:: Volume slider
-            let world_mouse = Vec2::new(
-                self.screen_mouse_position.0 as f32,
-                self.screen_mouse_position.1 as f32,
-            );
-            if self.volume_slider.update(world_mouse, self.left_mouse_down) {
-                self.blip_volume = self.volume_slider.value;
-            }
-            let slider_rects = self.volume_slider.build_rects();
-            hud::draw_slider(&mut self.renderer, frame, &slider_rects);
+            self.volume_slider.draw(&mut self.renderer, frame);
         }
     }
 }
@@ -389,7 +395,9 @@ impl ApplicationHandler for App {
                             state.is_isometric,
                             state.multiplying_factor,
                         );
-                        state.draw_hud(&frame);
+                        state.update_debug_ui();
+                        state.draw_ui(&frame);
+                        state.draw_debug_info(&frame);
                         state.renderer.present_frame(frame);
                     }
                     Ok(None) => {} // surface not ready yet, skip this frame

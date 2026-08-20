@@ -1,5 +1,5 @@
-use crate::engine::renderer::SolidRect;
-use glam::Vec2;
+use crate::engine::renderer::{Frame, Renderer, SolidRect};
+use glam::{Mat4, Vec2};
 
 // TODO: Rename this file to `inspector.rs` once additional inspector elements
 // are added as this file is expected to grow into the main inspector UI.
@@ -69,5 +69,12 @@ impl Slider {
                 border_thickness_px: 0.0,
             },
         ]
+    }
+
+    /// Draws the slider on the screen using the given renderer and frame.
+    pub fn draw(&self, renderer: &mut Renderer, frame: &Frame) {
+        let rects = self.build_rects();
+        let projection = renderer.screen_projection();
+        renderer.render_solid_rects(frame, &rects, projection, Mat4::IDENTITY);
     }
 }

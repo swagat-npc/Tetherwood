@@ -1,4 +1,4 @@
-pub mod hud;
+pub mod info;
 pub mod notifications;
 pub mod overlay;
 pub mod ui;
