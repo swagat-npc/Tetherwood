@@ -2,7 +2,7 @@ use super::{
     Collider, Entity, EntityId, InteractResult, Rect, Scene, SceneId, TriggerKind, WarpId,
     aabb_overlap, point_in_rect,
 };
-use crate::engine::entity::is_facing_toward;
+use crate::engine::entity::{Direction, is_facing_toward};
 use crate::engine::grid;
 use crate::engine::renderer::texture::{TextureId, TextureStore};
 use crate::engine::scene::{CameraMode, WallId};
@@ -181,8 +181,6 @@ impl Scene {
     /// facing, an Interact trigger. Called from the interact-button press
     /// handler — correctness only matters at the instant of the press.
     pub fn try_interact(&self) -> Option<InteractResult> {
-        let player = self.player();
-
         for trigger in &self.triggers {
             if !trigger.active {
                 continue;
@@ -195,14 +193,7 @@ impl Scene {
                     sets_flag,
                     ..
                 } => {
-                    if point_in_rect(player.collider_center(), &trigger.rect)
-                        && is_facing_toward(
-                            player.collider_center(),
-                            trigger.rect.center,
-                            player.facing,
-                        )
-                        && player.match_facing_direction(entity_facing)
-                    {
+                    if self.player_flush_with(&trigger.rect, entity_facing) {
                         return Some(InteractResult::Dialogue(*id, *consumes_entity, *sets_flag));
                     }
                 }
@@ -211,14 +202,7 @@ impl Scene {
                     facing: entity_facing,
                     ..
                 } => {
-                    if point_in_rect(player.collider_center(), &trigger.rect)
-                        && is_facing_toward(
-                            player.collider_center(),
-                            trigger.rect.center,
-                            player.facing,
-                        )
-                        && player.match_facing_direction(entity_facing)
-                    {
+                    if self.player_near(&trigger.rect, entity_facing) {
                         return Some(InteractResult::Toggle(*target_entity));
                     }
                 }
@@ -226,6 +210,48 @@ impl Scene {
             }
         }
         None
+    }
+
+    /// Flush-contact interact check (Dialogue triggers): the player's own
+    /// collider must genuinely overlap the trigger's rect, not just have
+    /// its center point inside it - correct for interactables meant to
+    /// be approached and touched (an NPC, a pickup), where a loose
+    /// "somewhere nearby" check would let interaction fire from a spot
+    /// that doesn't visually read as "next to it."
+    fn player_flush_with(&self, trigger_rect: &Rect, entity_facing: &'static [Direction]) -> bool {
+        let player = self.player();
+        let Some(player_collider) = &player.collider else {
+            return false;
+        };
+        aabb_overlap(
+            player.collider_center(),
+            player_collider.rect.half_size,
+            trigger_rect.center,
+            trigger_rect.half_size,
+        ) && is_facing_toward(
+            player.collider_center(),
+            trigger_rect.center,
+            trigger_rect.half_size,
+            player.facing,
+        ) && player.match_facing_direction(entity_facing)
+    }
+
+    /// Vicinity interact check (Toggle triggers): the player's center
+    /// just needs to be inside the trigger's rect - correct for things
+    /// like a door, where the interactable object's own collider can
+    /// disappear (an open door has none), so there's no "flush" geometry
+    /// left to test against; a wider zone the player can approach from
+    /// nearby is the intended behavior instead.
+    fn player_near(&self, trigger_rect: &Rect, entity_facing: &'static [Direction]) -> bool {
+        let player = self.player();
+        point_in_rect(player.collider_center(), trigger_rect)
+            && is_facing_toward(
+                player.collider_center(),
+                trigger_rect.center,
+                trigger_rect.half_size,
+                player.facing,
+            )
+            && player.match_facing_direction(entity_facing)
     }
 
     /// Shows/hides every interact prompt icon based on proximity alone —

@@ -132,18 +132,40 @@ pub fn point_in_rect(point: Vec2, rect: &Rect) -> bool {
     point.x >= min.x && point.x <= max.x && point.y >= min.y && point.y <= max.y
 }
 
-/// True if `facing` points from `from` toward `target` i.e. the
-/// entity facing `facing`, standing at `from`, is actually looking
-/// toward `target`, not away from it. Used for interact checks where
-/// a single trigger (centered on the interactable) needs to work from
-/// any approach side, unlike required_facing's original two-sided-
-/// trigger design (ADR-060).
-pub fn is_facing_toward(from: Vec2, target: Vec2, facing: Direction) -> bool {
-    let delta = target - from;
-    match facing {
-        Direction::Up => delta.y < 0.0,
-        Direction::Down => delta.y > 0.0,
-        Direction::Left => delta.x < 0.0,
-        Direction::Right => delta.x > 0.0,
+/// True if `player_facing`, from `player_center`, is oriented toward
+/// the rect described by `target_center`/`target_half_size` — not
+/// just its exact center point. Checks two things: the target is on
+/// the correct side (delta sign on the facing axis), and the player
+/// is actually within the target's extent on the *other* axis — the
+/// second check is what stops a player standing flush against one
+/// side of a wide target from "facing toward" it while looking along
+/// a perpendicular direction (e.g. flush against a villager's right
+/// edge, facing up, without the villager being above them at all).
+/// Discovered as a real bug during Beat 2/M5's NPC interact work,
+/// where a single-trigger, any-side-approachable NPC first exposed
+/// this — a plain center-to-center direction check isn't enough once
+/// a target is wider than a point.
+pub fn is_facing_toward(
+    player_center: Vec2,
+    target_center: Vec2,
+    target_half_size: Vec2,
+    player_facing: Direction,
+) -> bool {
+    let delta = target_center - player_center;
+
+    // Target boundaries
+    let target_left_edge = target_center.x - target_half_size.x;
+    let target_right_edge = target_center.x + target_half_size.x;
+    let target_top_edge = target_center.y - target_half_size.y;
+    let target_bottom_edge = target_center.y + target_half_size.y;
+
+    let x_in_bounds = player_center.x >= target_left_edge && player_center.x <= target_right_edge;
+    let y_in_bounds = player_center.y >= target_top_edge && player_center.y <= target_bottom_edge;
+
+    match player_facing {
+        Direction::Up => delta.y < 0.0 && x_in_bounds,
+        Direction::Down => delta.y > 0.0 && x_in_bounds,
+        Direction::Left => delta.x < 0.0 && y_in_bounds,
+        Direction::Right => delta.x > 0.0 && y_in_bounds,
     }
 }

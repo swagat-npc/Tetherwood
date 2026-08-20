@@ -15,7 +15,6 @@ pub struct EntitySpec {
 pub struct DialogueTriggerSpec {
     pub id: &'static str,
     pub target: EntityId,
-    pub trigger_padding: Vec2,
     pub facing: &'static [Direction],
     pub prompt_texture_path: Option<&'static str>,
     pub consumes_entity: bool,
@@ -73,8 +72,7 @@ impl Scene {
             .map(|c| c.rect.half_size)
             .unwrap_or(Vec2::ZERO);
 
-        let trigger_half_size =
-            target_collider_half_size + spec.trigger_padding * multiplying_factor;
+        let trigger_half_size = target_collider_half_size + Vec2::ONE * multiplying_factor;
         let trigger_rect = Rect {
             center: target_position,
             half_size: trigger_half_size,

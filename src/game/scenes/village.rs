@@ -194,7 +194,6 @@ pub fn build(
         builder::DialogueTriggerSpec {
             id: "villager_1_interact",
             target: villager_1_id,
-            trigger_padding: Vec2::new(6.0, 6.0),
             facing: &[
                 Direction::Up,
                 Direction::Down,
