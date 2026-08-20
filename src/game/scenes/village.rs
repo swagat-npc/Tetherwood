@@ -1,6 +1,8 @@
 use crate::engine::entity::{Collider, Direction, Entity, EntityId, Rect};
 use crate::engine::renderer::texture::TextureStore;
-use crate::engine::scene::{Background, CameraMode, Scene, SceneId, Trigger, TriggerKind, WarpId};
+use crate::engine::scene::{
+    Background, CameraMode, Scene, SceneId, Trigger, TriggerKind, WarpId, builder,
+};
 use crate::game::progression::ProgressionTracker;
 use anyhow::Result;
 use glam::Vec2;
@@ -12,15 +14,25 @@ pub fn build(
     is_isometric: bool,
     _progression: &ProgressionTracker,
 ) -> Result<Scene> {
-    let mut texture_store = TextureStore::new();
+    // Establish positioning
+    let village_position = Vec2::new(64.0, 64.0) * multiplying_factor;
+
+    let mut scene = Scene::new(
+        SceneId::Village,
+        TextureStore::new(),
+        CameraMode::Follow,
+        CameraMode::Follow,
+        is_isometric,
+        multiplying_factor,
+    );
 
     // Create Background
-    let mut background = Vec::new();
-    let village = texture_store.load(device, queue, "assets/ai_village.png")?;
-    let village_position = Vec2::new(64.0, 64.0) * multiplying_factor;
+    let village_texture = scene
+        .texture_store
+        .load(device, queue, "assets/ai_village.png")?;
     let village_size = Vec2::new(128.0, 128.0) * multiplying_factor;
-    background.push(Background {
-        texture: village,
+    scene.background.push(Background {
+        texture: village_texture,
         position: village_position,
         size: village_size,
     });
@@ -43,7 +55,7 @@ pub fn build(
     let village_top_edge = village_position.y - village_half_height;
     let village_bottom_edge = village_position.y + village_half_height;
 
-    let walls = vec![
+    scene.walls.extend(vec![
         Collider {
             rect: Rect {
                 center: Vec2::new(village_position.x, village_top_edge - wall_thickness),
@@ -86,15 +98,13 @@ pub fn build(
                 half_size: Vec2::new(wall_thickness, village_half_height),
             },
         }, // east
-    ];
+    ]);
 
     // Create Triggers
-    let mut triggers = Vec::new();
-
     let door_position = Vec2::new(64.0, 64.0) * multiplying_factor;
     let door_size = Vec2::new(16.0, 24.0) * multiplying_factor;
 
-    triggers.push(Trigger::new(
+    scene.triggers.push(Trigger::new(
         Rect {
             center: door_position,
             half_size: door_size * 0.5,
@@ -108,32 +118,33 @@ pub fn build(
     ));
 
     // Create Entities
-    let mut entities = Vec::new();
+    scene.spawn_player(
+        device,
+        queue,
+        multiplying_factor,
+        builder::EntitySpec {
+            position: Vec2::new(64.0, 87.5),
+            size: Vec2::new(14.0, 24.0),
+            collider_offset: Vec2::new(0.0, 6.0),
+            collider_size: Vec2::new(12.0, 12.0),
+            texture_path: "assets/player.aseprite",
+            facing: Direction::Down,
+        },
+    )?;
 
-    let player_tex = texture_store.load(device, queue, "assets/player.aseprite")?;
-    entities.push(Entity {
-        position: Vec2::new(64.0, 87.5) * multiplying_factor,
-        size: Vec2::new(14.0, 24.0) * multiplying_factor,
-        collider: Some(Collider {
-            rect: Rect {
-                center: Vec2::new(0.0, 6.0) * multiplying_factor,
-                half_size: Vec2::new(6.0, 6.0) * multiplying_factor,
-            },
-        }),
-        texture_id: Some(player_tex),
-        facing: Direction::Down,
-        active: true,
-    });
-    let player_index = entities.len() - 1;
-
-    let patio_door_closed_tex = texture_store.load(device, queue, "assets/patio_door.aseprite")?;
+    let patio_door_closed_tex =
+        scene
+            .texture_store
+            .load(device, queue, "assets/patio_door.aseprite")?;
     let patio_door_open_tex =
-        texture_store.load_aseprite_frame(device, queue, "assets/patio_door.aseprite", 1)?;
+        scene
+            .texture_store
+            .load_aseprite_frame(device, queue, "assets/patio_door.aseprite", 1)?;
     let closed_collider = Rect {
         center: Vec2::new(0.0, -4.0 * multiplying_factor),
         half_size: Vec2::new(patio_door_half_width, 2.0 * multiplying_factor),
     };
-    entities.push(Entity {
+    scene.entities.push(Entity {
         position: patio_door_position,
         size: Vec2::new(patio_door_half_width * 2.0, patio_door_half_height * 2.0),
         collider: Some(Collider {
@@ -143,9 +154,9 @@ pub fn build(
         facing: Direction::Down,
         active: true,
     });
-    let patio_door_entity = EntityId(entities.len() - 1);
+    let patio_door_entity = EntityId(scene.entities.len() - 1);
 
-    triggers.push(Trigger::new(
+    scene.triggers.push(Trigger::new(
         Rect {
             center: patio_door_position,
             half_size: Vec2::new(
@@ -162,52 +173,39 @@ pub fn build(
         },
     ));
 
-    let villager_1_tex = texture_store.load(device, queue, "assets/villager_1.aseprite")?;
-    entities.push(Entity {
-        position: Vec2::new(150.0, 150.0) * multiplying_factor,
-        size: Vec2::new(12.0, 24.0) * multiplying_factor,
-        collider: Some(Collider {
-            rect: Rect {
-                center: Vec2::new(0.0, 0.0) * multiplying_factor,
-                half_size: Vec2::new(6.0, 6.0) * multiplying_factor,
-            },
-        }),
-        texture_id: Some(villager_1_tex),
-        facing: Direction::Left,
-        active: true,
-    });
-
-    triggers.push(Trigger::new(
-        Rect {
-            center: Vec2::new(150.0, 150.0) * multiplying_factor,
-            half_size: Vec2::new(12.0, 6.0) * multiplying_factor,
+    let villager_1_id = scene.spawn_entity(
+        device,
+        queue,
+        multiplying_factor,
+        builder::EntitySpec {
+            position: Vec2::new(150.0, 150.0),
+            size: Vec2::new(12.0, 24.0),
+            collider_offset: Vec2::ZERO,
+            collider_size: Vec2::new(12.0, 12.0),
+            texture_path: "assets/villager_1.aseprite",
+            facing: Direction::Left,
         },
-        TriggerKind::Dialogue {
+    )?;
+
+    scene.spawn_dialogue_trigger(
+        device,
+        queue,
+        multiplying_factor,
+        builder::DialogueTriggerSpec {
             id: "villager_1_interact",
-            prompt_entity: None,
-            prompt_texture: None,
+            target: villager_1_id,
+            trigger_padding: Vec2::new(6.0, 6.0),
             facing: &[
                 Direction::Up,
                 Direction::Down,
                 Direction::Left,
                 Direction::Right,
             ],
-            consumes_entity: None,
+            prompt_texture_path: Some("assets/prompt.aseprite"),
+            consumes_entity: false,
             sets_flag: None,
         },
-    ));
+    )?;
 
-    Ok(Scene::new(
-        SceneId::Village,
-        background,
-        walls,
-        triggers,
-        entities,
-        texture_store,
-        player_index,
-        CameraMode::Follow,
-        CameraMode::Follow,
-        is_isometric,
-        multiplying_factor,
-    ))
+    Ok(scene)
 }

@@ -1,6 +1,8 @@
 use crate::engine::entity::{Collider, Direction, Entity, EntityId, Rect};
 use crate::engine::renderer::texture::TextureStore;
-use crate::engine::scene::{Background, CameraMode, Scene, SceneId, Trigger, TriggerKind, WarpId};
+use crate::engine::scene::{
+    Background, CameraMode, Scene, SceneId, Trigger, TriggerId, TriggerKind, WarpId, builder,
+};
 use crate::game::progression::ProgressionTracker;
 use anyhow::Result;
 use glam::Vec2;
@@ -15,15 +17,24 @@ pub fn build(
     is_isometric: bool,
     progression: &ProgressionTracker,
 ) -> Result<Scene> {
-    let mut texture_store = TextureStore::new();
+    // Establish positioning
+    let floor_position = Vec2::new(64.0, 64.0) * multiplying_factor;
+
+    let mut scene = Scene::new(
+        SceneId::Home,
+        TextureStore::new(),
+        CameraMode::Static(floor_position),
+        CameraMode::Follow,
+        is_isometric,
+        multiplying_factor,
+    );
 
     // Create Background
-    let mut background: Vec<Background> = Vec::new();
-
-    let floor = texture_store.load(device, queue, "assets/bedroom.png")?;
-    let floor_position = Vec2::new(64.0, 64.0) * multiplying_factor;
     let floor_size = Vec2::new(128.0, 128.0) * multiplying_factor;
-    background.push(Background {
+    let floor = scene
+        .texture_store
+        .load(device, queue, "assets/bedroom.png")?;
+    scene.background.push(Background {
         texture: floor,
         position: floor_position,
         size: floor_size,
@@ -59,17 +70,19 @@ pub fn build(
     let south_east_half_width = (right_edge - south_gap_end) / 2.0;
     let south_east_center_x = south_gap_end + south_east_half_width;
 
-    let door = texture_store.load(device, queue, "assets/door.aseprite")?;
+    let door = scene
+        .texture_store
+        .load(device, queue, "assets/door.aseprite")?;
     let door_position = Vec2::new(floor_position.x, bottom_edge);
     let door_size = Vec2::new(32.0, 16.0) * multiplying_factor;
-    background.push(Background {
+    scene.background.push(Background {
         texture: door,
         position: door_position,
         size: door_size,
     });
 
     // Create Walls
-    let walls = vec![
+    scene.walls.extend(vec![
         Collider {
             rect: Rect {
                 center: Vec2::new(floor_position.x, top_edge - wall_thickness),
@@ -100,7 +113,7 @@ pub fn build(
                 half_size: Vec2::new(wall_thickness, room_half_height),
             },
         }, // east
-    ];
+    ]);
 
     // Create Triggers
     // Trigger sits fully past the wall's outer edge — the player must
@@ -109,9 +122,7 @@ pub fn build(
     let door_trigger_depth = wall_thickness; // how far past the wall the trigger extends
     let door_trigger_center_y = bottom_edge + 2.0 * wall_thickness;
 
-    let mut triggers: Vec<Trigger> = Vec::new();
-
-    triggers.push(Trigger::new(
+    scene.triggers.push(Trigger::new(
         Rect {
             center: Vec2::new(door_center_x, door_trigger_center_y),
             half_size: Vec2::new(door_half_width, door_trigger_depth),
@@ -125,10 +136,10 @@ pub fn build(
     ));
 
     // Create Entities
-    let mut entities: Vec<Entity> = Vec::new();
-
-    let wardrobe_tex = texture_store.load(device, queue, "assets/wardrobe.aseprite")?;
-    entities.push(Entity {
+    let wardrobe_tex = scene
+        .texture_store
+        .load(device, queue, "assets/wardrobe.aseprite")?;
+    scene.entities.push(Entity {
         position: Vec2::new(16.0, 12.0) * multiplying_factor,
         size: Vec2::new(24.0, 40.0) * multiplying_factor,
         collider: Some(Collider {
@@ -142,13 +153,15 @@ pub fn build(
         active: true,
     });
 
-    let bed_tex = texture_store.load(device, queue, "assets/bed.aseprite")?;
+    let bed_tex = scene
+        .texture_store
+        .load(device, queue, "assets/bed.aseprite")?;
 
     let bed_collider = Rect {
         center: Vec2::new(0.0, 5.0) * multiplying_factor,
         half_size: Vec2::new(16.0, 22.0) * multiplying_factor,
     };
-    entities.push(Entity {
+    scene.entities.push(Entity {
         position: Vec2::new(16.0, 48.0) * multiplying_factor,
         size: Vec2::new(32.0, 64.0) * multiplying_factor,
         collider: Some(Collider {
@@ -162,7 +175,7 @@ pub fn build(
         active: true,
     });
 
-    entities.push(Entity {
+    scene.entities.push(Entity {
         position: Vec2::new(112.0, 48.0) * multiplying_factor,
         size: Vec2::new(32.0, 64.0) * multiplying_factor,
         collider: Some(Collider {
@@ -176,8 +189,10 @@ pub fn build(
         active: true,
     });
 
-    let bed_prompt_tex = texture_store.load(device, queue, "assets/prompt.aseprite")?;
-    entities.push(Entity {
+    let bed_prompt_tex = scene
+        .texture_store
+        .load(device, queue, "assets/prompt.aseprite")?;
+    scene.entities.push(Entity {
         position: Vec2::new(94.0, 25.0) * multiplying_factor,
         size: Vec2::new(8.0, 8.0) * multiplying_factor,
         collider: None,
@@ -185,9 +200,9 @@ pub fn build(
         facing: Direction::Down,
         active: true,
     });
-    let bed_prompt = EntityId(entities.len() - 1);
+    let bed_prompt = EntityId(scene.entities.len() - 1);
 
-    triggers.push(Trigger::new(
+    scene.triggers.push(Trigger::new(
         Rect {
             center: Vec2::new(94.0, 40.0) * multiplying_factor,
             half_size: Vec2::new(7.0, 8.0) * multiplying_factor,
@@ -202,8 +217,10 @@ pub fn build(
         },
     ));
 
-    let nightstand_tex = texture_store.load(device, queue, "assets/nightstand.aseprite")?;
-    entities.push(Entity {
+    let nightstand_tex = scene
+        .texture_store
+        .load(device, queue, "assets/nightstand.aseprite")?;
+    scene.entities.push(Entity {
         position: Vec2::new(64.0, 44.0) * multiplying_factor,
         size: Vec2::new(25.0, 16.0) * multiplying_factor,
         collider: Some(Collider {
@@ -217,24 +234,24 @@ pub fn build(
         active: true,
     });
 
-    let player_tex = texture_store.load(device, queue, "assets/player.aseprite")?;
-    entities.push(Entity {
-        position: Vec2::new(64.0, 87.5) * multiplying_factor,
-        size: Vec2::new(14.0, 24.0) * multiplying_factor,
-        collider: Some(Collider {
-            rect: Rect {
-                center: Vec2::new(0.0, 6.0) * multiplying_factor,
-                half_size: Vec2::new(6.0, 6.0) * multiplying_factor,
-            },
-        }),
-        texture_id: Some(player_tex),
-        facing: Direction::Down,
-        active: true,
-    });
-    let player_index = entities.len() - 1;
+    scene.spawn_player(
+        device,
+        queue,
+        multiplying_factor,
+        builder::EntitySpec {
+            position: Vec2::new(64.0, 87.5),
+            size: Vec2::new(14.0, 24.0),
+            collider_offset: Vec2::new(0.0, 6.0),
+            collider_size: Vec2::new(12.0, 12.0),
+            texture_path: "assets/player.aseprite",
+            facing: Direction::Down,
+        },
+    )?;
 
-    let necklace_prompt_tex = texture_store.load(device, queue, "assets/prompt.aseprite")?;
-    entities.push(Entity {
+    let necklace_prompt_tex = scene
+        .texture_store
+        .load(device, queue, "assets/prompt.aseprite")?;
+    scene.entities.push(Entity {
         position: Vec2::new(112.0, -5.0) * multiplying_factor,
         size: Vec2::new(8.0, 8.0) * multiplying_factor,
         collider: None,
@@ -242,10 +259,12 @@ pub fn build(
         facing: Direction::Down,
         active: true,
     });
-    let necklace_prompt = EntityId(entities.len() - 1);
+    let necklace_prompt = EntityId(scene.entities.len() - 1);
 
-    let necklace_tex = texture_store.load(device, queue, "assets/necklace.aseprite")?;
-    entities.push(Entity {
+    let necklace_tex = scene
+        .texture_store
+        .load(device, queue, "assets/necklace.aseprite")?;
+    scene.entities.push(Entity {
         position: Vec2::new(112.0, 10.0) * multiplying_factor,
         size: Vec2::new(20.0, 20.0) * multiplying_factor,
         collider: Some(Collider {
@@ -258,9 +277,9 @@ pub fn build(
         facing: Direction::Down,
         active: true,
     });
-    let necklace_entity = EntityId(entities.len() - 1);
+    let necklace_entity = EntityId(scene.entities.len() - 1);
 
-    triggers.push(Trigger::new(
+    scene.triggers.push(Trigger::new(
         Rect {
             center: Vec2::new(112.0, 10.0) * multiplying_factor,
             half_size: Vec2::new(12.0, 12.0) * multiplying_factor,
@@ -274,24 +293,13 @@ pub fn build(
             sets_flag: Some("necklace_consumed"),
         },
     ));
+    let necklace_trigger = TriggerId(scene.triggers.len() - 1);
 
     if progression.is_set("necklace_consumed") {
-        entities[necklace_entity.0].deactivate();
-        triggers.last_mut().unwrap().active = false;
-        entities[necklace_prompt.0].deactivate();
+        scene.entities[necklace_entity.0].deactivate();
+        scene.entities[necklace_prompt.0].deactivate();
+        scene.triggers[necklace_trigger.0].active = false;
     }
 
-    Ok(Scene::new(
-        SceneId::Home,
-        background,
-        walls,
-        triggers,
-        entities,
-        texture_store,
-        player_index,
-        CameraMode::Static(floor_position),
-        CameraMode::Follow,
-        is_isometric,
-        multiplying_factor,
-    ))
+    Ok(scene)
 }

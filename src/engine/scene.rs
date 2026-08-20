@@ -1,3 +1,4 @@
+pub mod builder;
 mod mechanics;
 
 use crate::engine::entity::{
@@ -32,6 +33,13 @@ pub struct Background {
     pub position: Vec2,
     pub size: Vec2,
 }
+
+/// Indexes into a Scene's triggers Vec (ADR-025). Stays valid for the
+/// scene's whole lifetime — triggers are only ever appended, never
+/// removed or reordered (ADR-037), same guarantee TextureId already
+/// relies on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TriggerId(pub usize);
 
 /// A non-solid region that fires an effect on overlap, distinct from
 /// walls/colliders (which block movement). Reuses Rect for geometry —
@@ -149,7 +157,7 @@ pub struct Scene {
     pub triggers: Vec<Trigger>,
     pub entities: Vec<Entity>,
     pub texture_store: TextureStore,
-    pub player_index: usize,
+    player_index: usize,
     orthographic_camera_mode: CameraMode,
     isometric_camera_mode: CameraMode,
     current_camera_mode: CameraMode,

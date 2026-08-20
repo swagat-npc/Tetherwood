@@ -5,19 +5,14 @@ use super::{
 use crate::engine::entity::is_facing_toward;
 use crate::engine::grid;
 use crate::engine::renderer::texture::{TextureId, TextureStore};
-use crate::engine::scene::{Background, CameraMode, Trigger, WallId};
+use crate::engine::scene::{CameraMode, WallId};
 use glam::Vec2;
 use std::collections::HashMap;
 
 impl Scene {
     pub fn new(
         id: SceneId,
-        background: Vec<Background>,
-        walls: Vec<Collider>,
-        triggers: Vec<Trigger>,
-        entities: Vec<Entity>,
         texture_store: TextureStore,
-        player_index: usize,
         orthographic_camera_mode: CameraMode,
         isometric_camera_mode: CameraMode,
         is_isometric: bool,
@@ -33,12 +28,12 @@ impl Scene {
             id,
             static_grid: grid::SpatialGrid::new(cell_size),
             dynamic_grid: grid::SpatialGrid::new(cell_size),
-            background,
-            walls,
-            triggers,
-            entities,
+            background: Vec::new(),
+            walls: Vec::new(),
+            triggers: Vec::new(),
+            entities: Vec::new(),
             texture_store,
-            player_index,
+            player_index: 0, // placeholder, set actual value when building the scene
             orthographic_camera_mode,
             isometric_camera_mode,
             current_camera_mode,
