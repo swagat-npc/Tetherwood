@@ -262,6 +262,12 @@ impl Scene {
     /// is in range of *any* of them, not just whichever was checked last.
     pub fn update_interact_prompts(&mut self) {
         let player_position = self.player().collider_center();
+        let player_half_size = self
+            .player()
+            .collider
+            .as_ref()
+            .map(|c| c.rect.half_size)
+            .unwrap_or_default();
         let mut visible: HashMap<EntityId, (bool, TextureId)> = HashMap::new();
 
         for trigger in &self.triggers {
@@ -278,7 +284,12 @@ impl Scene {
                 else {
                     continue;
                 };
-                let in_range = point_in_rect(player_position, &trigger.rect);
+                let in_range = aabb_overlap(
+                    player_position,
+                    player_half_size,
+                    trigger.rect.center,
+                    trigger.rect.half_size,
+                );
                 let entry = visible
                     .entry(prompt_entity)
                     .or_insert((false, prompt_texture));

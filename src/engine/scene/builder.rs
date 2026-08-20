@@ -79,7 +79,7 @@ impl Scene {
             half_size: trigger_half_size,
         };
 
-        const PROMPT_MARGIN: f32 = 5.0;
+        const PROMPT_MARGIN: f32 = 15.0;
 
         let (prompt_entity, prompt_texture) = match spec.prompt_texture_path {
             Some(texture_path) => {
