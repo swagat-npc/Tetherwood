@@ -3,7 +3,7 @@
 
 **Document type:** Living project record (docs-as-code)
 **Started:** July 2026
-**Revision:** v11
+**Revision:** v12
 **Status:** M1–M4 complete. M4 (The Voice) closed — scene transitions, dialogue machinery (typewriter, registers, per-span color, word-wrap), blip audio, and Beat 2's real content all built and verified. Beat 2's underlying lore re-derived in Phase 22 (ADR-074–076) — the shipped dialogue text is unaffected and remains accurate, but its causal foundation is now load-bearing rather than assumed. The structural refactor/reorganization pass flagged at M4's close is now complete (Phase 23, ADR-077–083) — renderer split by concern, engine files organized by owning module, `ids.rs` eliminated in favor of ownership-based type placement, ADR-035's input abstraction resolved. M5 (The Village) starts next: ambient NPCs, full clue chain, second enemy tier, menus. Companion document: `docs/DERIVATION.md`.
 **Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated when decisions accumulate, not on a timer.
 **Screenshots at each visual milestone** are part of this ritual, not an afterthought — historically the step most likely to be skipped (M4's first two phases shipped with none until caught retroactively); a phase isn't fully closed until its screenshots exist and are named.
@@ -1420,6 +1420,43 @@ Docs-as-code extended: docs/screenshots/ now covers m5-12. The
 prompt icon rendering reliably on top of the player sprite via the
 new overlay pass, the concrete case that motivated is_overlay_layer.
 
+### Phase 32 — Render Layer Relocation & AppState Reorganization (completed)
+
+Two purely structural commits closing out the render-layering plan
+and cleaning up AppState's growing impl block, both verified
+behavior-identical before/after.
+
+render_scene deleted outright. draw_background_and_entities and
+submit_sprite_draw (Phase 31) move to engine/renderer/layers/
+entities.rs; the debug-rect building + render_solid_rects call
+(previously inline in render_scene) becomes its own method,
+draw_debug_geometry, in engine/renderer/layers/debug_geometry.rs.
+draw_ui and update_debug_ui/draw_debug_info (AppState methods, not
+Renderer methods, since they read AppState-only fields) move to
+engine/app/layers/ui.rs and engine/app/layers/debug_info.rs,
+mirroring the same one-file-per-layer structure on the AppState
+side. RedrawRequested now calls all 5 layers directly and in order —
+draw_background_and_entities, draw_debug_geometry, draw_ui,
+update_debug_ui, draw_debug_info — as one visible sequence, rather
+than through an intermediate render_scene wrapper.
+
+AppState's impl block, grown large across M5's session, split by
+behavior: engine/app/player.rs (update_player), engine/app/
+scene_lifecycle.rs (build_scene/change_scene/reset_scene), and a
+second impl AppState block appended to the existing engine/app/
+dialogue.rs (tick_dialogue/play_blip/BLIP_PITCH_STEPS) — dialogue
+audio stays with dialogue rather than getting a separate "audio"
+file, since blip timing is directly driven by dialogue's character-
+reveal ticking, not a general-purpose audio concern. A new
+tick_frame_timing extracts the delta/smoothed-fps/frame-count
+bookkeeping that previously lived inline in RedrawRequested; notify
+and tick_frame_timing both stay directly on AppState in app.rs —
+small, general utilities not judged worth their own file.
+
+No screenshots this phase — both commits are pure reorganization
+with no visual or behavioral signature distinct from what M5's
+existing screenshots already show.
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -2522,6 +2559,22 @@ new overlay pass, the concrete case that motivated is_overlay_layer.
   same master switch as grid visualization. **Next:** the layering
   file-relocation, then remaining M5 content — the flag-conditioned
   clue chain, additional ambient NPCs, the guard/sword moment.
+- ✅ **Render layer relocation & AppState reorganization (Phase 32):**
+  render_scene removed, all 5 draw layers now live in their own
+  files (engine/renderer/layers/, engine/app/layers/), called
+  directly and in sequence from RedrawRequested. AppState's impl
+  block split by behavior (player.rs, scene_lifecycle.rs, dialogue.rs
+  now also holding dialogue-audio methods); tick_frame_timing
+  extracted. **Still open:** facing during isometric movement
+  (deferred to a moving NPC — none exist yet), nesting collider/FPS/
+  mouse-position debug views under grid visualization's master
+  switch, batching multiple differently-textured sprites into fewer
+  draw calls (deferred until draw count is a measured problem).
+  **Next:** actual M5 content authoring — the flag-conditioned clue
+  chain (villager → vendor → child), remaining ambient NPCs, the
+  guard/sword moment. The necklace/bed remain hand-authored, not yet
+  converted to spawn_entity/spawn_dialogue_trigger — a small,
+  optional cleanup, not blocking content work.
 
 ### Open questions
 
