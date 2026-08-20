@@ -303,11 +303,21 @@ impl Scene {
     /// already-updated) x — which is what produces sliding along a
     /// wall or furniture edge on diagonal movement, per the M3
     /// collision design.
-    pub fn try_move_player(&mut self, delta: Vec2, multiplying_factor: f32) {
+    pub fn try_move_player(
+        &mut self,
+        delta: Vec2,
+        multiplying_factor: f32,
+        enable_player_collision: bool,
+    ) {
         // Rebuild the dynamic grid to account for entity movement before collision detection
         self.rebuild_dynamic_grid(multiplying_factor);
 
         let idx = self.player_index;
+
+        if !enable_player_collision {
+            self.entities[idx].position += delta; // move freely, skip all collision resolution
+            return;
+        }
 
         // `let ... else` — new syntax: if the pattern on the left
         // doesn't match, the `else` block must diverge (here, `return`)

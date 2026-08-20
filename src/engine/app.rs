@@ -166,8 +166,11 @@ impl AppState {
                 self.scene.player_mut().facing = dir;
             }
             let delta_move = movement * speed * delta;
-            self.scene
-                .try_move_player(delta_move, self.multiplying_factor);
+            self.scene.try_move_player(
+                delta_move,
+                self.multiplying_factor,
+                self.debug.enable_player_collider,
+            );
             if let Some((target_scene, target_warp_id)) =
                 self.scene.check_triggers(self.debug.show_debug_info)
             {
@@ -435,6 +438,9 @@ impl ApplicationHandler for App {
                             if state.is_isometric { "ON" } else { "OFF" }
                         ));
                         state.scene.sync_camera_mode(state.is_isometric);
+                    } else if code == KeyCode::F11 {
+                        let state_msg = state.debug.toggle_player_collider();
+                        state.notify(state_msg);
                     } else if let Some(action) =
                         actions::resolve_key_press(code, state.dialogue.is_some())
                     {

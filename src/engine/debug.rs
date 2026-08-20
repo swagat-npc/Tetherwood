@@ -13,6 +13,7 @@ pub struct DebugSettings {
     pub show_player_neighbours: bool,
     pub show_occupied_cells: bool,
     pub grid_display_cell_size: f32,
+    pub enable_player_collider: bool,
 }
 
 impl DebugSettings {
@@ -26,6 +27,7 @@ impl DebugSettings {
             show_player_neighbours: false,
             show_occupied_cells: false,
             grid_display_cell_size: grid::CELL_SIZE,
+            enable_player_collider: true,
         }
     }
 
@@ -53,6 +55,15 @@ impl DebugSettings {
             "Colliders: ON"
         } else {
             "Colliders: OFF"
+        }
+    }
+
+    pub fn toggle_player_collider(&mut self) -> &'static str {
+        self.enable_player_collider = !self.enable_player_collider;
+        if self.enable_player_collider {
+            "Player Collider: ON"
+        } else {
+            "Player Collider: OFF"
         }
     }
 
