@@ -42,6 +42,7 @@ impl Scene {
             texture_id: Some(texture),
             facing: spec.facing,
             active: true,
+            is_overlay_layer: false,
         });
         Ok(EntityId(self.entities.len() - 1))
     }
@@ -95,6 +96,7 @@ impl Scene {
                     texture_id: Some(texture),
                     facing: Direction::Down,
                     active: true,
+                    is_overlay_layer: true,
                 });
                 (Some(EntityId(self.entities.len() - 1)), Some(texture))
             }

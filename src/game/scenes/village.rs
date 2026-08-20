@@ -153,6 +153,7 @@ pub fn build(
         texture_id: Some(patio_door_closed_tex),
         facing: Direction::Down,
         active: true,
+        is_overlay_layer: false,
     });
     let patio_door_entity = EntityId(scene.entities.len() - 1);
 

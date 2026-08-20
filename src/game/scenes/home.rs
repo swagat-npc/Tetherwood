@@ -151,6 +151,7 @@ pub fn build(
         texture_id: Some(wardrobe_tex),
         facing: Direction::Down,
         active: true,
+        is_overlay_layer: false,
     });
 
     let bed_tex = scene
@@ -173,6 +174,7 @@ pub fn build(
         texture_id: Some(bed_tex),
         facing: Direction::Down,
         active: true,
+        is_overlay_layer: false,
     });
 
     scene.entities.push(Entity {
@@ -187,6 +189,7 @@ pub fn build(
         texture_id: Some(bed_tex),
         facing: Direction::Down,
         active: true,
+        is_overlay_layer: false,
     });
 
     let bed_prompt_tex = scene
@@ -199,6 +202,7 @@ pub fn build(
         texture_id: Some(bed_prompt_tex),
         facing: Direction::Down,
         active: true,
+        is_overlay_layer: false,
     });
     let bed_prompt = EntityId(scene.entities.len() - 1);
 
@@ -232,6 +236,7 @@ pub fn build(
         texture_id: Some(nightstand_tex),
         facing: Direction::Down,
         active: true,
+        is_overlay_layer: false,
     });
 
     scene.spawn_player(
@@ -258,6 +263,7 @@ pub fn build(
         texture_id: Some(necklace_prompt_tex),
         facing: Direction::Down,
         active: true,
+        is_overlay_layer: false,
     });
     let necklace_prompt = EntityId(scene.entities.len() - 1);
 
@@ -276,6 +282,7 @@ pub fn build(
         texture_id: Some(necklace_tex),
         facing: Direction::Down,
         active: true,
+        is_overlay_layer: false,
     });
     let necklace_entity = EntityId(scene.entities.len() - 1);
 

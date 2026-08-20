@@ -98,95 +98,149 @@ impl Renderer {
             baseline_a.partial_cmp(&baseline_b).unwrap()
         });
 
-        // Full draw list: background first (always behind, never
-        // y-sorted), then entities in sorted order. Each entry is
-        // (bind group index, position, size).
+        // Main draw list: background, then every non-overlay entity in
+        // sorted order. Overlay entities (prompt icons, etc.) are excluded
+        // here - drawn in a second pass below, always after, so they can
+        // never be occluded by a normal entity regardless of y-sort.
         let mut draws: Vec<(usize, glam::Vec2, glam::Vec2, entity::Direction)> = Vec::new();
         for bg in &scene.background {
             draws.push((bg.texture.0, bg.position, bg.size, entity::Direction::Down));
         }
-
         for &idx in &order {
             let entity = &scene.entities[idx];
+            if entity.is_overlay_layer {
+                continue;
+            }
             if let Some(texture_id) = entity.texture_id {
                 draws.push((texture_id.0, entity.position, entity.size, entity.facing));
             }
         }
 
-        // Each draw gets its own encoder and its own submit. See the
-        // explanation above the code block in this message: repeatedly
-        // calling write_buffer on the same buffer before a single
-        // shared submit() would let every draw see only the *last*
-        // written transform. Submitting per-draw guarantees each
-        // write_buffer lands before its own draw executes. The first
-        // draw clears the screen; every draw after it loads (paints
-        // over) what's already there instead of erasing it.
+        // Second pass: overlay entities. Copy-pasted from the loop above,
+        // deliberately, for now - always LoadOp::Load (something already
+        // cleared above, even if `draws` was somehow empty this frame -
+        // background always pushes at least one entry). Extracting the
+        // shared submission logic is a planned follow-up, not done yet.
+        let mut overlay_draws: Vec<(usize, glam::Vec2, glam::Vec2, entity::Direction)> = Vec::new();
+        for &idx in &order {
+            let entity = &scene.entities[idx];
+            if !entity.is_overlay_layer {
+                continue;
+            }
+            if let Some(texture_id) = entity.texture_id {
+                overlay_draws.push((texture_id.0, entity.position, entity.size, entity.facing));
+            }
+        }
+
         for (i, (bind_group_index, position, size, facing)) in draws.iter().enumerate() {
             let mut draw_size = *size;
             if *facing == entity::Direction::Left {
                 draw_size.x = -draw_size.x;
             }
-            // Shear the anchor only - isometric art is expected to already
-            // look correct from that angle; this only decides placement.
             let effective_position = if is_isometric {
                 shear(*position)
             } else {
                 *position
             };
-            let model = mesh::model_matrix(effective_position, draw_size);
-            let transform = projection * sprite_camera_view * model;
-            self.queue.write_buffer(
-                &self.transform_buffer,
-                0,
-                bytemuck::cast_slice(&transform.to_cols_array()),
+            self.submit_sprite_draw(
+                frame,
+                projection,
+                sprite_camera_view,
+                *bind_group_index,
+                effective_position,
+                draw_size,
+                i == 0,
             );
-
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("draw encoder"),
-                });
-
-            {
-                let load_op = if i == 0 {
-                    wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.15,
-                        g: 0.15,
-                        b: 0.15,
-                        a: 1.0,
-                    })
-                } else {
-                    wgpu::LoadOp::Load
-                };
-
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("draw pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &frame.view,
-                        resolve_target: None,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load: load_op,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                    multiview_mask: None,
-                });
-
-                render_pass.set_pipeline(&self.render_pipeline);
-                render_pass.set_bind_group(0, &self.bind_groups[*bind_group_index], &[]);
-                render_pass.set_bind_group(1, &self.transform_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                render_pass
-                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
-            }
-
-            self.queue.submit(std::iter::once(encoder.finish()));
         }
+
+        for (bind_group_index, position, size, facing) in overlay_draws.iter() {
+            let mut draw_size = *size;
+            if *facing == entity::Direction::Left {
+                draw_size.x = -draw_size.x;
+            }
+            let effective_position = if is_isometric {
+                shear(*position)
+            } else {
+                *position
+            };
+            self.submit_sprite_draw(
+                frame,
+                projection,
+                sprite_camera_view,
+                *bind_group_index,
+                effective_position,
+                draw_size,
+                false,
+            );
+        }
+    }
+
+    /// Submits one sprite draw: writes its transform, then renders it in
+    /// its own encoder/submit (see the note on why each draw gets its own
+    /// submission - shared write_buffer + deferred submit would let every
+    /// draw see only the last-written transform). `is_first_draw_this_frame`
+    /// controls Clear vs. Load - only the very first draw of the whole
+    /// frame should clear; everything after, in either pass, loads.
+    fn submit_sprite_draw(
+        &mut self,
+        frame: &Frame,
+        projection: glam::Mat4,
+        sprite_camera_view: glam::Mat4,
+        bind_group_index: usize,
+        position: glam::Vec2,
+        size: glam::Vec2,
+        is_first_draw_this_frame: bool,
+    ) {
+        let model = mesh::model_matrix(position, size);
+        let transform = projection * sprite_camera_view * model;
+        self.queue.write_buffer(
+            &self.transform_buffer,
+            0,
+            bytemuck::cast_slice(&transform.to_cols_array()),
+        );
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("draw encoder"),
+            });
+        {
+            let load_op = if is_first_draw_this_frame {
+                wgpu::LoadOp::Clear(wgpu::Color {
+                    r: 0.15,
+                    g: 0.15,
+                    b: 0.15,
+                    a: 1.0,
+                })
+            } else {
+                wgpu::LoadOp::Load
+            };
+
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("draw pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &frame.view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: load_op,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.bind_groups[bind_group_index], &[]);
+            render_pass.set_bind_group(1, &self.transform_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+        }
+        self.queue.submit(std::iter::once(encoder.finish()));
     }
 
     /// Draws a batch of solid-colored rects — used by both the F1 debug

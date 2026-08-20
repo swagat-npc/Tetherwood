@@ -21,6 +21,11 @@ pub struct Entity {
     pub facing: Direction,
     /// Whether this entity is active and should be rendered/updated.
     pub active: bool,
+    /// Drawn in a dedicated pass after all normal entities, always on
+    /// top regardless of y-sort or camera position — for prompt icons,
+    /// and future overlay content (emoji, thought bubbles) that should
+    /// never be occluded by whatever it's floating above.
+    pub is_overlay_layer: bool,
 }
 
 impl Entity {
