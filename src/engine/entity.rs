@@ -129,7 +129,11 @@ pub fn aabb_overlap(center_a: Vec2, half_a: Vec2, center_b: Vec2, half_b: Vec2) 
 pub fn point_in_rect(point: Vec2, rect: &Rect) -> bool {
     let min = rect.center - rect.half_size;
     let max = rect.center + rect.half_size;
-    point.x >= min.x && point.x <= max.x && point.y >= min.y && point.y <= max.y
+    point_in_range(point.x, min.x, max.x) && point_in_range(point.y, min.y, max.y)
+}
+
+fn point_in_range(point: f32, min: f32, max: f32) -> bool {
+    point >= min && point <= max
 }
 
 /// True if `player_facing`, from `player_center`, is oriented toward
@@ -154,13 +158,11 @@ pub fn is_facing_toward(
     let delta = target_center - player_center;
 
     // Target boundaries
-    let target_left_edge = target_center.x - target_half_size.x;
-    let target_right_edge = target_center.x + target_half_size.x;
-    let target_top_edge = target_center.y - target_half_size.y;
-    let target_bottom_edge = target_center.y + target_half_size.y;
+    let target_min = target_center - target_half_size;
+    let target_max = target_center + target_half_size;
 
-    let x_in_bounds = player_center.x >= target_left_edge && player_center.x <= target_right_edge;
-    let y_in_bounds = player_center.y >= target_top_edge && player_center.y <= target_bottom_edge;
+    let x_in_bounds = point_in_range(player_center.x, target_min.x, target_max.x);
+    let y_in_bounds = point_in_range(player_center.y, target_min.y, target_max.y);
 
     match player_facing {
         Direction::Up => delta.y < 0.0 && x_in_bounds,
