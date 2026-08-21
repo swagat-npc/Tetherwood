@@ -1,5 +1,5 @@
 use super::{Direction, Entity, EntityId, Rect, Scene, Trigger, TriggerKind};
-use crate::engine::entity::Collider;
+use crate::engine::{entity::Collider, scene::TriggerId};
 use anyhow::Result;
 use glam::Vec2;
 
@@ -19,6 +19,11 @@ pub struct DialogueTriggerSpec {
     pub prompt_texture_path: Option<&'static str>,
     pub consumes_entity: bool,
     pub sets_flag: Option<&'static str>,
+}
+
+pub struct DialogueTriggerResult {
+    pub trigger: TriggerId,
+    pub prompt_entity: Option<EntityId>,
 }
 
 impl Scene {
@@ -65,17 +70,17 @@ impl Scene {
         queue: &wgpu::Queue,
         multiplying_factor: f32,
         spec: DialogueTriggerSpec,
-    ) -> Result<()> {
-        let target_position = self.entities[spec.target.0].position;
-        let target_collider_half_size = self.entities[spec.target.0]
-            .collider
-            .as_ref()
-            .map(|c| c.rect.half_size)
-            .unwrap_or(Vec2::ZERO);
+    ) -> Result<DialogueTriggerResult> {
+        let target_rect = self.entities[spec.target.0]
+            .world_collider()
+            .unwrap_or(Rect {
+                center: self.entities[spec.target.0].position,
+                half_size: Vec2::ZERO,
+            });
 
-        let trigger_half_size = target_collider_half_size + Vec2::ONE * multiplying_factor;
+        let trigger_half_size = target_rect.half_size + Vec2::ONE * multiplying_factor;
         let trigger_rect = Rect {
-            center: target_position,
+            center: target_rect.center,
             half_size: trigger_half_size,
         };
 
@@ -118,6 +123,11 @@ impl Scene {
                 sets_flag: spec.sets_flag,
             },
         ));
-        Ok(())
+        let trigger = TriggerId(self.triggers.len() - 1);
+
+        Ok(DialogueTriggerResult {
+            trigger,
+            prompt_entity,
+        })
     }
 }
