@@ -3,8 +3,8 @@
 
 **Document type:** Living project record (docs-as-code)
 **Started:** July 2026
-**Revision:** v12
-**Status:** M1–M4 complete. M4 (The Voice) closed — scene transitions, dialogue machinery (typewriter, registers, per-span color, word-wrap), blip audio, and Beat 2's real content all built and verified. Beat 2's underlying lore re-derived in Phase 22 (ADR-074–076) — the shipped dialogue text is unaffected and remains accurate, but its causal foundation is now load-bearing rather than assumed. The structural refactor/reorganization pass flagged at M4's close is now complete (Phase 23, ADR-077–083) — renderer split by concern, engine files organized by owning module, `ids.rs` eliminated in favor of ownership-based type placement, ADR-035's input abstraction resolved. M5 (The Village) starts next: ambient NPCs, full clue chain, second enemy tier, menus. Companion document: `docs/DERIVATION.md`.
+**Revision:** v13
+**Status:** M1–M4 complete, M5 (The Village) in progress through Phase 32. A design-only session (Phase 33) settled tile-based scene background authoring, superseding ADR-028's last standing clause (ADR-096) and carving out minimal file-based persistence for tile grids specifically from ADR-027 (ADR-097) — not yet implemented, ready to hand to an M5 implementation session. Companion document: `docs/DERIVATION.md`.
 **Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated when decisions accumulate, not on a timer.
 **Screenshots at each visual milestone** are part of this ritual, not an afterthought — historically the step most likely to be skipped (M4's first two phases shipped with none until caught retroactively); a phase isn't fully closed until its screenshots exist and are named.
 
@@ -1457,6 +1457,44 @@ No screenshots this phase — both commits are pure reorganization
 with no visual or behavioral signature distinct from what M5's
 existing screenshots already show.
 
+### Phase 33 — Tile-Based Scene Authoring: Design Session (completed, design-only, not yet implemented)
+
+A design-only session, no code, triggered by revisiting ADR-028's
+still-standing content-authoring clause in light of real isometric
+pixel art research done since it was written. Distinguished carefully
+from ADR-087's earlier, separate correction of ADR-028's projection-
+math half — this session concerns the other half entirely: how scene
+backgrounds get authored, not what camera angle renders them.
+
+Settled: scenes move from one hand-painted background image each to
+a small reusable isometric tile set (~10–12 pieces), assembled per
+scene. Collision, entities, and furniture are explicitly unaffected —
+this is a background-visuals-only change; walls stay hand-placed
+`Rect`s, furniture stays hand-placed, nothing becomes tile-snapped.
+
+Also settled, after real deliberation across several exchanges: this
+warrants building the interactive tile-placement tool now, not
+deferring it further — click-to-paint against live tile art is judged
+the "real consumer" the standing inspector-deferral policy was
+waiting for. Initial back-and-forth explored a copy-paste-to-source
+workflow (paint live, print a `const` array to hand-transcribe) as a
+way to get the ergonomic win without touching ADR-027's file-format
+deferral; this was ultimately rejected in favor of a real minimal
+file format once it became clear a hand-rolled parser for one fixed,
+trivial shape (whitespace-separated integers, one row per line) is
+*less* code than the transcription workflow, not more — and doesn't
+actually reopen ADR-027, which was about deferring a *generic*
+serialization solution for complex, evolving schemas, not about files
+as a category. Recorded as ADR-096 (the format-of-backgrounds
+decision) and ADR-097 (the format-of-persistence decision), kept
+separate since they're independently reversible claims.
+
+Explicitly deferred, not designed: furniture-via-click-placement
+(acknowledged as a natural future extension of the same tool);
+mouse-picking (screen-to-world, the inverse of ADR-087's projection)
+is identified as a hard dependency for the painter to function at all,
+but not yet written.
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -2492,6 +2530,80 @@ existing screenshots already show.
   (needs a texture atlas or equivalent), remain open, named
   follow-ups.
 
+### ADR-096: Tile-based scene backgrounds (supersedes ADR-028's remaining hand-authored-background clause)
+- **Context:** ADR-028 committed to one hand-painted background image per
+  scene, reasoned independently of camera projection (a content-authoring-
+  scale argument, not an isometric-vs-flat one). ADR-087 later corrected
+  ADR-028's separate projection-math claim but explicitly left this clause
+  standing. Revisited once real isometric pixel art research made a small
+  reusable tile set a well-understood option, which it wasn't when ADR-028
+  was written (self-assessed inexperience with isometric art at the time).
+- **Decision:** Scene backgrounds are assembled from a small set of
+  reusable tile pieces (~10–12: floor, edge, corner variants) placed on a
+  grid, not one large image per scene. Collision and entity placement are
+  entirely unaffected: walls remain hand-placed `Rect`s in world space
+  (ADR-038), furniture/NPCs remain individually hand-authored and hand-
+  placed, none of it tile-snapped. The tile-ID-to-texture palette is a
+  small `const` array in source; only the per-scene layout externalizes
+  (see ADR-097). Tile pixel dimensions and the isometric shear constant
+  `K` (ADR-087) are authored together and tuned by eye, per the precedent
+  ADR-087/ADR-092 already established for `K` and `CELL_SIZE`.
+- **Rationale:** Meets Principle 5's stated exception (charter 2.3): the
+  correct future shape is now known and cheap to build, where it wasn't
+  at ADR-028's time. A correctly-shaded isometric floor costs materially
+  more art labor per scene than a flat one would have, making tile reuse
+  pay for itself sooner than ADR-028's original content-volume argument
+  assumed. Renderer benefit alongside the art one: background stops being
+  a special-cased large texture and becomes more draws through the same
+  textured-quad path already used for furniture.
+- **Consequences:** Requires an authoring tool to be usable in practice
+  (ADR-097) — the format decision alone doesn't solve the "don't want to
+  hand-type indices" problem this was raised to fix. `DERIVATION.md`'s
+  D-D entry is now stale on this point and is left unedited, per this
+  project's standing convention that DERIVATION is a dated, closed
+  artifact — the ADR chain (ADR-028 → ADR-087 → ADR-096) is authoritative.
+
+### ADR-097: Minimal file-based persistence for tile grids only (narrow carve-out from ADR-027)
+- **Context:** ADR-096 requires layouts to live somewhere editable
+  without recompiling. A copy-paste-to-source workflow (paint live in an
+  in-memory tool, print a `const` array, hand-transcribe into
+  `game/scenes.rs`) was considered first, specifically to avoid touching
+  ADR-027's deferral of file-based content. Rejected: a hand-rolled parser
+  for this one fixed, trivial shape is less code than the transcription
+  step it was trying to avoid, and doesn't implicate the general-purpose
+  problem ADR-027 was actually deferring.
+- **Decision:** Tile grids are saved as plain text (whitespace-separated
+  small integers, one row per line — no schema, no serde, no RON) and
+  read once by the owning scene's constructor, at the same moment it
+  already loads its textures — the existing lazy-construction, asset-
+  loading pattern (E10) applied to one more asset kind, not a new loading
+  phase. No file present ⇒ nothing painted ⇒ the scene's void shows
+  through, following directly from the existing no-camera-clamping/void-
+  is-the-look decision rather than needing a special-cased empty state.
+  Malformed files (wrong row length, out-of-range tile ID) panic loudly,
+  naming the file and the specific problem, rather than defaulting
+  silently — appropriate for a solo-dev tool where the developer is both
+  the only user and the one debugging failures.
+- **Rationale:** ADR-027 deferred a *generic* serialization solution for
+  schemas that are complex, varied, or still evolving (NPCs, dialogue,
+  enemy stats). A tile grid is the opposite: one fixed, fully-known shape
+  that will never need to grow more complex. Hand-rolling a parser for it
+  is the correct application of the judgment ADR-027 asked for later,
+  applied now to a case that actually qualifies — not a reopening of the
+  broader question. Every other content category stays static Rust data,
+  unchanged.
+- **Consequences:** This is the producer/consumer half of ADR-096's
+  authoring tool; the tool itself (toggle paint mode, click to place from
+  a keyboard-selected tile brush, live render, save-to-file) is scoped
+  but not yet built. Named hard dependency, not yet written: screen-to-
+  world mouse picking, the inverse of ADR-087's projection transform — a
+  different consumer than ADR-088 (which deliberately rejected the
+  shear's literal inverse for movement, for control-feel reasons; no
+  conflict, since picking has no equivalent feel constraint). Save-file
+  naming/location convention not yet decided. Undo, multi-layer, and
+  drag-paint explicitly deferred past a first version. Furniture-via-
+  click-placement acknowledged as a natural extension, not designed.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -2575,6 +2687,15 @@ existing screenshots already show.
   guard/sword moment. The necklace/bed remain hand-authored, not yet
   converted to spawn_entity/spawn_dialogue_trigger — a small,
   optional cleanup, not blocking content work.
+- ✅ **Tile-based scene authoring — design session (Phase 33):** decided,
+  not yet implemented. Backgrounds move from one hand-painted image per
+  scene to a small reusable tile set (ADR-096); layouts persist via a
+  minimal hand-rolled text format, read once at scene construction
+  (ADR-097) — a deliberate, narrow exception to ADR-027, not a reopening
+  of it. **Next:** implement the file format, then the interactive
+  painter (paint mode, click-to-place, save) — the painter needs screen-
+  to-world mouse picking, which doesn't exist yet and is the likely first
+  real subtask.
 
 ### Open questions
 
