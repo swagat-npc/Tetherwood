@@ -3,7 +3,7 @@
 
 **Document type:** Living project record (docs-as-code)
 **Started:** July 2026
-**Revision:** v13
+**Revision:** v14
 **Status:** M1–M4 complete, M5 (The Village) in progress through Phase 32. A design-only session (Phase 33) settled tile-based scene background authoring, superseding ADR-028's last standing clause (ADR-096) and carving out minimal file-based persistence for tile grids specifically from ADR-027 (ADR-097) — not yet implemented, ready to hand to an M5 implementation session. Companion document: `docs/DERIVATION.md`.
 **Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated when decisions accumulate, not on a timer.
 **Screenshots at each visual milestone** are part of this ritual, not an afterthought — historically the step most likely to be skipped (M4's first two phases shipped with none until caught retroactively); a phase isn't fully closed until its screenshots exist and are named.
@@ -1494,6 +1494,72 @@ Explicitly deferred, not designed: furniture-via-click-placement
 mouse-picking (screen-to-world, the inverse of ADR-087's projection)
 is identified as a hard dependency for the painter to function at all,
 but not yet written.
+
+### Phase 34 — Debug/Inspector Fixes, Tile-Editor Cursor Highlight, TTF Text Support (completed)
+
+Three related but separately-committed units of work, done in service
+of Phase 33's tile-authoring plan (an inspector capable of readable
+text was a real, named prerequisite for the eventual tile painter).
+
+**Bug-fix pass**, prompted by a direct request to scrutinize a batch
+of self-implemented changes before building further on top of them:
+the tile-editor cursor was being set every frame regardless of
+whether the mode actually changed (moved to fire only on the F8
+toggle); dead frame-timing code and a stale, self-referential TODO
+comment were removed; `SpatialGrid::cell_center_world` was extracted
+after the same cell-to-world formula turned up independently a
+fourth time (occupied cells, player neighborhood, and now cursor
+highlight); and `InspectorSection` was given its own computed
+`bounds: Rect`, so the volume slider derives its position from its
+section's real bounds instead of independent hand-tuned offsets that
+only coincidentally lined up — the same single-source-of-truth defect
+already caught several times this session, here in new territory
+(UI layout instead of world geometry).
+
+**Tile-editor cursor highlight**: an F8-toggled mode showing a custom
+cursor and highlighting whichever grid cell the mouse currently hovers
+over (`build_cursor_highlight_mesh`), reusing the newly-shared
+`cell_center_world` helper and the existing batched debug-rect path —
+no new GPU work.
+
+**TTF text support**, added *alongside* the existing bitmap font, not
+replacing it — dialogue keeps its established blocky look; the
+inspector's section titles needed something thinner. `fontdue`
+rasterizes every printable ASCII glyph once at `Renderer::new` time;
+a hand-rolled shelf-packer places them into one RGBA atlas texture,
+recording each glyph's UV rect, advance width, and baseline offset.
+Verified in two separate, deliberately isolated steps before any
+draw path existed: first, a single rasterized glyph uploaded and
+drawn as an ordinary sprite, proving the fontdue-to-GPU-texture chain
+works at all; second, the full packed atlas dumped to a PNG and
+visually inspected for overlap or corruption, proving the packing
+math independent of any rendering code. Only after both were
+confirmed correct was the real path built: `PositionedTTFGlyph`,
+`build_ttf_text_mesh`, `render_ttf_text`, and `layout_ttf_text` are
+new, deliberately parallel siblings to the bitmap-font path, not
+a shared abstraction — TTF glyphs are proportionally spaced (a
+per-glyph advance width) where the bitmap font is fixed-pitch, and
+forcing one shape to cover both would have complicated the simpler,
+working bitmap path for a need it never had. `Inspector::draw_section_
+titles` confirms the result: mixed-case, mixed-descender text renders
+on a visibly consistent baseline. `TTFFont` (an earlier bundled-struct
+shape, superseded once the atlas texture and glyph map became
+separate `Renderer` fields) and `TextureStore::insert_raw` (a
+throwaway helper from the single-glyph verification step) were
+removed once confirmed unused.
+
+Docs-as-code extended: docs/screenshots/ now covers m5-13 through
+m5-15 — the tile-editor cursor highlight (m5-13), the corrected
+inspector section/slider layout (m5-14), and TTF section titles
+rendering with a consistent baseline (m5-15).
+
+Still fully open, unblocked by this phase but not advanced by it:
+screen-to-world mouse picking (the tile painter's actual hard
+dependency, per ADR-097), the tile painter itself, the tile-pixel-
+size/isometric-`K` pairing (real tile art now exists — a 32x32 cube
+pair — but the final scale hasn't been tuned against it), and cube-
+tile depth-sorting (the real design consequence of committing to
+full-cube rather than flat-top floor tiles, not yet designed).
 
 ---
 
