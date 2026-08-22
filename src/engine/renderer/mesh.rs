@@ -281,12 +281,8 @@ pub(super) fn build_occupied_cells_mesh(scene: &Scene) -> Vec<SolidRect> {
 
     grid.occupied_cells()
         .map(|(cx, cy)| {
-            let center = Vec2::new(
-                cx as f32 * cell_size + cell_size * 0.5,
-                cy as f32 * cell_size + cell_size * 0.5,
-            );
             SolidRect {
-                position: center,
+                position: grid.cell_center_world((cx, cy)),
                 size: Vec2::new(cell_size, cell_size),
                 fill_color: [0.0, 1.0, 0.0, 0.15], // faint green fill
                 border_color: [0.0, 1.0, 0.0, 0.6],
@@ -301,18 +297,12 @@ pub(super) fn build_player_neighborhood_mesh(scene: &Scene) -> Vec<SolidRect> {
     let cell_size = grid.cell_size();
     let player_cell = grid.cell_at_position(scene.player().collider_center());
 
-    let cell_rect = |cx: i32, cy: i32, fill: [f32; 4], border: [f32; 4]| {
-        let center = Vec2::new(
-            cx as f32 * cell_size + cell_size * 0.5,
-            cy as f32 * cell_size + cell_size * 0.5,
-        );
-        SolidRect {
-            position: center,
-            size: Vec2::new(cell_size, cell_size),
-            fill_color: fill,
-            border_color: border,
-            border_thickness_px: 1.0,
-        }
+    let cell_rect = |cx: i32, cy: i32, fill: [f32; 4], border: [f32; 4]| SolidRect {
+        position: grid.cell_center_world((cx, cy)),
+        size: Vec2::new(cell_size, cell_size),
+        fill_color: fill,
+        border_color: border,
+        border_thickness_px: 1.0,
     };
 
     // First add the player's own cell
@@ -332,4 +322,19 @@ pub(super) fn build_player_neighborhood_mesh(scene: &Scene) -> Vec<SolidRect> {
     );
 
     rects
+}
+
+pub(super) fn build_cursor_highlight_mesh(scene: &Scene, mouse_pos: Vec2) -> Vec<SolidRect> {
+    let grid = scene.static_grid();
+    let cell_size = grid.cell_size();
+    let mouse_position = grid.cell_at_position(mouse_pos);
+
+    // Highlight the single cell the mouse is currently hovering over.
+    vec![SolidRect {
+        position: grid.cell_center_world(mouse_position),
+        size: Vec2::new(cell_size, cell_size),
+        fill_color: [0.0, 1.0, 0.0, 0.7],
+        border_color: [0.0, 0.7, 0.0, 0.4],
+        border_thickness_px: 1.0,
+    }]
 }

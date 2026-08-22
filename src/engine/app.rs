@@ -19,6 +19,7 @@ use kira::sound::static_sound::StaticSoundData;
 use pollster::block_on;
 use std::time::Duration;
 use std::{sync::Arc, time::Instant};
+use winit::window::{CursorIcon, CustomCursor};
 use winit::{
     application::ApplicationHandler,
     event::{KeyEvent, WindowEvent},
@@ -49,6 +50,7 @@ struct AppState {
     multiplying_factor: f32, // TODO: migrate this to a config struct to supply everywhere
     dialogue: Option<DialogueState>,
     screen_mouse_position: (f64, f64),
+    tile_cursor: CustomCursor,
     smoothed_fps: f32,
     audio: kira::AudioManager<kira::DefaultBackend>,
     audio_blip: Vec<StaticSoundData>,
@@ -101,12 +103,35 @@ impl ApplicationHandler for App {
             return;
         }
 
+        let window_size = Vec2::new(800.0, 600.0);
         let window_attributes = Window::default_attributes()
             .with_title("Tetherwood")
-            .with_inner_size(winit::dpi::LogicalSize::new(800.0, 600.0))
+            .with_inner_size(winit::dpi::LogicalSize::new(window_size.x, window_size.y))
             .with_position(winit::dpi::LogicalPosition::new(0.0, 100.0));
         let window = event_loop.create_window(window_attributes).unwrap();
         let window = Arc::new(window);
+
+        // Load custom cursor
+        let image = image::open("assets/cursor-pointer.png").unwrap().to_rgba8();
+        let (width, height) = image.dimensions();
+        let rgba_pixels = image.into_raw();
+
+        // Define hotspot coordinates (e.g., center or top-left 0,0)
+        let hotspot_x: u16 = 0;
+        let hotspot_y: u16 = 0;
+
+        // Create the custom cursor source
+        let cursor_source = winit::window::CustomCursor::from_rgba(
+            rgba_pixels,
+            width as u16,
+            height as u16,
+            hotspot_x,
+            hotspot_y,
+        )
+        .unwrap();
+
+        // Register the cursor with the event loop
+        let custom_cursor = event_loop.create_custom_cursor(cursor_source);
 
         let mut renderer =
             block_on(Renderer::new(window.clone())).expect("failed to initialize renderer");
@@ -152,6 +177,7 @@ impl ApplicationHandler for App {
             multiplying_factor,
             dialogue: None,
             screen_mouse_position: (0.0, 0.0),
+            tile_cursor: custom_cursor,
             smoothed_fps: 60.0,
             audio,
             audio_blip,
@@ -194,7 +220,9 @@ impl ApplicationHandler for App {
                 state.tick_dialogue(delta);
                 state.update_player(delta);
 
-                match state.renderer.acquire_frame() {
+                let frame = state.renderer.acquire_frame();
+                // TODO: display frame time
+                match frame {
                     Ok(Some(frame)) => {
                         // Texture Layer
                         state.renderer.draw_background_and_entities(
@@ -204,12 +232,17 @@ impl ApplicationHandler for App {
                         );
 
                         // Debug Rect Layer
+                        let world_pos = state.renderer.screen_to_world(Vec2::new(
+                            state.screen_mouse_position.0 as f32,
+                            state.screen_mouse_position.1 as f32,
+                        ));
                         state.renderer.draw_debug_geometry(
                             &frame,
                             &state.scene,
                             &state.debug,
                             state.is_isometric,
                             state.multiplying_factor,
+                            world_pos,
                         );
 
                         // HUD Layer
@@ -226,7 +259,7 @@ impl ApplicationHandler for App {
                         log::error!("render failed: {e}");
                         event_loop.exit();
                     }
-                }
+                };
             }
             WindowEvent::KeyboardInput {
                 event:
@@ -260,6 +293,14 @@ impl ApplicationHandler for App {
                     } else if code == KeyCode::F6 {
                         let state_msg = state.debug.toggle_occupied_cells();
                         state.notify(state_msg);
+                    } else if code == KeyCode::F8 {
+                        let state_msg = state.debug.toggle_tile_editor();
+                        state.notify(state_msg);
+                        if state.debug.show_tile_editor {
+                            state.window.set_cursor(state.tile_cursor.clone());
+                        } else {
+                            state.window.set_cursor(CursorIcon::Default);
+                        }
                     } else if code == KeyCode::F10 {
                         state.is_isometric = !state.is_isometric;
                         state.notify(format!(

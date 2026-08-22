@@ -1,3 +1,5 @@
+use glam::Vec2;
+
 use crate::engine::debug::{DebugSettings, overlay};
 use crate::engine::renderer::{Frame, Renderer, mesh};
 use crate::engine::scene::Scene;
@@ -10,6 +12,7 @@ impl Renderer {
         debug: &DebugSettings,
         is_isometric: bool,
         multiplying_factor: f32,
+        mouse_pos: Vec2,
     ) {
         let projection = self.screen_projection();
         let iso_projection = self.isometric_projection();
@@ -35,6 +38,9 @@ impl Renderer {
             }
             if debug.show_player_neighbours {
                 debug_rects.extend(mesh::build_player_neighborhood_mesh(scene));
+            }
+            if debug.show_tile_editor {
+                debug_rects.extend(mesh::build_cursor_highlight_mesh(scene, mouse_pos));
             }
         }
 

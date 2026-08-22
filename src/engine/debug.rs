@@ -14,6 +14,7 @@ pub struct DebugSettings {
     pub show_occupied_cells: bool,
     pub grid_display_cell_size: f32,
     pub enable_player_collider: bool,
+    pub show_tile_editor: bool,
 }
 
 impl DebugSettings {
@@ -28,6 +29,7 @@ impl DebugSettings {
             show_occupied_cells: false,
             grid_display_cell_size: grid::CELL_SIZE,
             enable_player_collider: true,
+            show_tile_editor: false,
         }
     }
 
@@ -91,6 +93,15 @@ impl DebugSettings {
             "Grid - Occupied Cells: ON"
         } else {
             "Grid - Occupied Cells: OFF"
+        }
+    }
+
+    pub fn toggle_tile_editor(&mut self) -> &'static str {
+        self.show_tile_editor = !self.show_tile_editor;
+        if self.show_tile_editor {
+            "Tile Editor: ON"
+        } else {
+            "Tile Editor: OFF"
         }
     }
 

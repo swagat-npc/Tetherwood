@@ -60,6 +60,17 @@ impl SpatialGrid {
         )
     }
 
+    /// World-space center of a cell, given its coordinate — the inverse
+    /// of cell_at_position for a single axis-pair. Shared by every debug
+    /// mesh that needs to turn a cell index into a drawable position
+    /// (occupied cells, player neighborhood, cursor highlight).
+    pub fn cell_center_world(&self, cell: (i32, i32)) -> Vec2 {
+        Vec2::new(
+            cell.0 as f32 * self.cell_size + self.cell_size * 0.5,
+            cell.1 as f32 * self.cell_size + self.cell_size * 0.5,
+        )
+    }
+
     /// Every cell coordinate within `radius` of `cell`, occupied or not.
     /// Pure geometry, no lookup. Debug visualization uses this directly to
     /// draw a highlight even over empty space; collision queries use it as
