@@ -1,7 +1,7 @@
 pub mod info;
+pub mod inspector;
 pub mod notifications;
 pub mod overlay;
-pub mod ui;
 
 use crate::engine::grid;
 

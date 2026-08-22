@@ -5,8 +5,8 @@ mod player;
 mod scene_lifecycle;
 
 use super::debug::DebugSettings;
+use crate::engine::debug::inspector::Inspector;
 use crate::engine::debug::notifications::Notification;
-use crate::engine::debug::ui::Slider;
 use crate::engine::renderer::Renderer;
 use crate::engine::scene::{InteractResult, Scene, SceneId};
 use crate::game::actions::{self, Action};
@@ -59,7 +59,7 @@ struct AppState {
     notifications: Vec<Notification>,
     left_mouse_down: bool,
     debug: DebugSettings,
-    volume_slider: Slider,
+    inspector: Inspector,
     is_isometric: bool,
     progression: ProgressionTracker,
 }
@@ -159,13 +159,7 @@ impl ApplicationHandler for App {
                 .expect("failed to load monologue blip"),
         );
 
-        let volume_slider = Slider::new(
-            Vec2::new(700.0, 30.0),
-            Vec2::new(120.0, 12.0),
-            -40.0,
-            0.0,
-            -24.0, // matches blip_volume's current default
-        );
+        let inspector = Inspector::new(renderer.screen_size());
 
         let state = AppState {
             window,
@@ -185,7 +179,7 @@ impl ApplicationHandler for App {
             blip_volume: -24.0,
             notifications: Vec::new(),
             left_mouse_down: false,
-            volume_slider,
+            inspector,
             debug: DebugSettings::new(),
             is_isometric: false,
             progression: ProgressionTracker::new(),
