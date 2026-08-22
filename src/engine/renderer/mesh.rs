@@ -178,6 +178,41 @@ pub(super) fn build_text_mesh(glyphs: &[text::PositionedGlyph]) -> (Vec<Vertex>,
     (vertices, indices)
 }
 
+pub(super) fn build_ttf_text_mesh(glyphs: &[text::PositionedTTFGlyph]) -> (Vec<Vertex>, Vec<u16>) {
+    let mut vertices = Vec::with_capacity(glyphs.len() * 4);
+    let mut indices = Vec::with_capacity(glyphs.len() * 6);
+
+    for glyph in glyphs {
+        let top_left = glyph.position;
+        let bottom_right = glyph.position + glyph.size;
+
+        let base = vertices.len() as u16;
+        vertices.push(Vertex {
+            position: [top_left.x, top_left.y, 0.0],
+            tex_coords: [glyph.uv_min.x, glyph.uv_min.y],
+            tint: glyph.color,
+        });
+        vertices.push(Vertex {
+            position: [top_left.x, bottom_right.y, 0.0],
+            tex_coords: [glyph.uv_min.x, glyph.uv_max.y],
+            tint: glyph.color,
+        });
+        vertices.push(Vertex {
+            position: [bottom_right.x, bottom_right.y, 0.0],
+            tex_coords: [glyph.uv_max.x, glyph.uv_max.y],
+            tint: glyph.color,
+        });
+        vertices.push(Vertex {
+            position: [bottom_right.x, top_left.y, 0.0],
+            tex_coords: [glyph.uv_max.x, glyph.uv_min.y],
+            tint: glyph.color,
+        });
+
+        indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 3, base + 2]);
+    }
+    (vertices, indices)
+}
+
 pub(super) fn build_solid_rect_mesh(rects: &[SolidRect]) -> (Vec<SolidVertex>, Vec<u16>) {
     let mut vertices = Vec::with_capacity(rects.len() * 4);
     let mut indices = Vec::with_capacity(rects.len() * 6);

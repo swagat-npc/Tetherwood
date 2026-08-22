@@ -1,5 +1,5 @@
 use crate::engine::entity::Rect;
-use crate::engine::renderer::{Frame, Renderer, SolidRect};
+use crate::engine::renderer::{Frame, Renderer, SolidRect, text};
 use glam::{Mat4, Vec2};
 
 const INSPECTOR_PADDING: f32 = 6.0;
@@ -99,6 +99,8 @@ impl Inspector {
         }
         let projection = renderer.screen_projection();
         renderer.render_solid_rects(frame, &rects, projection, Mat4::IDENTITY);
+
+        self.draw_section_titles(renderer, frame);
     }
 
     fn build_panel(&self) -> Vec<SolidRect> {
@@ -139,6 +141,25 @@ impl Inspector {
                 border_thickness_px: SECTION_BORDER_THICKNESS,
             })
             .collect()
+    }
+
+    fn draw_section_titles(&self, renderer: &mut Renderer, frame: &Frame) {
+        let Some(state) = &self.state else { return };
+
+        for section in &state.sections {
+            let origin = Vec2::new(
+                section.bounds.center.x - section.bounds.half_size.x + 8.0,
+                section.bounds.center.y - section.bounds.half_size.y + 4.0,
+            );
+            let glyphs = text::layout_ttf_text(
+                &section.title,
+                &renderer.ttf_glyphs,
+                origin,
+                1.0,
+                [1.0, 1.0, 1.0, 1.0],
+            );
+            renderer.render_ttf_text(frame, &glyphs);
+        }
     }
 }
 

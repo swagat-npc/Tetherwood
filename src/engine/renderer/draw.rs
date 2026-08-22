@@ -169,6 +169,68 @@ impl Renderer {
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 
+    pub fn render_ttf_text(&mut self, frame: &Frame, glyphs: &[text::PositionedTTFGlyph]) {
+        if glyphs.is_empty() {
+            return;
+        }
+        let (vertices, indices) = mesh::build_ttf_text_mesh(glyphs);
+        let vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("text vertex buffer"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let index_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("text index buffer"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+
+        // Screen=space only (ADR-058) - no camera_view term, so text stays fixed
+        // to the window regardless of camera position or mode (HUD).
+        let projection = self.screen_projection();
+        self.queue.write_buffer(
+            &self.transform_buffer,
+            0,
+            bytemuck::cast_slice(&projection.to_cols_array()),
+        );
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("text render encoder"),
+            });
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("text draw pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &frame.view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load, // always paint over — scene already drew this frame
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.ttf_atlas_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.transform_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+        }
+        self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
     pub fn render_text_with_bg(&mut self, frame: &Frame, glyphs: &[text::PositionedGlyph]) {
         self.render_text_bg(
             frame,

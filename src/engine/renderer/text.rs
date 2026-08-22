@@ -1,4 +1,7 @@
+use crate::engine::renderer::texture::Texture;
+use anyhow::{Context, Result};
 use glam::Vec2;
+use std::collections::HashMap;
 
 /// Good Neighbors font, hand-arranged (in Aseprite) into a uniform
 /// 10x9 grid — no external metadata file needed, since every glyph
@@ -150,6 +153,147 @@ pub struct PositionedGlyph {
     pub position: Vec2,
     pub color: [f32; 4],
     pub scale: f32,
+}
+
+pub struct PositionedTTFGlyph {
+    pub uv_min: Vec2,
+    pub uv_max: Vec2,
+    pub position: Vec2, // top-left of the glyph's quad, unlike center-based positioning used everywhere else
+    pub size: Vec2,
+    pub color: [f32; 4],
+}
+
+pub struct TTFGlyph {
+    pub uv_min: Vec2,
+    pub uv_max: Vec2,
+    pub advance: f32, // how far the cursor advances after this glyph
+    pub offset: Vec2, // glyph's bitmap top-left offset from the cursor position
+    pub size: Vec2,   // glyph's bitmap size
+}
+
+pub fn layout_ttf_text(
+    text: &str,
+    font: &HashMap<char, TTFGlyph>,
+    origin: Vec2,
+    scale: f32,
+    color: [f32; 4],
+) -> Vec<PositionedTTFGlyph> {
+    let mut glyphs = Vec::new();
+    let mut cursor = origin;
+
+    for c in text.chars() {
+        if let Some(g) = font.get(&c) {
+            glyphs.push(PositionedTTFGlyph {
+                uv_min: g.uv_min,
+                uv_max: g.uv_max,
+                position: cursor + g.offset * scale,
+                size: g.size * scale,
+                color,
+            });
+            cursor.x += g.advance * scale;
+        } else {
+            cursor.x += scale * 8.0; // rough fallback for missing/space glyphs
+        }
+    }
+    glyphs
+}
+
+pub fn build_ttf_atlas(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    font_path: &str,
+    px_size: f32,
+) -> Result<(Texture, HashMap<char, TTFGlyph>)> {
+    let font_bytes =
+        std::fs::read(font_path).with_context(|| format!("failed to read ttf: {font_path}"))?;
+    let font = fontdue::Font::from_bytes(font_bytes, fontdue::FontSettings::default())
+        .expect("failed to parse ttf");
+
+    let chars: Vec<char> = (32u8..=126u8).map(|b| b as char).collect(); // printable ASCII
+
+    // Rasterize every glyph up front, so we know each one's real size
+    // before deciding atlas layout.
+    let rasterized: Vec<(char, fontdue::Metrics, Vec<u8>)> = chars
+        .iter()
+        .map(|&c| {
+            let (metrics, bitmap) = font.rasterize(c, px_size);
+            (c, metrics, bitmap)
+        })
+        .collect();
+
+    const ATLAS_WIDTH: u32 = 256; // fixed width, rows grow downward as needed
+    const PADDING: u32 = 1; // gap between glyphs, avoids sampling bleed at small scales
+
+    let mut glyphs = HashMap::new();
+
+    let mut cursor_x: u32 = 0;
+    let mut cursor_y: u32 = 0;
+    let mut row_height: u32 = 0;
+
+    // First pass: compute final atlas_height by simulating the packing,
+    // so the pixel buffer can be allocated once at the right size
+    // rather than resized/copied row by row.
+    for (_, metrics, _) in &rasterized {
+        let w = metrics.width as u32;
+        let h = metrics.height as u32;
+        if cursor_x + w + PADDING > ATLAS_WIDTH {
+            cursor_x = 0;
+            cursor_y += row_height + PADDING;
+            row_height = 0;
+        }
+        cursor_x += w + PADDING;
+        row_height = row_height.max(h);
+    }
+    let atlas_height = cursor_y + row_height + PADDING;
+    let mut atlas_rgba = vec![0u8; (ATLAS_WIDTH * atlas_height * 4) as usize];
+
+    // Second pass: actually place each glyph's pixels and record its UV rect.
+    cursor_x = 0;
+    cursor_y = 0;
+    row_height = 0;
+    for (c, metrics, bitmap) in &rasterized {
+        let w = metrics.width as u32;
+        let h = metrics.height as u32;
+        if cursor_x + w + PADDING > ATLAS_WIDTH {
+            cursor_x = 0;
+            cursor_y += row_height + PADDING;
+            row_height = 0;
+        }
+
+        for y in 0..h {
+            for x in 0..w {
+                let coverage = bitmap[(y * w + x) as usize];
+                let atlas_px = ((cursor_y + y) * ATLAS_WIDTH + (cursor_x + x)) as usize * 4;
+                atlas_rgba[atlas_px..atlas_px + 4].copy_from_slice(&[255, 255, 255, coverage]);
+            }
+        }
+
+        let uv_min = Vec2::new(cursor_x as f32, cursor_y as f32)
+            / Vec2::new(ATLAS_WIDTH as f32, atlas_height as f32);
+        let uv_max = Vec2::new((cursor_x + w) as f32, (cursor_y + h) as f32)
+            / Vec2::new(ATLAS_WIDTH as f32, atlas_height as f32);
+
+        glyphs.insert(
+            *c,
+            TTFGlyph {
+                uv_min,
+                uv_max,
+                advance: metrics.advance_width,
+                offset: Vec2::new(metrics.xmin as f32, -metrics.ymin as f32 - h as f32), // see note below
+                size: Vec2::new(w as f32, h as f32),
+            },
+        );
+
+        cursor_x += w + PADDING;
+        row_height = row_height.max(h);
+    }
+
+    let image_buffer = image::RgbaImage::from_raw(ATLAS_WIDTH, atlas_height, atlas_rgba)
+        .expect("atlas buffer size mismatch");
+    let dynamic_image = image::DynamicImage::ImageRgba8(image_buffer);
+    let texture = Texture::from_image(device, queue, &dynamic_image, Some("ttf atlas"))?;
+
+    Ok((texture, glyphs))
 }
 
 pub fn combined_glyph_info(glyphs: &[PositionedGlyph], padding: f32) -> (Vec2, Vec2) {

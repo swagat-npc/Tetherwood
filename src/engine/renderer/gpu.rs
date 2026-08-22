@@ -39,6 +39,10 @@ pub struct Renderer {
     #[allow(dead_code)]
     font_atlas: Texture,
     pub(super) glyph_atlas_bind_group: wgpu::BindGroup,
+    #[allow(dead_code)]
+    ttf_atlas: Texture,
+    pub(super) ttf_atlas_bind_group: wgpu::BindGroup,
+    pub ttf_glyphs: std::collections::HashMap<char, crate::engine::renderer::text::TTFGlyph>,
     pub camera_position: Vec2,
 }
 
@@ -216,6 +220,28 @@ impl Renderer {
             ],
         });
 
+        let (ttf_atlas, ttf_glyphs) = crate::engine::renderer::text::build_ttf_atlas(
+            &device,
+            &queue,
+            "assets/font/cairopixel.ttf",
+            32.0,
+        )?;
+
+        let ttf_atlas_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ttf atlas bind group"),
+            layout: &texture_bind_group_layout, // same layout, same shape as glyph_atlas_bind_group
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&ttf_atlas.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&ttf_atlas.sampler),
+                },
+            ],
+        });
+
         let debug_shader =
             device.create_shader_module(wgpu::include_wgsl!("shaders/debug_shader.wgsl"));
 
@@ -294,6 +320,9 @@ impl Renderer {
             debug_pipeline,
             font_atlas,
             glyph_atlas_bind_group,
+            ttf_atlas,
+            ttf_atlas_bind_group,
+            ttf_glyphs,
             bind_groups: Vec::new(),
             camera_position: Vec2::ZERO,
         })
