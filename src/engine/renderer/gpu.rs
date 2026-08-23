@@ -40,6 +40,9 @@ pub struct Renderer {
     font_atlas: Texture,
     pub(super) glyph_atlas_bind_group: wgpu::BindGroup,
     #[allow(dead_code)]
+    tile_atlas: Texture,
+    pub(super) tile_atlas_bind_group: wgpu::BindGroup,
+    #[allow(dead_code)]
     ttf_atlas: Texture,
     pub(super) ttf_atlas_bind_group: wgpu::BindGroup,
     pub ttf_glyphs: std::collections::HashMap<char, crate::engine::renderer::text::TTFGlyph>,
@@ -242,6 +245,25 @@ impl Renderer {
             ],
         });
 
+        let mut tile_store = TextureStore::new();
+        let tile_atlas_id = tile_store.load(&device, &queue, "assets/isometric_tiles.aseprite")?;
+        let tile_atlas = tile_store.take(tile_atlas_id);
+
+        let tile_atlas_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("tile atlas bind group"),
+            layout: &texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&tile_atlas.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&tile_atlas.sampler),
+                },
+            ],
+        });
+
         let debug_shader =
             device.create_shader_module(wgpu::include_wgsl!("shaders/debug_shader.wgsl"));
 
@@ -320,6 +342,8 @@ impl Renderer {
             debug_pipeline,
             font_atlas,
             glyph_atlas_bind_group,
+            tile_atlas,
+            tile_atlas_bind_group,
             ttf_atlas,
             ttf_atlas_bind_group,
             ttf_glyphs,

@@ -7,7 +7,7 @@ mod scene_lifecycle;
 use super::debug::DebugSettings;
 use crate::engine::debug::inspector::Inspector;
 use crate::engine::debug::notifications::Notification;
-use crate::engine::renderer::Renderer;
+use crate::engine::renderer::{Renderer, tile};
 use crate::engine::scene::{InteractResult, Scene, SceneId};
 use crate::game::actions::{self, Action};
 use crate::game::dialogue::line_for;
@@ -219,6 +219,29 @@ impl ApplicationHandler for App {
                 match frame {
                     Ok(Some(frame)) => {
                         state.renderer.clear_frame(&frame);
+
+                        // Tile Layer
+                        let tile_entries: Vec<(Vec2, (i32, i32))> = state
+                            .scene
+                            .tile_grid
+                            .iter()
+                            .map(|(cell, atlas_cell)| {
+                                (
+                                    tile::tile_world_position(cell, state.multiplying_factor),
+                                    atlas_cell,
+                                )
+                            })
+                            .collect();
+                        let projection = state.renderer.screen_projection();
+                        let sprite_camera_view =
+                            state.renderer.sprite_camera_view(state.is_isometric);
+                        state.renderer.render_tiles(
+                            &frame,
+                            &tile_entries,
+                            projection,
+                            sprite_camera_view,
+                            state.multiplying_factor,
+                        );
 
                         // Texture Layer
                         state.renderer.draw_background_and_entities(

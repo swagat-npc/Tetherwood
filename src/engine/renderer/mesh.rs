@@ -1,4 +1,4 @@
-use super::text;
+use super::{text, tile};
 use crate::engine::scene::Scene;
 use glam::Vec2;
 
@@ -206,6 +206,46 @@ pub(super) fn build_ttf_text_mesh(glyphs: &[text::PositionedTTFGlyph]) -> (Vec<V
             position: [bottom_right.x, top_left.y, 0.0],
             tex_coords: [glyph.uv_max.x, glyph.uv_min.y],
             tint: glyph.color,
+        });
+
+        indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 3, base + 2]);
+    }
+    (vertices, indices)
+}
+
+pub(super) fn build_tile_mesh(
+    tiles: &[(Vec2, (i32, i32))],
+    multiplying_factor: f32,
+) -> (Vec<Vertex>, Vec<u16>) {
+    let mut vertices = Vec::with_capacity(tiles.len() * 4);
+    let mut indices = Vec::with_capacity(tiles.len() * 6);
+    let scaled_size = tile::TILE_SIZE * multiplying_factor;
+
+    for (position, atlas_cell) in tiles {
+        let (uv_min, uv_max) = tile::tile_uv(*atlas_cell);
+        let top_left = *position;
+        let bottom_right = *position + scaled_size;
+
+        let base = vertices.len() as u16;
+        vertices.push(Vertex {
+            position: [top_left.x, top_left.y, 0.0],
+            tex_coords: [uv_min.x, uv_min.y],
+            tint: [1.0, 1.0, 1.0, 1.0],
+        });
+        vertices.push(Vertex {
+            position: [top_left.x, bottom_right.y, 0.0],
+            tex_coords: [uv_min.x, uv_max.y],
+            tint: [1.0, 1.0, 1.0, 1.0],
+        });
+        vertices.push(Vertex {
+            position: [bottom_right.x, bottom_right.y, 0.0],
+            tex_coords: [uv_max.x, uv_max.y],
+            tint: [1.0, 1.0, 1.0, 1.0],
+        });
+        vertices.push(Vertex {
+            position: [bottom_right.x, top_left.y, 0.0],
+            tex_coords: [uv_max.x, uv_min.y],
+            tint: [1.0, 1.0, 1.0, 1.0],
         });
 
         indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 3, base + 2]);

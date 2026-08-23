@@ -136,6 +136,72 @@ impl Renderer {
         self.render_solid_rects(frame, &[panel], projection, glam::Mat4::IDENTITY);
     }
 
+    pub fn render_tiles(
+        &mut self,
+        frame: &Frame,
+        tiles: &[(glam::Vec2, (i32, i32))],
+        projection: glam::Mat4,
+        camera_view: glam::Mat4,
+        multiplying_factor: f32,
+    ) {
+        if tiles.is_empty() {
+            return;
+        }
+        let (vertices, indices) = mesh::build_tile_mesh(tiles, multiplying_factor);
+        let vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("tile vertex buffer"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let index_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("tile index buffer"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+
+        let transform = projection * camera_view;
+        self.queue.write_buffer(
+            &self.transform_buffer,
+            0,
+            bytemuck::cast_slice(&transform.to_cols_array()),
+        );
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("tile encoder"),
+            });
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("tile pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &frame.view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.tile_atlas_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.transform_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+        }
+        self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
     pub fn render_text(&mut self, frame: &Frame, glyphs: &[text::PositionedGlyph]) {
         // Screen-space only — no camera_view term, so text stays fixed
         // to the window regardless of camera position or mode (HUD).

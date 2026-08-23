@@ -5,7 +5,7 @@ use super::{
 use crate::engine::entity::{Direction, is_facing_toward};
 use crate::engine::grid;
 use crate::engine::renderer::texture::{TextureId, TextureStore};
-use crate::engine::scene::{CameraMode, WallId};
+use crate::engine::scene::{CameraMode, TileGrid, WallId};
 use glam::Vec2;
 use std::collections::HashMap;
 
@@ -28,6 +28,7 @@ impl Scene {
             id,
             static_grid: grid::SpatialGrid::new(cell_size),
             dynamic_grid: grid::SpatialGrid::new(cell_size),
+            tile_grid: TileGrid::new(),
             background: Vec::new(),
             walls: Vec::new(),
             triggers: Vec::new(),

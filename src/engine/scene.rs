@@ -7,6 +7,23 @@ use crate::engine::entity::{
 use crate::engine::grid::SpatialGrid;
 use crate::engine::renderer::texture::{TextureId, TextureStore};
 use glam::Vec2;
+use std::collections::HashMap;
+
+pub struct Scene {
+    pub id: SceneId,
+    static_grid: SpatialGrid,
+    dynamic_grid: SpatialGrid,
+    pub tile_grid: TileGrid,
+    pub background: Vec<Background>,
+    pub walls: Vec<Collider>,
+    pub triggers: Vec<Trigger>,
+    pub entities: Vec<Entity>,
+    pub texture_store: TextureStore,
+    player_index: usize,
+    orthographic_camera_mode: CameraMode,
+    isometric_camera_mode: CameraMode,
+    current_camera_mode: CameraMode,
+}
 
 /// Per-scene camera behavior (ADR-041). Static holds its own fixed
 /// anchor point; Follow has no stored data — it reads the player's
@@ -148,17 +165,30 @@ pub enum SceneId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WallId(pub usize);
 
-pub struct Scene {
-    pub id: SceneId,
-    static_grid: SpatialGrid,
-    dynamic_grid: SpatialGrid,
-    pub background: Vec<Background>,
-    pub walls: Vec<Collider>,
-    pub triggers: Vec<Trigger>,
-    pub entities: Vec<Entity>,
-    pub texture_store: TextureStore,
-    player_index: usize,
-    orthographic_camera_mode: CameraMode,
-    isometric_camera_mode: CameraMode,
-    current_camera_mode: CameraMode,
+/// A scene's tile-based floor layout (ADR-096). Sparse — an unpainted
+/// cell simply shows void, per the existing no-camera-clamping
+/// convention. Stores atlas cells directly for now; ADR-097's compact
+/// integer save format is a separate, later step.
+pub struct TileGrid {
+    tiles: HashMap<(i32, i32), (i32, i32)>,
+}
+
+impl TileGrid {
+    pub fn new() -> Self {
+        Self {
+            tiles: HashMap::new(),
+        }
+    }
+
+    pub fn set_named(&mut self, cell: (i32, i32), name: &str, names: &HashMap<&str, (i32, i32)>) {
+        if let Some(&atlas_cell) = names.get(name) {
+            self.tiles.insert(cell, atlas_cell);
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = ((i32, i32), (i32, i32))> + '_ {
+        self.tiles
+            .iter()
+            .map(|(&cell, &atlas_cell)| (cell, atlas_cell))
+    }
 }
