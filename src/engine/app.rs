@@ -226,10 +226,17 @@ impl ApplicationHandler for App {
                             .tile_grid
                             .iter()
                             .map(|(cell, atlas_cell)| {
-                                (
-                                    tile::tile_world_position(cell, state.multiplying_factor),
-                                    atlas_cell,
-                                )
+                                let world_pos = tile::tile_world_position(
+                                    cell,
+                                    state.multiplying_factor,
+                                    state.is_isometric,
+                                );
+                                let effective_pos = if state.is_isometric {
+                                    state.renderer.shear(world_pos)
+                                } else {
+                                    world_pos
+                                };
+                                (effective_pos, atlas_cell)
                             })
                             .collect();
                         let projection = state.renderer.screen_projection();
@@ -241,6 +248,7 @@ impl ApplicationHandler for App {
                             projection,
                             sprite_camera_view,
                             state.multiplying_factor,
+                            state.is_isometric,
                         );
 
                         // Texture Layer

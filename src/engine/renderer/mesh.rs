@@ -216,15 +216,18 @@ pub(super) fn build_ttf_text_mesh(glyphs: &[text::PositionedTTFGlyph]) -> (Vec<V
 pub(super) fn build_tile_mesh(
     tiles: &[(Vec2, (i32, i32))],
     multiplying_factor: f32,
+    is_isometric: bool,
 ) -> (Vec<Vertex>, Vec<u16>) {
+    let size_factor = if is_isometric { 2.0 } else { 1.0 };
     let mut vertices = Vec::with_capacity(tiles.len() * 4);
     let mut indices = Vec::with_capacity(tiles.len() * 6);
-    let scaled_size = tile::TILE_SIZE * multiplying_factor;
+    let scaled_size = tile::TILE_WORLD_SIZE * multiplying_factor * size_factor;
+    let half_size = scaled_size * 0.5;
 
     for (position, atlas_cell) in tiles {
-        let (uv_min, uv_max) = tile::tile_uv(*atlas_cell);
-        let top_left = *position;
-        let bottom_right = *position + scaled_size;
+        let (uv_min, uv_max) = tile::tile_uv(*atlas_cell, is_isometric);
+        let top_left = *position - half_size;
+        let bottom_right = *position + half_size;
 
         let base = vertices.len() as u16;
         vertices.push(Vertex {

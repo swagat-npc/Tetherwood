@@ -143,11 +143,12 @@ impl Renderer {
         projection: glam::Mat4,
         camera_view: glam::Mat4,
         multiplying_factor: f32,
+        is_isometric: bool,
     ) {
         if tiles.is_empty() {
             return;
         }
-        let (vertices, indices) = mesh::build_tile_mesh(tiles, multiplying_factor);
+        let (vertices, indices) = mesh::build_tile_mesh(tiles, multiplying_factor, is_isometric);
         let vertex_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
