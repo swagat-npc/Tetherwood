@@ -151,13 +151,10 @@ fn build_background(
     let names = tile::tile_names();
     scene.tile_grid.set_named((0, 0), "floor", &names);
     scene.tile_grid.set_named((1, 0), "floor", &names);
-    scene.tile_grid.set_named((2, 0), "floor", &names);
     scene.tile_grid.set_named((0, 1), "floor", &names);
-    scene.tile_grid.set_named((1, 1), "floor", &names);
-    scene.tile_grid.set_named((2, 1), "floor", &names);
+    scene.tile_grid.set_named((1, 1), "half-floor", &names);
     scene.tile_grid.set_named((0, 2), "floor", &names);
-    scene.tile_grid.set_named((1, 2), "floor", &names);
-    scene.tile_grid.set_named((2, 2), "staircase-right", &names);
+    scene.tile_grid.set_named((1, 2), "staircase-right", &names);
     Ok(())
 }
 
@@ -313,7 +310,7 @@ fn build_entities(
         queue,
         multiplying_factor,
         builder::EntitySpec {
-            position: Vec2::new(64.0, 87.5),
+            position: Vec2::new(64.0, 87.0),
             size: Vec2::new(14.0, 24.0),
             collider_offset: Vec2::new(0.0, 6.0),
             collider_size: Vec2::new(12.0, 12.0),

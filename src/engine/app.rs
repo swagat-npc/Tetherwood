@@ -221,11 +221,12 @@ impl ApplicationHandler for App {
                         state.renderer.clear_frame(&frame);
 
                         // Tile Layer
-                        let tile_entries: Vec<(Vec2, (i32, i32))> = state
+                        let mut tile_entries: Vec<(Vec2, (i32, i32), f32)> = state
                             .scene
                             .tile_grid
                             .iter()
                             .map(|(cell, atlas_cell)| {
+                                let depth = (cell.0 + cell.1) as f32;
                                 let world_pos = tile::tile_world_position(
                                     cell,
                                     state.multiplying_factor,
@@ -236,9 +237,12 @@ impl ApplicationHandler for App {
                                 } else {
                                     world_pos
                                 };
-                                (effective_pos, atlas_cell)
+                                (effective_pos, atlas_cell, depth)
                             })
                             .collect();
+
+                        tile_entries.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+
                         let projection = state.renderer.screen_projection();
                         let sprite_camera_view =
                             state.renderer.sprite_camera_view(state.is_isometric);

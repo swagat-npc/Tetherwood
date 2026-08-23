@@ -139,7 +139,7 @@ impl Renderer {
     pub fn render_tiles(
         &mut self,
         frame: &Frame,
-        tiles: &[(glam::Vec2, (i32, i32))],
+        tiles: &[(glam::Vec2, (i32, i32), f32)],
         projection: glam::Mat4,
         camera_view: glam::Mat4,
         multiplying_factor: f32,

@@ -213,8 +213,10 @@ pub(super) fn build_ttf_text_mesh(glyphs: &[text::PositionedTTFGlyph]) -> (Vec<V
     (vertices, indices)
 }
 
+const GEOMETRY_OVERLAP: f32 = 0.01; // world-space authoring units, tuned small
+
 pub(super) fn build_tile_mesh(
-    tiles: &[(Vec2, (i32, i32))],
+    tiles: &[(Vec2, (i32, i32), f32)],
     multiplying_factor: f32,
     is_isometric: bool,
 ) -> (Vec<Vertex>, Vec<u16>) {
@@ -222,9 +224,10 @@ pub(super) fn build_tile_mesh(
     let mut vertices = Vec::with_capacity(tiles.len() * 4);
     let mut indices = Vec::with_capacity(tiles.len() * 6);
     let scaled_size = tile::TILE_WORLD_SIZE * multiplying_factor * size_factor;
-    let half_size = scaled_size * 0.5;
+    let overlap = Vec2::splat(GEOMETRY_OVERLAP * multiplying_factor);
+    let half_size = scaled_size * 0.5 + overlap;
 
-    for (position, atlas_cell) in tiles {
+    for (position, atlas_cell, _depth) in tiles {
         let (uv_min, uv_max) = tile::tile_uv(*atlas_cell, is_isometric);
         let top_left = *position - half_size;
         let bottom_right = *position + half_size;
