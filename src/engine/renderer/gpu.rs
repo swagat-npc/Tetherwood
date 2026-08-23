@@ -2,7 +2,7 @@ use super::mesh::{INDICES, SolidVertex, VERTICES, Vertex};
 use super::texture::{Texture, TextureId, TextureStore};
 use crate::engine::scene::Scene;
 use anyhow::Result;
-use glam::Vec2;
+use glam::{Mat4, Vec2, Vec4};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
@@ -188,7 +188,7 @@ impl Renderer {
         });
         let transform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("transform buffer"),
-            contents: bytemuck::cast_slice(&glam::Mat4::IDENTITY.to_cols_array()),
+            contents: bytemuck::cast_slice(&Mat4::IDENTITY.to_cols_array()),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         let transform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -340,8 +340,8 @@ impl Renderer {
         Vec2::new(self.config.width as f32, self.config.height as f32)
     }
 
-    pub fn screen_projection(&self) -> glam::Mat4 {
-        glam::Mat4::orthographic_rh(
+    pub fn screen_projection(&self) -> Mat4 {
+        Mat4::orthographic_rh(
             0.0,
             self.config.width as f32,
             self.config.height as f32,
@@ -351,17 +351,39 @@ impl Renderer {
         )
     }
 
-    pub fn isometric_projection(&self) -> glam::Mat4 {
+    pub fn isometric_projection(&self) -> Mat4 {
         const K: f32 = 1.0; // starting guess, tune by feel once visible
 
         // Column-major: transforms
         // (x, y) -> ((x - y) * k, (x + y) * k * 0.5)
-        glam::Mat4::from_cols(
-            glam::Vec4::new(K, K * 0.5, 0.0, 0.0),
-            glam::Vec4::new(-K, K * 0.5, 0.0, 0.0),
-            glam::Vec4::new(0.0, 0.0, 1.0, 0.0),
-            glam::Vec4::new(0.0, 0.0, 0.0, 1.0),
+        Mat4::from_cols(
+            Vec4::new(K, K * 0.5, 0.0, 0.0),
+            Vec4::new(-K, K * 0.5, 0.0, 0.0),
+            Vec4::new(0.0, 0.0, 1.0, 0.0),
+            Vec4::new(0.0, 0.0, 0.0, 1.0),
         )
+    }
+
+    /// Shears a single world-space point into iso space - used for
+    /// camera offset and, per-entity, for anchor position. Never
+    /// applied to a whole shape here.
+    pub fn shear(&self, p: Vec2) -> Vec2 {
+        self.isometric_projection()
+            .transform_point3(p.extend(0.0))
+            .truncate()
+    }
+
+    /// Camera_position is set per-frame by the caller based on scene.camera_mode (ADR-041).
+    /// For isometric mode, camera_position is sheared first so it lands in the same space
+    /// as each entity's sheared anchor - shape is never touched by this matrix.
+    pub fn sprite_camera_view(&self, is_isometric: bool) -> Mat4 {
+        let screen_center = self.screen_size() * 0.5;
+
+        if is_isometric {
+            Mat4::from_translation((screen_center - self.shear(self.camera_position)).extend(0.0))
+        } else {
+            Mat4::from_translation((screen_center - self.camera_position).extend(0.0))
+        }
     }
 
     pub fn dialogue_text_position(&self) -> Vec2 {

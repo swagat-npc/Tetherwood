@@ -10,22 +10,7 @@ impl Renderer {
         is_isometric: bool,
     ) {
         let projection = self.screen_projection();
-        let iso_projection = self.isometric_projection();
-        let screen_center = self.screen_size() * 0.5;
-
-        // Shears a single world-space point into iso space - used for
-        // camera offset and, per-entity, for anchor position. Never
-        // applied to a whole shape here; that's the debug_view's job below.
-        let shear = |p: glam::Vec2| iso_projection.transform_point3(p.extend(0.0)).truncate();
-
-        // Camera_position is set per-frame by the caller based on scene.camera_mode (ADR-041).
-        // For isometric mode, camera_position is sheared first so it lands in the same space
-        // as each entity's sheared anchor - shape is never touched by this matrix.
-        let sprite_camera_view = if is_isometric {
-            glam::Mat4::from_translation((screen_center - shear(self.camera_position)).extend(0.0))
-        } else {
-            glam::Mat4::from_translation((screen_center - self.camera_position).extend(0.0))
-        };
+        let sprite_camera_view = self.sprite_camera_view(is_isometric);
 
         // y-sort: entities drawn in ascending order of baseline
         // (bottom edge = position.y + half height), so entities with a
@@ -78,7 +63,7 @@ impl Renderer {
                 draw_size.x = -draw_size.x;
             }
             let effective_position = if is_isometric {
-                shear(*position)
+                self.shear(*position)
             } else {
                 *position
             };
@@ -99,7 +84,7 @@ impl Renderer {
                 draw_size.x = -draw_size.x;
             }
             let effective_position = if is_isometric {
-                shear(*position)
+                self.shear(*position)
             } else {
                 *position
             };
