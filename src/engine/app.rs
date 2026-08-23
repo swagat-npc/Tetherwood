@@ -218,6 +218,8 @@ impl ApplicationHandler for App {
                 // TODO: display frame time
                 match frame {
                     Ok(Some(frame)) => {
+                        state.renderer.clear_frame(&frame);
+
                         // Texture Layer
                         state.renderer.draw_background_and_entities(
                             &frame,

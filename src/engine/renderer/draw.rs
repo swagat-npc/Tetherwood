@@ -5,6 +5,38 @@ use crate::game::dialogue::Register;
 use wgpu::util::DeviceExt;
 
 impl Renderer {
+    pub fn clear_frame(&mut self, frame: &Frame) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("clear encoder"),
+            });
+        {
+            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("clear pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &frame.view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.15,
+                            g: 0.15,
+                            b: 0.15,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+        }
+        self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
     /// Draws a batch of solid-colored rects — used by both the F1 debug
     /// overlay (gated behind show_colliders) and permanent UI like the
     /// dialogue panel. Takes projection/view as parameters rather than

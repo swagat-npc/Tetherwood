@@ -57,7 +57,7 @@ impl Renderer {
             }
         }
 
-        for (i, (bind_group_index, position, size, facing)) in draws.iter().enumerate() {
+        for (bind_group_index, position, size, facing) in draws.iter() {
             let mut draw_size = *size;
             if *facing == entity::Direction::Left {
                 draw_size.x = -draw_size.x;
@@ -74,7 +74,6 @@ impl Renderer {
                 *bind_group_index,
                 effective_position,
                 draw_size,
-                i == 0,
             );
         }
 
@@ -95,7 +94,6 @@ impl Renderer {
                 *bind_group_index,
                 effective_position,
                 draw_size,
-                false,
             );
         }
     }
@@ -114,7 +112,6 @@ impl Renderer {
         bind_group_index: usize,
         position: glam::Vec2,
         size: glam::Vec2,
-        is_first_draw_this_frame: bool,
     ) {
         let model = mesh::model_matrix(position, size);
         let transform = projection * sprite_camera_view * model;
@@ -130,17 +127,6 @@ impl Renderer {
                 label: Some("draw encoder"),
             });
         {
-            let load_op = if is_first_draw_this_frame {
-                wgpu::LoadOp::Clear(wgpu::Color {
-                    r: 0.15,
-                    g: 0.15,
-                    b: 0.15,
-                    a: 1.0,
-                })
-            } else {
-                wgpu::LoadOp::Load
-            };
-
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("draw pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -148,7 +134,7 @@ impl Renderer {
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
-                        load: load_op,
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
