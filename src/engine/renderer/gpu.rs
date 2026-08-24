@@ -47,6 +47,8 @@ pub struct Renderer {
     pub(super) ttf_atlas_bind_group: wgpu::BindGroup,
     pub ttf_glyphs: std::collections::HashMap<char, crate::engine::renderer::text::TTFGlyph>,
     pub camera_position: Vec2,
+    pub smoothed_camera: Vec2,
+    pub zoom: f32,
 }
 
 impl Renderer {
@@ -349,6 +351,8 @@ impl Renderer {
             ttf_glyphs,
             bind_groups: Vec::new(),
             camera_position: Vec2::ZERO,
+            smoothed_camera: Vec2::ZERO,
+            zoom: 1.0,
         })
     }
 
@@ -364,6 +368,26 @@ impl Renderer {
         Vec2::new(self.config.width as f32, self.config.height as f32)
     }
 
+    /// World-space projection - scaled by zoom, always centered on
+    /// player_position regardless of camera_position (which only
+    /// controls panning/framing, per CameraMode). Keeps zoom always
+    /// tracking the player even in Static-camera scenes, where the
+    /// camera itself deliberately doesn't follow them.
+    pub fn world_projection(&self) -> Mat4 {
+        let zoomed_half_width = (self.config.width as f32 / self.zoom) * 0.5;
+        let zoomed_half_height = (self.config.height as f32 / self.zoom) * 0.5;
+        Mat4::orthographic_rh(
+            -zoomed_half_width,
+            zoomed_half_width,
+            zoomed_half_height,
+            -zoomed_half_height,
+            -1.0,
+            1.0,
+        )
+    }
+
+    /// Screen-space projection - always 1:1 with real pixels, never
+    /// affected by zoom. Used by permanent UI: dialogue, inspector, HUD.
     pub fn screen_projection(&self) -> Mat4 {
         Mat4::orthographic_rh(
             0.0,
@@ -401,13 +425,36 @@ impl Renderer {
     /// For isometric mode, camera_position is sheared first so it lands in the same space
     /// as each entity's sheared anchor - shape is never touched by this matrix.
     pub fn sprite_camera_view(&self, is_isometric: bool) -> Mat4 {
-        let screen_center = self.screen_size() * 0.5;
-
+        // Pan is driven by camera_position (Static/Follow, per scene).
+        // Zoom's expansion center is always the player - scaling the
+        // difference between camera_position and player_position by
+        // (1 - 1/zoom) keeps that difference visually fixed at zoom=1
+        // and shrinks it as zoom increases, so higher zoom pulls the
+        // frame toward the player without the camera itself panning.
         if is_isometric {
-            Mat4::from_translation((screen_center - self.shear(self.camera_position)).extend(0.0))
+            Mat4::from_translation((-self.shear(self.smoothed_camera)).extend(0.0))
         } else {
-            Mat4::from_translation((screen_center - self.camera_position).extend(0.0))
+            Mat4::from_translation((-self.smoothed_camera).extend(0.0))
         }
+    }
+
+    fn effective_camera_target(&self, player_position: Vec2) -> Vec2 {
+        const FOLLOW_ZOOM_THRESHOLD: f32 = 1.5;
+        if self.zoom >= FOLLOW_ZOOM_THRESHOLD {
+            player_position
+        } else {
+            self.camera_position
+        }
+    }
+
+    /// Call once per frame, before rendering. Eases smoothed_camera
+    /// toward wherever it should ideally be (the room's static anchor,
+    /// or the player, depending on zoom) - same exponential-smoothing
+    /// approach already used for smoothed_fps, applied here to avoid a
+    /// hard snap whenever the "should I follow the player" answer flips.
+    pub fn update_smoothed_camera(&mut self, player_position: Vec2) {
+        let target = self.effective_camera_target(player_position);
+        self.smoothed_camera = self.smoothed_camera.lerp(target, 0.1);
     }
 
     pub fn dialogue_text_position(&self) -> Vec2 {
@@ -449,7 +496,8 @@ impl Renderer {
             self.config.width as f32 / 2.0,
             self.config.height as f32 / 2.0,
         );
-        screen_pos - screen_center + self.camera_position
+        let zoomed_offset = (screen_pos - screen_center) / self.zoom;
+        zoomed_offset + self.smoothed_camera
     }
 
     /// Acquires the next frame to draw into. Returns Ok(None) for the

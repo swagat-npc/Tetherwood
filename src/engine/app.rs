@@ -19,6 +19,7 @@ use kira::sound::static_sound::StaticSoundData;
 use pollster::block_on;
 use std::time::Duration;
 use std::{sync::Arc, time::Instant};
+use winit::event::MouseScrollDelta;
 use winit::window::{CursorIcon, CustomCursor};
 use winit::{
     application::ApplicationHandler,
@@ -214,6 +215,9 @@ impl ApplicationHandler for App {
                 state.tick_dialogue(delta);
                 state.update_player(delta);
 
+                let player_position = state.scene.player().position;
+                state.renderer.update_smoothed_camera(player_position);
+
                 let frame = state.renderer.acquire_frame();
                 // TODO: display frame time
                 match frame {
@@ -243,7 +247,7 @@ impl ApplicationHandler for App {
 
                         tile_entries.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
 
-                        let projection = state.renderer.screen_projection();
+                        let projection = state.renderer.world_projection();
                         let sprite_camera_view =
                             state.renderer.sprite_camera_view(state.is_isometric);
                         state.renderer.render_tiles(
@@ -404,6 +408,13 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 state.left_mouse_down = button_state == winit::event::ElementState::Pressed;
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let scroll_amount = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y,
+                    MouseScrollDelta::PixelDelta(pos) => pos.y as f32 * 0.01,
+                };
+                state.renderer.zoom = (state.renderer.zoom + scroll_amount * 0.1).clamp(0.5, 3.0);
             }
             _ => {}
         }

@@ -311,7 +311,7 @@ pub(super) fn build_grid_lines_mesh(
     visible_max: Vec2,
     cell_size: f32,
 ) -> Vec<SolidRect> {
-    const LINE_THICKNESS: f32 = 1.0;
+    const LINE_THICKNESS: f32 = 2.5;
     let line_color = [0.0, 0.0, 0.0, 0.35];
 
     let min_cell = (

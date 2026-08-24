@@ -9,7 +9,7 @@ impl Renderer {
         scene: &Scene,
         is_isometric: bool,
     ) {
-        let projection = self.screen_projection();
+        let projection = self.world_projection();
         let sprite_camera_view = self.sprite_camera_view(is_isometric);
 
         // y-sort: entities drawn in ascending order of baseline
