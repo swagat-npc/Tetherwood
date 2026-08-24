@@ -203,6 +203,80 @@ impl Renderer {
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 
+    // Deliberately mirrors render_tiles almost line-for-line: same
+    // pipeline, same tile_atlas_bind_group, same 
+    // transform_buffer/transform_bind_group scheme, same LoadOp::Load
+    // (paints ON TOP of whatever the panel/section backgrounds already
+    // drew this frame, exactly like render_tiles paints on top of
+    // clear_frame's output). Only two things differ: the mesh builder,
+    // and the transform has no camera_view multiplied in - UI space is
+    // always 1:1, matching how render_solid_rects is already called with
+    // Mat4::IDENTITY as its camera_view argument in Inspector::draw.
+    pub fn render_ui_tiles(
+        &mut self,
+        frame: &Frame,
+        entries: &[(glam::Vec2, (i32, i32))],
+        thumbnail_size: f32,
+        is_isometric: bool,
+        screen_projection: glam::Mat4,
+    ) {
+        if entries.is_empty() {
+            return;
+        }
+        let (vertices, indices) = mesh::build_thumbnail_mesh(entries, thumbnail_size, is_isometric);
+        let vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("ui tile vertex buffer"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let index_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("ui tile index buffer"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+
+        self.queue.write_buffer(
+            &self.transform_buffer,
+            0,
+            bytemuck::cast_slice(&screen_projection.to_cols_array()),
+        );
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("ui tile encoder"),
+            });
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("ui tile pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &frame.view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.tile_atlas_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.transform_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+        }
+        self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
     pub fn render_text(&mut self, frame: &Frame, glyphs: &[text::PositionedGlyph]) {
         // Screen-space only — no camera_view term, so text stays fixed
         // to the window regardless of camera position or mode (HUD).

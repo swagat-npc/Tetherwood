@@ -259,6 +259,56 @@ pub(super) fn build_tile_mesh(
     (vertices, indices)
 }
 
+// Dedicated UI-thumbnail mesh builder. Deliberately NOT a call
+// into build_tile_mesh: that function's sizing is driven by
+// TILE_WORLD_SIZE * multiplying_factor (a world-space concept),
+// and its GEOMETRY_OVERLAP epsilon fixes a seam problem that only
+// exists between edge-to-edge WORLD tiles. Thumbnails are UI-sized
+// (thumbnail_size, independent of world tile size) and always have
+// a visible `gap` between them, so there's no seam to fix and no
+// overdraw factor to apply - reusing build_tile_mesh here would
+// mean fighting its assumptions rather than benefiting from them.
+pub(super) fn build_thumbnail_mesh(
+    entries: &[(Vec2, (i32, i32))],
+    thumbnail_size: f32,
+    is_isometric: bool,
+) -> (Vec<Vertex>, Vec<u16>) {
+    let mut vertices = Vec::with_capacity(entries.len() * 4);
+    let mut indices = Vec::with_capacity(entries.len() * 6);
+    let half_size = Vec2::splat(thumbnail_size * 0.5);
+
+    for (center, atlas_cell) in entries {
+        let (uv_min, uv_max) = tile::tile_uv(*atlas_cell, is_isometric);
+        let top_left = *center - half_size;
+        let bottom_right = *center + half_size;
+
+        let base = vertices.len() as u16;
+        vertices.push(Vertex {
+            position: [top_left.x, top_left.y, 0.0],
+            tex_coords: [uv_min.x, uv_min.y],
+            tint: [1.0; 4],
+        });
+        vertices.push(Vertex {
+            position: [top_left.x, bottom_right.y, 0.0],
+            tex_coords: [uv_min.x, uv_max.y],
+            tint: [1.0; 4],
+        });
+        vertices.push(Vertex {
+            position: [bottom_right.x, bottom_right.y, 0.0],
+            tex_coords: [uv_max.x, uv_max.y],
+            tint: [1.0; 4],
+        });
+        vertices.push(Vertex {
+            position: [bottom_right.x, top_left.y, 0.0],
+            tex_coords: [uv_max.x, uv_min.y],
+            tint: [1.0; 4],
+        });
+
+        indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 3, base + 2]);
+    }
+    (vertices, indices)
+}
+
 pub(super) fn build_solid_rect_mesh(rects: &[SolidRect]) -> (Vec<SolidVertex>, Vec<u16>) {
     let mut vertices = Vec::with_capacity(rects.len() * 4);
     let mut indices = Vec::with_capacity(rects.len() * 6);

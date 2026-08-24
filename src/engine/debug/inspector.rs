@@ -1,5 +1,5 @@
 use crate::engine::entity::Rect;
-use crate::engine::renderer::{Frame, Renderer, SolidRect, text};
+use crate::engine::renderer::{Frame, Renderer, SolidRect, text, tile};
 use glam::{Mat4, Vec2};
 
 const INSPECTOR_PADDING: f32 = 6.0;
@@ -7,15 +7,20 @@ const INSPECTOR_SECTION_PADDING: f32 = 12.0;
 const INSPECTOR_BORDER_THICKNESS: f32 = 4.0;
 const SECTION_BORDER_THICKNESS: f32 = 1.5;
 
+pub enum SectionWidget {
+    Slider(Slider),
+    TilePalette(TilePalette),
+}
+
 pub struct InspectorSection {
     pub title: String,
     offset: Vec2,
     half_size: Vec2,
+    pub widgets: Vec<SectionWidget>,
 }
 
 pub struct InspectorState {
     pub sections: Vec<InspectorSection>,
-    pub volume_slider: Slider,
 }
 
 pub struct Inspector {
@@ -53,7 +58,13 @@ impl Inspector {
     pub fn toggle(&mut self) {
         self.is_hidden = !self.is_hidden;
         if let Some(state) = &mut self.state {
-            state.volume_slider.cancel_drag();
+            for section in state.sections.iter_mut() {
+                for widget in section.widgets.iter_mut() {
+                    if let SectionWidget::Slider(slider) = widget {
+                        slider.cancel_drag();
+                    }
+                }
+            }
         }
     }
 
@@ -98,24 +109,43 @@ impl Inspector {
         self.position = self.target_position();
     }
 
+    const VOLUME_SLIDER_SIZE: Vec2 = Vec2::new(120.0, 12.0);
+    const TILE_CELL_SIZE: f32 = 64.0;
+    const TILE_CELL_PADDING: f32 = 6.0;
+    const TILE_THUMBNAIL_SIZE: f32 = Self::TILE_CELL_SIZE - 2.0 * Self::TILE_CELL_PADDING;
+    const TILE_CELL_GAP: f32 = 8.0;
+
     fn populate_inspector(&mut self) {
-        let (volume_offset, volume_half_size) = self.compute_section_offset(0);
-        let (hotkey_offset, hotkey_half_size) = self.compute_section_offset(1);
+        let content_width = self.get_panel_content_width();
+
+        let tile_palette = TilePalette::new(Self::TILE_CELL_SIZE, Self::TILE_CELL_GAP, (0, 0));
+
+        let section_heights = [
+            Self::VOLUME_SLIDER_SIZE.y + 2.0 * INSPECTOR_SECTION_PADDING,
+            tile_palette.required_height(content_width),
+        ];
+
+        let (volume_offset, volume_half_size) = self.compute_section_offset(0, &section_heights);
+        let (tileset_offset, tileset_half_size) = self.compute_section_offset(1, &section_heights);
 
         let state = InspectorState {
             sections: vec![
                 InspectorSection {
-                    title: "Volume: ".to_string(),
+                    title: "Audio".to_string(),
                     offset: volume_offset,
                     half_size: volume_half_size,
+                    widgets: vec![SectionWidget::Slider(Self::populate_volume_slider(
+                        volume_offset,
+                        volume_half_size,
+                    ))],
                 },
                 InspectorSection {
-                    title: "Hotkeys: ".to_string(),
-                    offset: hotkey_offset,
-                    half_size: hotkey_half_size,
+                    title: "Tileset".to_string(),
+                    offset: tileset_offset,
+                    half_size: tileset_half_size,
+                    widgets: vec![SectionWidget::TilePalette(tile_palette)],
                 },
             ],
-            volume_slider: Self::populate_volume_slider(volume_offset, volume_half_size),
         };
 
         self.state = Some(state);
@@ -127,27 +157,69 @@ impl Inspector {
     /// via Slider::set_position, rather than trusting a value baked in
     /// once at construction time.
     fn populate_volume_slider(section_offset: Vec2, section_half_size: Vec2) -> Slider {
-        let slider_size = Vec2::new(120.0, 12.0);
         let slider_offset = section_offset - section_half_size
             + Vec2::new(
-                INSPECTOR_SECTION_PADDING + slider_size.x * 0.5,
-                INSPECTOR_SECTION_PADDING + slider_size.y * 0.5,
+                INSPECTOR_SECTION_PADDING + Self::VOLUME_SLIDER_SIZE.x * 0.5,
+                INSPECTOR_SECTION_PADDING + Self::VOLUME_SLIDER_SIZE.y * 0.5,
             );
-        Slider::new(slider_offset, slider_size, -40.0, 0.0, -24.0)
+        Slider::new(slider_offset, Self::VOLUME_SLIDER_SIZE, -40.0, 0.0, -24.0)
     }
 
-    pub fn draw(&mut self, renderer: &mut Renderer, frame: &Frame) {
+    // Draw order:
+    // FIRST backgrounds+slider first (solid, unchanged),
+    // THEN thumbnails (textured, painted on top),
+    // THEN the selection highlight (solid, painted
+    // on top of thumbnails so its border is visible),
+    // THEN text - same layering logic as the main frame's
+    // own layer order (tiles, then entities, then debug).
+    pub fn draw(&mut self, renderer: &mut Renderer, frame: &Frame, is_isometric: bool) {
         if let Some(state) = &mut self.state {
-            state.volume_slider.sync_position(self.position);
+            for section in state.sections.iter_mut() {
+                for widget in section.widgets.iter_mut() {
+                    if let SectionWidget::Slider(slider) = widget {
+                        slider.sync_position(self.position);
+                    }
+                }
+            }
         }
 
         let mut rects = self.build_panel();
         rects.extend(self.build_sections());
+
+        let mut thumbnail_entries = Vec::new();
+        let mut highlight_rects = Vec::new();
+
         if let Some(state) = &self.state {
-            rects.extend(state.volume_slider.build_rects());
+            for section in state.sections.iter() {
+                let bounds = self.section_bounds(section);
+                let section_top_left = bounds.center - bounds.half_size;
+                let content_width = bounds.half_size.x * 2.0;
+
+                for widget in section.widgets.iter() {
+                    match widget {
+                        SectionWidget::Slider(slider) => rects.extend(slider.build_rects()),
+                        SectionWidget::TilePalette(palette) => {
+                            thumbnail_entries
+                                .extend(palette.thumbnail_entries(section_top_left, content_width));
+                            highlight_rects.extend(
+                                palette.build_highlight_rect(section_top_left, content_width),
+                            );
+                        }
+                    }
+                }
+            }
         }
+
         let projection = renderer.screen_projection();
         renderer.render_solid_rects(frame, &rects, projection, Mat4::IDENTITY);
+        renderer.render_ui_tiles(
+            frame,
+            &thumbnail_entries,
+            Self::TILE_THUMBNAIL_SIZE,
+            is_isometric,
+            projection,
+        );
+        renderer.render_solid_rects(frame, &highlight_rects, projection, Mat4::IDENTITY);
         self.draw_section_titles(renderer, frame);
     }
 
@@ -164,21 +236,28 @@ impl Inspector {
     /// The section's fixed offset from Inspector.position, computed once
     /// at construction — never changes, since it's purely a layout fact
     /// about the panel's internal structure.
-    fn compute_section_offset(&self, index: usize) -> (Vec2, Vec2) {
+    fn compute_section_offset(&self, index: usize, section_heights: &[f32]) -> (Vec2, Vec2) {
         let section_gap = 10.0;
-        let section_size = 40.0;
+        let section_size = section_heights[index];
+        let content_width = self.get_panel_content_width();
         let start_offset = Vec2::new(
-            -(self.get_panel_content_width() / 2.0),
+            -(content_width / 2.0),
             -(self.size.y / 2.0) + self.border_thickness_px + INSPECTOR_PADDING,
         );
+        let y_before: f32 =
+            section_heights[..index].iter().sum::<f32>() + section_gap * index as f32;
         let center_offset = Vec2::new(
-            start_offset.x + self.get_panel_content_width() * 0.5,
-            start_offset.y + section_size * 0.5 + (section_gap + section_size) * index as f32,
+            start_offset.x + content_width * 0.5,
+            start_offset.y + y_before + section_size * 0.5,
         );
-        (
-            center_offset,
-            Vec2::new(self.get_panel_content_width(), section_size) * 0.5,
-        )
+        (center_offset, Vec2::new(content_width, section_size) * 0.5)
+    }
+
+    pub fn resolve_section_bounds(position: Vec2, section: &InspectorSection) -> Rect {
+        Rect {
+            center: position + section.offset,
+            half_size: section.half_size,
+        }
     }
 
     /// A section's real, current on-screen bounds — recomputed fresh
@@ -186,10 +265,7 @@ impl Inspector {
     /// follows the panel's current (possibly animating) position rather
     /// than a stale, construction-time snapshot.
     fn section_bounds(&self, section: &InspectorSection) -> Rect {
-        Rect {
-            center: self.position + section.offset,
-            half_size: section.half_size,
-        }
+        Self::resolve_section_bounds(self.position, section)
     }
 
     fn build_sections(&self) -> Vec<SolidRect> {
@@ -312,5 +388,117 @@ impl Slider {
                 border_thickness_px: 0.0,
             },
         ]
+    }
+}
+
+pub struct TilePalette {
+    cell_size: f32,
+    gap: f32,
+    selected: (i32, i32),
+}
+
+impl TilePalette {
+    pub fn new(cell_size: f32, gap: f32, default_selected: (i32, i32)) -> Self {
+        Self {
+            cell_size,
+            gap,
+            selected: default_selected,
+        }
+    }
+
+    /// Sorted for a stable on-screen order — tile_names() is a HashMap,
+    /// whose iteration order is unspecified (the same reason tile
+    /// depth-sorting couldn't trust it, per Phase 30).
+    fn tile_list() -> Vec<(&'static str, (i32, i32))> {
+        let mut tiles: Vec<_> = tile::tile_names().into_iter().collect();
+        tiles.sort_by_key(|(name, _)| *name);
+        tiles
+    }
+
+    fn column_length(&self, content_width: f32) -> usize {
+        (((content_width + self.gap) / (self.cell_size + self.gap)).floor() as usize).max(1)
+    }
+
+    pub fn required_height(&self, content_width: f32) -> f32 {
+        let no_of_cols = self.column_length(content_width);
+        let rows = (Self::tile_list().len() as f32 / no_of_cols as f32)
+            .ceil()
+            .max(1.0);
+        2.0 * INSPECTOR_SECTION_PADDING + (rows - 1.0) * self.gap + rows * self.cell_size
+    }
+
+    fn cell_top_left(&self, index: usize, cols: usize, section_top_left: Vec2) -> Vec2 {
+        let col = (index % cols) as f32;
+        let row = (index / cols) as f32;
+        section_top_left
+            + Vec2::splat(INSPECTOR_SECTION_PADDING)
+            + Vec2::new(col, row) * (self.cell_size + self.gap)
+    }
+
+    /// Center position + atlas cell for every tile, ready to hand to
+    /// the renderer as textured-quad draw entries.
+    pub fn thumbnail_entries(
+        &self,
+        section_top_left: Vec2,
+        content_width: f32,
+    ) -> Vec<(Vec2, (i32, i32))> {
+        let tiles = Self::tile_list();
+        let cols = self.column_length(content_width);
+        tiles
+            .iter()
+            .enumerate()
+            .map(|(i, (_, cell))| {
+                let top_left = self.cell_top_left(i, cols, section_top_left);
+                (top_left + Vec2::splat(self.cell_size * 0.5), *cell)
+            })
+            .collect()
+    }
+
+    pub fn build_highlight_rect(
+        &self,
+        section_top_left: Vec2,
+        content_width: f32,
+    ) -> Option<SolidRect> {
+        let tiles = Self::tile_list();
+        let cols = self.column_length(content_width);
+        let index = tiles.iter().position(|(_, cell)| *cell == self.selected)?;
+        let top_left = self.cell_top_left(index, cols, section_top_left);
+        Some(SolidRect {
+            position: top_left + Vec2::splat(self.cell_size * 0.5),
+            size: Vec2::splat(self.cell_size),
+            fill_color: [0.0, 1.0, 0.0, 0.0],
+            border_color: [0.0, 1.0, 0.0, 0.7],
+            border_thickness_px: 2.0,
+        })
+    }
+
+    /// section_top_left: this widget's drawing-area top-left corner,
+    /// resolved fresh from the section's current bounds — same
+    /// "supplied each call, never stored" convention as Slider::sync_position.
+    pub fn handle_click(
+        &mut self,
+        mouse_pos: Vec2,
+        section_top_left: Vec2,
+        content_width: f32,
+    ) -> bool {
+        let tiles = Self::tile_list();
+        let cols = self.column_length(content_width);
+        let local = mouse_pos - section_top_left - Vec2::splat(INSPECTOR_SECTION_PADDING);
+        if local.x < 0.0 || local.y < 0.0 {
+            return false;
+        }
+        let col = (local.x / (self.cell_size + self.gap)).floor() as i32;
+        let row = (local.y / (self.cell_size + self.gap)).floor() as i32;
+        if col < 0 || col as usize >= cols {
+            return false;
+        }
+        let index = row as usize * cols + col as usize;
+        match tiles.get(index) {
+            Some((_, cell)) if *cell != self.selected => {
+                self.selected = *cell;
+                true
+            }
+            _ => false,
+        }
     }
 }

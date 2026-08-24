@@ -59,6 +59,7 @@ struct AppState {
     blip_volume: f32,
     notifications: Vec<Notification>,
     left_mouse_down: bool,
+    left_mouse_pressed: bool,
     debug: DebugSettings,
     inspector: Inspector,
     is_isometric: bool,
@@ -181,6 +182,7 @@ impl ApplicationHandler for App {
             blip_volume: -24.0,
             notifications: Vec::new(),
             left_mouse_down: false,
+            left_mouse_pressed: false,
             inspector,
             debug: DebugSettings::new(),
             is_isometric,
@@ -424,7 +426,9 @@ impl ApplicationHandler for App {
                 button: winit::event::MouseButton::Left,
                 ..
             } => {
+                let was_down = state.left_mouse_down;
                 state.left_mouse_down = button_state == winit::event::ElementState::Pressed;
+                state.left_mouse_pressed = state.left_mouse_down && !was_down;
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let scroll_amount = match delta {
