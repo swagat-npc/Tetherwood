@@ -40,6 +40,7 @@ impl AppState {
                     frame,
                     self.screen_mouse_position,
                     self.multiplying_factor,
+                    self.is_isometric,
                 );
             }
         }

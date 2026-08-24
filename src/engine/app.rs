@@ -273,10 +273,13 @@ impl ApplicationHandler for App {
                         );
 
                         // Debug Rect Layer
-                        let world_pos = state.renderer.screen_to_world(Vec2::new(
-                            state.screen_mouse_position.0 as f32,
-                            state.screen_mouse_position.1 as f32,
-                        ));
+                        let world_pos = state.renderer.screen_to_world(
+                            Vec2::new(
+                                state.screen_mouse_position.0 as f32,
+                                state.screen_mouse_position.1 as f32,
+                            ),
+                            state.is_isometric,
+                        );
                         state.renderer.draw_debug_geometry(
                             &frame,
                             &state.scene,

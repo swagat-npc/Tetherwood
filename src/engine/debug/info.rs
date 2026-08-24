@@ -38,12 +38,13 @@ pub fn draw_mouse_position(
     frame: &Frame,
     screen_mouse_position: (f64, f64),
     multiplying_factor: f32,
+    is_isometric: bool,
 ) {
     let screen_pos = Vec2::new(
         screen_mouse_position.0 as f32,
         screen_mouse_position.1 as f32,
     );
-    let world_pos = renderer.screen_to_world(screen_pos);
+    let world_pos = renderer.screen_to_world(screen_pos, is_isometric);
     let authoring_pos = world_pos / multiplying_factor;
     let mouse_text = format!("Mouse Pos: {:.0}, {:.0}", authoring_pos.x, authoring_pos.y);
     let screen_size = renderer.screen_size();

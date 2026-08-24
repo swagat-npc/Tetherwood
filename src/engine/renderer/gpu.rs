@@ -422,6 +422,16 @@ impl Renderer {
             .truncate()
     }
 
+    /// Inverse of shear(): maps a sheared (isometric screen-space-ish) offset
+    /// back to plain world space. See ADR-087 — isometric_projection() has no
+    /// translation, so this is safe to use on offsets as well as points.
+    pub fn inverse_shear(&self, p: Vec2) -> Vec2 {
+        self.isometric_projection()
+            .inverse()
+            .transform_point3(p.extend(0.0))
+            .truncate()
+    }
+
     /// Camera_position is set per-frame by the caller based on scene.camera_mode (ADR-041).
     /// For isometric mode, camera_position is sheared first so it lands in the same space
     /// as each entity's sheared anchor - shape is never touched by this matrix.
@@ -501,13 +511,20 @@ impl Renderer {
     /// other direction: world = screen - screen_center + camera_position.
     /// Always reads self.camera_position fresh, so results stay correct
     /// across CameraMode::Follow's per-frame camera movement.
-    pub fn screen_to_world(&self, screen_pos: Vec2) -> Vec2 {
+    pub fn screen_to_world(&self, screen_pos: Vec2, is_isometric: bool) -> Vec2 {
         let screen_center = Vec2::new(
             self.config.width as f32 / 2.0,
             self.config.height as f32 / 2.0,
         );
         let zoomed_offset = (screen_pos - screen_center) / self.zoom;
-        zoomed_offset + self.smoothed_camera
+
+        let world_offset = if is_isometric {
+            self.inverse_shear(zoomed_offset)
+        } else {
+            zoomed_offset
+        };
+
+        world_offset + self.smoothed_camera
     }
 
     /// Acquires the next frame to draw into. Returns Ok(None) for the
