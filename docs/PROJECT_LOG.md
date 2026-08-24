@@ -3,7 +3,7 @@
 
 **Document type:** Living project record (docs-as-code)
 **Started:** July 2026
-**Revision:** v14
+**Revision:** v15
 **Status:** M1–M4 complete, M5 (The Village) in progress through Phase 32. A design-only session (Phase 33) settled tile-based scene background authoring, superseding ADR-028's last standing clause (ADR-096) and carving out minimal file-based persistence for tile grids specifically from ADR-027 (ADR-097) — not yet implemented, ready to hand to an M5 implementation session. Companion document: `docs/DERIVATION.md`.
 **Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated when decisions accumulate, not on a timer.
 **Screenshots at each visual milestone** are part of this ritual, not an afterthought — historically the step most likely to be skipped (M4's first two phases shipped with none until caught retroactively); a phase isn't fully closed until its screenshots exist and are named.
@@ -1561,6 +1561,180 @@ pair — but the final scale hasn't been tuned against it), and cube-
 tile depth-sorting (the real design consequence of committing to
 full-cube rather than flat-top floor tiles, not yet designed).
 
+### Phase 35 — Tile Rendering System: Iso/Flat Atlas, Depth-Sort, Seam Fix (completed)
+
+Implements ADR-096/097's design as real, rendered content — a scene's
+TileGrid (sparse HashMap<(i32,i32) world cell, (i32,i32) atlas cell>)
+drawn from a shared atlas holding both an isometric cube variant and a
+centered 16x16 flat variant per tile, one atlas row-pair apart, kept
+deliberately in one file so the two variants can never desync (the
+always-flat future battle scene gets its own separate tileset instead,
+since it has no pairing to protect). tile_names() is a name-to-atlas-
+cell authoring convenience only, never touching any save file.
+
+Real atlas pitch (33px horizontal, 32px vertical) was determined by
+measuring exact placed-tile pixel coordinates directly in the
+authored file, not assumed — an initial guess had the two axes
+backwards and produced visibly compounding drift once more than one
+tile type was placed, only caught by checking real numbers rather
+than continuing to eyeball corrections.
+
+tile_world_position/build_tile_mesh both branch on is_isometric: a 2x
+overdraw factor (a cube's side faces extend past its flat footprint,
+so it must draw larger than one grid cell) and a cell-to-center
+offset (0.5 for flat's standard convention, 1.0 for isometric — tuned
+empirically against the debug grid overlay, since the relationship
+isn't analytically derivable once overdraw is involved).
+
+A hairline seam appeared between adjacent tiles at specific sub-pixel
+camera/player positions — traced precisely to cases where exactly one
+of a position's x/y components lands on a .5 fractional value, which
+pushes the isometric shear's x-y and x+y sums onto a floating-point
+rounding boundary the GPU rasterizer handles inconsistently. A UV
+inset was tried first and rejected outright — tested up to 0.1 with
+zero effect on the tear, only visibly cropping/bloating tile edges,
+which confirmed this was never a wrong-texel-sampling problem. The
+real fix, GEOMETRY_OVERLAP (0.01 authoring units), grows each tile's
+drawn quad slightly so adjacent edges deliberately overlap rather than
+exactly meet — the standard fix for this class of rasterization seam,
+since an exact-meeting edge is what's fragile to rounding in the first
+place.
+
+Tile draw order previously came from whatever order tile_grid.iter()
+(a HashMap) happened to yield — unspecified, and inconsistent across
+scene resets, producing visibly wrong tile-over-tile overlap. Depth is
+now computed once per tile from its grid cell (cell.0 + cell.1),
+before shearing — not from the sheared screen position, which mixes
+x/y in a way specific to the projection rather than reflecting the
+tile's real grid-relative depth.
+
+clear_frame is now a separate, unconditional first draw step every
+frame, not owned by whichever layer happens to run first. render_tiles
+previously only cleared on its own first draw — meaning a scene with
+zero painted tiles (village, still entirely untiled) never cleared the
+frame at all once entity-drawing stopped independently owning that
+responsibility, producing a black screen. Every layer is now always
+LoadOp::Load.
+
+Player spawn position in home.rs/village.rs nudged by a pixel each
+(87.0->86.0, 87.5->87.0) during unrelated feet-alignment
+investigation — cosmetic, not a fix for anything structural.
+
+Still open: the interactive tile painter itself (palette section,
+paint-on-click, save/cancel) has not been started — only the
+rendering foundation exists. Village has zero tiles painted; only
+Home has a handful of test placements. Screen-to-world mouse picking
+exists in a basic form (used for the F8 tile-editor cursor highlight)
+but is not yet corrected for isometric shear, the named hard
+dependency for actual painting (ADR-097). Player-collider-to-feet
+alignment for isometric mode, and whether other entities (tested:
+a single isometric nightstand sprite) need the same correction, remain
+unresolved.
+
+Docs-as-code: docs/screenshots/ covers m5-17 through m5-19 — the
+tile placement/depth-sort fix (m5-17), the same scene rendered in
+isometric mode (m5-18), and the same tile arrangement confirmed to
+hold its correct order after a scene reset (m5-19).
+
+### Phase 36 — Player-Centered Zoom & Camera Snap Unification (completed)
+
+Adds Renderer.zoom (mouse-wheel controlled, clamped 0.5-3.0). Splits
+what was one shared projection into world_projection (zoom-scaled;
+used by tiles, entities, debug world geometry) and screen_projection
+(always 1:1 with real pixels; used by dialogue, the inspector, HUD) —
+the first attempt applied zoom to the single shared projection and
+leaked it into permanent UI, which should never be affected by world
+zoom.
+
+Zoom always expands around the player, not the raw camera anchor —
+necessary for Static-camera scenes, where the room's fixed framing
+point isn't where zoom should center. An initial per-frame
+proportional correction toward the player caused a slow, unwanted
+drift in Static scenes and a hard snap at a fixed zoom threshold; both
+are replaced by Renderer.smoothed_camera, eased once per frame
+(update_smoothed_camera) toward effective_camera_target — the
+player's position once zoom crosses FOLLOW_ZOOM_THRESHOLD (a shared
+pub const) or whenever is_isometric is true, the scene's authored
+camera_position otherwise. sprite_camera_view, screen_to_world, and
+debug geometry's view/visible-bounds calculations all read
+smoothed_camera exclusively, closing a real parallax-like bug caused
+by two of these independently computing slightly different camera
+positions in an earlier draft.
+
+Renderer::snap_camera bypasses the lerp entirely, used whenever a
+scene is (re)constructed so the camera doesn't visibly animate in
+from wherever it was left. Getting this fully correct took several
+passes, each surfacing a genuinely distinct root cause rather than
+one bug wearing different faces: (1) resumed()'s initial build_scene
+call hardcoded is_isometric to false independently of the
+AppState.is_isometric field set moments later in the same function,
+causing an animate-in artifact on first launch specifically — fixed
+by using one local value for both; (2) build_scene never told the
+renderer where the camera should start at all, leaving the first
+several real frames to visibly lerp into place; (3) a scene entered
+via a door warp initially snapped to its default spawn point (the
+only position known at construction time), then silently re-animated
+toward the real post-warp spawn position once activate_warp
+repositioned the player afterward — fixed by re-snapping a second
+time, in update_player, right after the real spawn position is
+known, with activate_warp confirmed to correctly run only after
+change_scene (since it must query the new/target scene's triggers,
+not the old one).
+
+Scene::camera_target() was extracted and is now shared by
+update_player's per-frame case and build_scene's construction-time
+case, closing the kind of two-independent-copies drift this project
+has hit repeatedly. A related regression was found and reverted: an
+intermediate attempt baked the zoom/isometric override directly into
+home::build's authored camera mode at scene-construction time, which
+broke zooming back out after revisiting a scene (the scene's camera
+mode had already been permanently resolved to Follow at whatever zoom
+level was active on that particular visit, with no way to
+re-evaluate). The check belongs solely in effective_camera_target,
+re-evaluated fresh every single frame - home.rs's authored camera mode
+stays a plain, unconditional CameraMode::Static(floor_position).
+
+Docs-as-code: docs/screenshots/ covers m5-21 through m5-23 — zoomed
+in below the follow threshold (Static camera still framing the room,
+m5-21), zoomed out (m5-22), and zoomed in past the threshold with the
+camera now tracking the player (m5-23).
+
+### Phase 37 — Inspector Toggle, Slide Animation, Resize Handling (completed)
+
+Adds an F12 toggle sliding the inspector panel off-screen.
+Inspector.position eases toward a visible or off-screen target
+(target_position(), shared by update/is_settled/recompute_layout so
+the three can't independently disagree about where the panel is
+heading) — same lerp-toward-target pattern as Renderer.smoothed_camera.
+
+Sections and the volume slider previously stored absolute,
+construction-time-only positions, which never moved once the panel
+started animating — both now store an offset relative to
+Inspector.position instead, recomputed fresh each frame
+(section_bounds(), Slider::sync_position) so they correctly follow
+the panel.
+
+Input handling on any inspector widget is gated behind
+Inspector::is_settled(), and toggling force-cancels any in-progress
+drag (Slider::cancel_drag) - without both, a drag active when the
+panel starts sliding leaves the slider's internal dragging flag stuck
+true, misfiring once the panel next settles and update runs again.
+Both are meant to be the single point of entry for every future
+interactive widget (checkboxes, buttons) - the day a second one is
+added, the per-widget cancel call in toggle() needs to become a
+shared Widget trait + loop, not a second hand-written line,
+deliberately deferred until that second widget actually exists.
+
+recompute_layout, wired into WindowEvent::Resized (which already
+reconfigured the GPU surface but never told the inspector anything
+changed, leaving the panel anchored to the old screen size's right
+edge after maximizing), snaps position immediately rather than
+letting it lerp in - a resize is a sudden, discrete event, and
+animating through it read as floaty rather than correct.
+
+Docs-as-code: docs/screenshots/ covers m5-20 - the inspector panel
+toggled off-screen via F12.
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -2670,6 +2844,60 @@ full-cube rather than flat-top floor tiles, not yet designed).
   drag-paint explicitly deferred past a first version. Furniture-via-
   click-placement acknowledged as a natural extension, not designed.
 
+### ADR-098: Tile atlas pitch and iso/flat pairing convention, determined empirically
+- **Context:** ADR-096/097 designed the tile-authoring approach but
+  left tile pixel dimensions and the isometric shear ratio as open,
+  to-be-decided-together values.
+- **Decision:** Real atlas pitch is 33px horizontal, 32px vertical —
+  measured directly from placed tile art, not derived analytically.
+  Each tile has two variants in one shared atlas file: full isometric
+  cube art, and a 16x16 flat variant centered in the atlas row
+  directly below it. tile_uv dispatches between them based on
+  is_isometric; the flat variant's position is always derived from
+  the iso cell (same column, next row), never looked up from a
+  second table.
+- **Rationale:** Kept in one file, not two, so the iso/flat pair can
+  never desync — a scene's tile grid references one cell; which art
+  renders is resolved by projection mode. The always-flat future
+  battle scene gets a dedicated file instead, since it has no pairing
+  to protect.
+- **Consequences:** Isometric tiles draw at 2x overdraw (compensating
+  for a cube's side faces extending past its flat footprint) and use
+  a cell-to-center offset of 1.0 versus flat's 0.5 — both tuned
+  empirically against the debug grid overlay, not derived formulas.
+  A hairline rasterization seam at certain sub-pixel positions was
+  fixed with a small geometric overlap between adjacent tiles (0.01
+  units), not a UV inset (tried and rejected — verified it had zero
+  effect on the seam at any tested value).
+
+### ADR-099: Player-centered zoom; Static cameras follow only above a threshold or when isometric
+- **Context:** Adding a player-facing zoom setting (mouse wheel,
+  0.5-3.0) needed the zoom-center point to always be the player, not
+  the scene's authored camera anchor — otherwise Static-camera scenes
+  would zoom toward an arbitrary fixed point unrelated to the player.
+- **Decision:** world_projection (zoom-scaled world content) is
+  split from screen_projection (always 1:1, permanent UI).
+  Renderer.smoothed_camera is the single value everything reads for
+  "where is the camera right now," eased every frame toward
+  effective_camera_target: the player's position whenever zoom
+  crosses FOLLOW_ZOOM_THRESHOLD or the scene is in isometric mode,
+  the scene's authored camera_target() otherwise. snap_camera bypasses
+  the lerp for scene (re)construction, avoiding a visible animate-in.
+- **Rationale:** A proportional per-frame correction and a hard zoom
+  threshold were both tried and rejected — the former drifted
+  continuously in Static scenes, the latter snapped jarringly at the
+  exact threshold crossing. A smoothed, single target value avoids
+  both. The zoom/isometric override must be evaluated fresh every
+  frame in effective_camera_target — baking it into a scene's
+  authored camera mode at construction time (tried, reverted) breaks
+  the moment zoom changes again within the same scene visit, since
+  nothing re-resolves a scene's cached camera mode after construction.
+- **Consequences:** Scene::camera_target() is now shared between
+  update_player's per-frame case and build_scene's construction-time
+  case. Getting the initial snap fully correct required three
+  distinct fixes across resumed()/build_scene/the warp-handling path,
+  each a genuinely separate root cause, not the same bug recurring.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -2762,6 +2990,22 @@ full-cube rather than flat-top floor tiles, not yet designed).
   painter (paint mode, click-to-place, save) — the painter needs screen-
   to-world mouse picking, which doesn't exist yet and is the likely first
   real subtask.
+- ✅ **Tile rendering, zoom, and inspector toggle (Phases 35-37):**
+  full tile rendering (iso/flat atlas pairing, depth-sort, seam fix),
+  player-centered zoom with unified camera-target/snap logic across
+  scene load/transition/reset, and an animated inspector show/hide
+  toggle with correct resize handling — all built, verified, and
+  committed. **Still open:** the interactive tile painter itself
+  (only its rendering foundation exists; village has zero tiles
+  painted), isometric-aware mouse picking (ADR-097's named hard
+  dependency for painting), player/entity collider-to-feet alignment
+  for isometric mode, NPC-square-vs-player-diamond colliders (a real,
+  undesigned question — reopens OBB vs. AABB), facing during
+  isometric movement (still no moving NPC to force it), the tile-
+  editor's planned entity-dimming-while-painting UX. **Next:** finish
+  the docs pass (this entry), then mouse picking, then the actual
+  tile painter, then resume M5 content authoring (clue chain,
+  remaining NPCs, guard/sword) — village.rs still has only villager_1.
 
 ### Open questions
 
