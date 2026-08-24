@@ -297,10 +297,10 @@ fn build_entities(
         multiplying_factor,
         builder::EntitySpec {
             position: Vec2::new(64.0, 44.0),
-            size: Vec2::new(25.0, 16.0),
+            size: Vec2::new(48.0, 48.0),
             collider_offset: Vec2::new(0.0, 4.0),
-            collider_size: Vec2::new(25.0, 8.0),
-            texture_path: "assets/nightstand.aseprite",
+            collider_size: Vec2::new(48.0, 24.0),
+            texture_path: "assets/isometric_nightstand.aseprite",
             facing: Direction::Down,
         },
     )?; // nightstand
