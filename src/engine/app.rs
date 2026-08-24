@@ -209,6 +209,8 @@ impl ApplicationHandler for App {
             }
             WindowEvent::Resized(size) => {
                 state.renderer.resize(size.width, size.height);
+                let screen_size = Vec2::new(size.width as f32, size.height as f32);
+                state.inspector.recompute_layout(screen_size);
             }
             WindowEvent::RedrawRequested => {
                 let delta = state.tick_frame_timing();
@@ -217,6 +219,7 @@ impl ApplicationHandler for App {
 
                 let player_position = state.scene.player().position;
                 state.renderer.update_smoothed_camera(player_position);
+                state.inspector.update();
 
                 let frame = state.renderer.acquire_frame();
                 // TODO: display frame time
@@ -346,6 +349,14 @@ impl ApplicationHandler for App {
                     } else if code == KeyCode::F11 {
                         let state_msg = state.debug.toggle_player_collider();
                         state.notify(state_msg);
+                    } else if code == KeyCode::F12 {
+                        state.inspector.toggle();
+                        let msg = if state.inspector.is_hidden {
+                            "Inspector: hidden"
+                        } else {
+                            "Inspector: visible"
+                        };
+                        state.notify(msg);
                     } else if let Some(action) =
                         actions::resolve_key_press(code, state.dialogue.is_some())
                     {

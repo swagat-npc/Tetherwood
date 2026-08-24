@@ -11,12 +11,14 @@ impl AppState {
             self.screen_mouse_position.0 as f32,
             self.screen_mouse_position.1 as f32,
         );
-        if self.debug.show_debug_renderer {
+        if self.debug.show_debug_renderer && self.inspector.is_settled() {
             if let Some(inspector_state) = &mut self.inspector.state {
-                inspector_state
+                if inspector_state
                     .volume_slider
-                    .update(world_mouse, self.left_mouse_down);
-                self.blip_volume = inspector_state.volume_slider.value;
+                    .update(world_mouse, self.left_mouse_down)
+                {
+                    self.blip_volume = inspector_state.volume_slider.value;
+                }
             }
         }
     }
