@@ -49,6 +49,19 @@ impl Scene {
         &mut self.entities[self.player_index]
     }
 
+    /// The point the camera should currently be centered on, per this
+    /// scene's authored camera mode: a fixed anchor for Static, or the
+    /// player's live position for Follow. Shared by update_player (the
+    /// per-frame case) and build_scene (setting camera_position correctly
+    /// the moment a scene is constructed, before any frame has run) - a
+    /// single source of truth so the two can't independently drift.
+    pub fn camera_target(&self) -> Vec2 {
+        match self.camera_mode() {
+            CameraMode::Static(anchor) => anchor,
+            CameraMode::Follow => self.player().position,
+        }
+    }
+
     fn resolve_camera_mode(
         orthographic: CameraMode,
         isometric: CameraMode,
@@ -163,7 +176,7 @@ impl Scene {
                 ..
             } = trigger.kind
             else {
-                continue; // not a warp trigger — check_triggers only resolves warps
+                continue; // not a warp trigger
             };
             if point_in_rect(player_center, &trigger.rect) {
                 if show_debug_info {

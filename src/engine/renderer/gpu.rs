@@ -1,5 +1,6 @@
 use super::mesh::{INDICES, SolidVertex, VERTICES, Vertex};
 use super::texture::{Texture, TextureId, TextureStore};
+use crate::engine::renderer;
 use crate::engine::scene::Scene;
 use anyhow::Result;
 use glam::{Mat4, Vec2, Vec4};
@@ -438,9 +439,8 @@ impl Renderer {
         }
     }
 
-    fn effective_camera_target(&self, player_position: Vec2) -> Vec2 {
-        const FOLLOW_ZOOM_THRESHOLD: f32 = 1.5;
-        if self.zoom >= FOLLOW_ZOOM_THRESHOLD {
+    fn effective_camera_target(&self, player_position: Vec2, is_isometric: bool) -> Vec2 {
+        if self.zoom >= renderer::FOLLOW_ZOOM_THRESHOLD || is_isometric {
             player_position
         } else {
             self.camera_position
@@ -452,9 +452,19 @@ impl Renderer {
     /// or the player, depending on zoom) - same exponential-smoothing
     /// approach already used for smoothed_fps, applied here to avoid a
     /// hard snap whenever the "should I follow the player" answer flips.
-    pub fn update_smoothed_camera(&mut self, player_position: Vec2) {
-        let target = self.effective_camera_target(player_position);
+    pub fn update_smoothed_camera(&mut self, player_position: Vec2, is_isometric: bool) {
+        let target = self.effective_camera_target(player_position, is_isometric);
         self.smoothed_camera = self.smoothed_camera.lerp(target, 0.1);
+    }
+
+    /// Snaps smoothed_camera directly to its current target, bypassing
+    /// the lerp - used whenever a scene is (re)constructed, so the
+    /// camera doesn't visibly animate in from wherever it was left after
+    /// the previous scene, which reads as disorienting (especially at
+    /// higher zoom levels, where the animated distance is more visible
+    /// on screen).
+    pub fn snap_camera(&mut self, player_position: Vec2, is_isometric: bool) {
+        self.smoothed_camera = self.effective_camera_target(player_position, is_isometric);
     }
 
     pub fn dialogue_text_position(&self) -> Vec2 {

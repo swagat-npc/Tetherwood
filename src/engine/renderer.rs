@@ -8,3 +8,5 @@ pub mod tile;
 
 pub use gpu::{Frame, Renderer};
 pub use mesh::SolidRect;
+
+pub const FOLLOW_ZOOM_THRESHOLD: f32 = 1.5;

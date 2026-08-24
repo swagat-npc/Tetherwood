@@ -35,6 +35,11 @@ impl AppState {
         };
         new_scene.build_static_grid(multiplying_factor);
         renderer.prepare_scene(&new_scene);
+
+        renderer.camera_position = new_scene.camera_target();
+        let player_position = new_scene.player().position;
+        renderer.snap_camera(player_position, is_isometric);
+
         new_scene
     }
 

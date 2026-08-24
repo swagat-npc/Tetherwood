@@ -310,7 +310,7 @@ fn build_entities(
         queue,
         multiplying_factor,
         builder::EntitySpec {
-            position: Vec2::new(64.0, 87.0),
+            position: Vec2::new(64.0, 86.0),
             size: Vec2::new(14.0, 24.0),
             collider_offset: Vec2::new(0.0, 6.0),
             collider_size: Vec2::new(12.0, 12.0),

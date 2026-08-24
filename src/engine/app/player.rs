@@ -1,6 +1,5 @@
 use crate::engine::app::AppState;
 use crate::engine::entity::Direction;
-use crate::engine::scene::CameraMode;
 use crate::game::actions;
 use glam::Vec2;
 
@@ -31,14 +30,13 @@ impl AppState {
                 if let Some(spawn_position) = self.scene.activate_warp(target_warp_id) {
                     self.scene.player_mut().position = spawn_position;
                 }
+                let player_position = self.scene.player().position;
+                self.renderer
+                    .snap_camera(player_position, self.is_isometric);
             }
         }
         self.scene.update_interact_prompts();
 
-        let camera_target = match self.scene.camera_mode() {
-            CameraMode::Static(anchor) => anchor,
-            CameraMode::Follow => self.scene.player().position,
-        };
-        self.renderer.camera_position = camera_target;
+        self.renderer.camera_position = self.scene.camera_target();
     }
 }

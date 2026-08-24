@@ -139,11 +139,12 @@ impl ApplicationHandler for App {
         let multiplying_factor = 5.0;
         let mut progression = ProgressionTracker::new();
 
+        let is_isometric = false;
         let initial_scene = AppState::build_scene(
             &mut renderer,
             SceneId::Home,
             multiplying_factor,
-            false,
+            is_isometric,
             &mut progression,
         );
 
@@ -182,7 +183,7 @@ impl ApplicationHandler for App {
             left_mouse_down: false,
             inspector,
             debug: DebugSettings::new(),
-            is_isometric: false,
+            is_isometric,
             progression: ProgressionTracker::new(),
         };
 
@@ -218,7 +219,9 @@ impl ApplicationHandler for App {
                 state.update_player(delta);
 
                 let player_position = state.scene.player().position;
-                state.renderer.update_smoothed_camera(player_position);
+                state
+                    .renderer
+                    .update_smoothed_camera(player_position, state.is_isometric);
                 state.inspector.update();
 
                 let frame = state.renderer.acquire_frame();
