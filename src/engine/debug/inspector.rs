@@ -347,7 +347,7 @@ impl Inspector {
                             thumbnail_entries
                                 .extend(palette.thumbnail_entries(*widget_top_left, content_width));
                             highlight_rects.extend(
-                                palette.build_highlight_rect(*widget_top_left, content_width),
+                                palette.build_tile_highlight_rect(*widget_top_left, content_width),
                             );
                         }
                         SectionWidget::TilesetControls(controls) => {
@@ -618,7 +618,7 @@ impl TilePalette {
             .collect()
     }
 
-    pub fn build_highlight_rect(
+    pub fn build_tile_highlight_rect(
         &self,
         section_top_left: Vec2,
         content_width: f32,

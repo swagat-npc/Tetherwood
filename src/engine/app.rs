@@ -101,6 +101,16 @@ impl AppState {
         self.scene.id
     }
 
+    fn world_mouse_position(&self) -> Vec2 {
+        self.renderer.screen_to_world(
+            Vec2::new(
+                self.screen_mouse_position.0 as f32,
+                self.screen_mouse_position.1 as f32,
+            ),
+            self.is_isometric,
+        )
+    }
+
     fn tilemap_path(id: SceneId) -> String {
         match id {
             SceneId::Home => "assets/tile/home.tilemap".to_string(),
@@ -137,6 +147,12 @@ impl AppState {
                 // write means nothing was lost, and the user can retry.
             }
         }
+    }
+
+    // TODO: Read tilemap from disk and load into scene
+    pub fn load_tilemap(&mut self, scene_id: SceneId) {
+        let path = Self::tilemap_path(scene_id);
+        if let Some(contents) = std::fs::read_to_string(&path).ok() {}
     }
 }
 
@@ -283,24 +299,63 @@ impl ApplicationHandler for App {
                             .paint_session
                             .as_ref()
                             .unwrap_or(&state.scene.tile_grid);
+
+                        let is_paint_active = state.debug.show_tile_editor;
+                        let (hover_cell, ghost_atlas_cell) = if is_paint_active {
+                            let world_pos = state.world_mouse_position();
+                            let cell = tile::cell_at_position(world_pos, state.multiplying_factor);
+                            let selected = state.inspector.selected_tile().unwrap_or((0, 0));
+                            (Some(cell), selected)
+                        } else {
+                            (None, (0, 0))
+                        };
+
+                        let mut hover_cell_found = false;
                         let mut tile_entries: Vec<(Vec2, (i32, i32), f32)> = active_grid
                             .iter()
-                            .map(|(cell, atlas_cell)| {
-                                let depth = (cell.0 + cell.1) as f32;
-                                let world_pos = tile::tile_world_position(
-                                    cell,
-                                    state.multiplying_factor,
-                                    state.is_isometric,
-                                );
-                                let effective_pos = if state.is_isometric {
-                                    state.renderer.shear(world_pos)
-                                } else {
-                                    world_pos
+                            .filter_map(|(cell, atlas_cell)| {
+                                let draw_cell = match state.paint_mode {
+                                    PaintMode::Place => {
+                                        if Some(cell) == hover_cell {
+                                            hover_cell_found = true;
+                                            Some(ghost_atlas_cell)
+                                        } else {
+                                            Some(atlas_cell)
+                                        }
+                                    }
+                                    PaintMode::Remove => {
+                                        if Some(cell) == hover_cell {
+                                            None
+                                        } else {
+                                            Some(atlas_cell)
+                                        }
+                                    }
                                 };
-                                (effective_pos, atlas_cell, depth)
+                                if let Some(draw_cell) = draw_cell {
+                                    Some(tile::tile_entry(
+                                        cell,
+                                        draw_cell,
+                                        state.multiplying_factor,
+                                        state.is_isometric,
+                                        &state.renderer,
+                                    ))
+                                } else {
+                                    None
+                                }
                             })
                             .collect();
 
+                        if let Some(cell) = hover_cell {
+                            if !hover_cell_found && let PaintMode::Place = state.paint_mode {
+                                tile_entries.push(tile::tile_entry(
+                                    cell,
+                                    ghost_atlas_cell,
+                                    state.multiplying_factor,
+                                    state.is_isometric,
+                                    &state.renderer,
+                                ));
+                            }
+                        }
                         tile_entries.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
 
                         let projection = state.renderer.world_projection();
@@ -323,20 +378,12 @@ impl ApplicationHandler for App {
                         );
 
                         // Debug Rect Layer
-                        let world_pos = state.renderer.screen_to_world(
-                            Vec2::new(
-                                state.screen_mouse_position.0 as f32,
-                                state.screen_mouse_position.1 as f32,
-                            ),
-                            state.is_isometric,
-                        );
                         state.renderer.draw_debug_geometry(
                             &frame,
                             &state.scene,
                             &state.debug,
                             state.is_isometric,
                             state.multiplying_factor,
-                            world_pos,
                         );
 
                         // HUD Layer

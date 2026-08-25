@@ -148,7 +148,7 @@ impl Renderer {
         if tiles.is_empty() {
             return;
         }
-        let (vertices, indices) = mesh::build_tile_mesh(tiles, multiplying_factor, is_isometric);
+        let (vertices, indices) = mesh::build_tileset_mesh(tiles, multiplying_factor, is_isometric);
         let vertex_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -204,7 +204,7 @@ impl Renderer {
     }
 
     // Deliberately mirrors render_tiles almost line-for-line: same
-    // pipeline, same tile_atlas_bind_group, same 
+    // pipeline, same tile_atlas_bind_group, same
     // transform_buffer/transform_bind_group scheme, same LoadOp::Load
     // (paints ON TOP of whatever the panel/section backgrounds already
     // drew this frame, exactly like render_tiles paints on top of

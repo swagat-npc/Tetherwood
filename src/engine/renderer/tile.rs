@@ -1,6 +1,8 @@
 use glam::Vec2;
 use std::collections::HashMap;
 
+use crate::engine::renderer::Renderer;
+
 pub const TILE_ATLAS_SIZE: Vec2 = Vec2::new(198.0, 352.0);
 pub const TILE_PIXEL_SIZE: f32 = 32.0;
 pub const FLAT_TILE_PIXEL_SIZE: Vec2 = Vec2::new(16.0, 16.0);
@@ -77,4 +79,22 @@ pub fn tile_world_position(cell: (i32, i32), multiplying_factor: f32, is_isometr
 pub fn cell_at_position(world_pos: Vec2, multiplying_factor: f32) -> (i32, i32) {
     let cell_f = (world_pos / multiplying_factor) / TILE_WORLD_SIZE;
     (cell_f.x.floor() as i32, cell_f.y.floor() as i32)
+}
+
+pub fn tile_entry(
+    cell: (i32, i32),
+    atlas_cell: (i32, i32),
+    multiplying_factor: f32,
+    is_isometric: bool,
+    renderer: &Renderer,
+) -> (Vec2, (i32, i32), f32) {
+    let depth = (cell.0 + cell.1) as f32;
+    let world_pos = tile_world_position(cell, multiplying_factor, is_isometric);
+    let effective_pos = if is_isometric {
+        renderer.shear(world_pos)
+    } else {
+        world_pos
+    };
+
+    (effective_pos, atlas_cell, depth)
 }

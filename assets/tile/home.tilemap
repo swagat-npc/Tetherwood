@@ -1,0 +1,6 @@
+0 0 floor
+1 1 half-floor
+0 2 floor
+1 2 staircase-right
+1 0 floor
+0 1 floor

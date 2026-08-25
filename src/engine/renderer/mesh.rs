@@ -132,6 +132,9 @@ pub(super) fn model_matrix(position: glam::Vec2, size: glam::Vec2) -> glam::Mat4
     translate * scale
 }
 
+// Solid Texture mesh builders
+// Group of functions that builds a mesh for a collection of textured solid rectangles.
+
 /// Builds one vertex+index buffer for an entire string — 4 vertices
 /// and 6 indices per glyph, with each glyph's final screen position
 /// and atlas UV baked directly into its vertices. Unlike the earlier
@@ -215,7 +218,7 @@ pub(super) fn build_ttf_text_mesh(glyphs: &[text::PositionedTTFGlyph]) -> (Vec<V
 
 const GEOMETRY_OVERLAP: f32 = 0.01; // world-space authoring units, tuned small
 
-pub(super) fn build_tile_mesh(
+pub(super) fn build_tileset_mesh(
     tiles: &[(Vec2, (i32, i32), f32)],
     multiplying_factor: f32,
     is_isometric: bool,
@@ -228,35 +231,53 @@ pub(super) fn build_tile_mesh(
     let half_size = scaled_size * 0.5 + overlap;
 
     for (position, atlas_cell, _depth) in tiles {
-        let (uv_min, uv_max) = tile::tile_uv(*atlas_cell, is_isometric);
-        let top_left = *position - half_size;
-        let bottom_right = *position + half_size;
-
-        let base = vertices.len() as u16;
-        vertices.push(Vertex {
-            position: [top_left.x, top_left.y, 0.0],
-            tex_coords: [uv_min.x, uv_min.y],
-            tint: [1.0, 1.0, 1.0, 1.0],
-        });
-        vertices.push(Vertex {
-            position: [top_left.x, bottom_right.y, 0.0],
-            tex_coords: [uv_min.x, uv_max.y],
-            tint: [1.0, 1.0, 1.0, 1.0],
-        });
-        vertices.push(Vertex {
-            position: [bottom_right.x, bottom_right.y, 0.0],
-            tex_coords: [uv_max.x, uv_max.y],
-            tint: [1.0, 1.0, 1.0, 1.0],
-        });
-        vertices.push(Vertex {
-            position: [bottom_right.x, top_left.y, 0.0],
-            tex_coords: [uv_max.x, uv_min.y],
-            tint: [1.0, 1.0, 1.0, 1.0],
-        });
-
-        indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 3, base + 2]);
+        build_tile_mesh(
+            *position,
+            *atlas_cell,
+            half_size,
+            is_isometric,
+            &mut vertices,
+            &mut indices,
+        );
     }
     (vertices, indices)
+}
+
+pub(super) fn build_tile_mesh(
+    position: Vec2,
+    atlas_cell: (i32, i32),
+    half_size: Vec2,
+    is_isometric: bool,
+    vertices: &mut Vec<Vertex>,
+    indices: &mut Vec<u16>,
+) {
+    let (uv_min, uv_max) = tile::tile_uv(atlas_cell, is_isometric);
+    let top_left = position - half_size;
+    let bottom_right = position + half_size;
+
+    let base = vertices.len() as u16;
+    vertices.push(Vertex {
+        position: [top_left.x, top_left.y, 0.0],
+        tex_coords: [uv_min.x, uv_min.y],
+        tint: [1.0, 1.0, 1.0, 1.0],
+    });
+    vertices.push(Vertex {
+        position: [top_left.x, bottom_right.y, 0.0],
+        tex_coords: [uv_min.x, uv_max.y],
+        tint: [1.0, 1.0, 1.0, 1.0],
+    });
+    vertices.push(Vertex {
+        position: [bottom_right.x, bottom_right.y, 0.0],
+        tex_coords: [uv_max.x, uv_max.y],
+        tint: [1.0, 1.0, 1.0, 1.0],
+    });
+    vertices.push(Vertex {
+        position: [bottom_right.x, top_left.y, 0.0],
+        tex_coords: [uv_max.x, uv_min.y],
+        tint: [1.0, 1.0, 1.0, 1.0],
+    });
+
+    indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 3, base + 2]);
 }
 
 // Dedicated UI-thumbnail mesh builder. Deliberately NOT a call
@@ -309,6 +330,8 @@ pub(super) fn build_thumbnail_mesh(
     (vertices, indices)
 }
 
+// Solid Rect mesh builders
+// Group of functions that builds a mesh for a collection of solid rectangles.
 pub(super) fn build_solid_rect_mesh(rects: &[SolidRect]) -> (Vec<SolidVertex>, Vec<u16>) {
     let mut vertices = Vec::with_capacity(rects.len() * 4);
     let mut indices = Vec::with_capacity(rects.len() * 6);
@@ -453,19 +476,4 @@ pub(super) fn build_player_neighborhood_mesh(scene: &Scene) -> Vec<SolidRect> {
     );
 
     rects
-}
-
-pub(super) fn build_cursor_highlight_mesh(scene: &Scene, mouse_pos: Vec2) -> Vec<SolidRect> {
-    let grid = scene.static_grid();
-    let cell_size = grid.cell_size();
-    let mouse_position = grid.cell_at_position(mouse_pos);
-
-    // Highlight the single cell the mouse is currently hovering over.
-    vec![SolidRect {
-        position: grid.cell_center_world(mouse_position),
-        size: Vec2::new(cell_size, cell_size),
-        fill_color: [0.0, 1.0, 0.0, 0.7],
-        border_color: [0.0, 0.7, 0.0, 0.4],
-        border_thickness_px: 1.0,
-    }]
 }
