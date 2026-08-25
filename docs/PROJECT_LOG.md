@@ -3,7 +3,7 @@
 
 **Document type:** Living project record (docs-as-code)
 **Started:** July 2026
-**Revision:** v15
+**Revision:** v16
 **Status:** M1–M4 complete, M5 (The Village) in progress through Phase 32. A design-only session (Phase 33) settled tile-based scene background authoring, superseding ADR-028's last standing clause (ADR-096) and carving out minimal file-based persistence for tile grids specifically from ADR-027 (ADR-097) — not yet implemented, ready to hand to an M5 implementation session. Companion document: `docs/DERIVATION.md`.
 **Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated when decisions accumulate, not on a timer.
 **Screenshots at each visual milestone** are part of this ritual, not an afterthought — historically the step most likely to be skipped (M4's first two phases shipped with none until caught retroactively); a phase isn't fully closed until its screenshots exist and are named.
@@ -1735,6 +1735,158 @@ animating through it read as floaty rather than correct.
 Docs-as-code: docs/screenshots/ covers m5-20 - the inspector panel
 toggled off-screen via F12.
 
+### Phase 38 — Isometric Mouse Picking (completed)
+
+Fixes `screen_to_world`, which inverted camera/zoom correctly but never
+inverted ADR-087's isometric shear — silently handing back sheared-space
+coordinates mislabeled as world space whenever `is_isometric` was true.
+Surfaced by testing the existing tile-editor cursor highlight, which
+tracked correctly in flat mode but not isometric.
+
+`Renderer::inverse_shear` is added as a named sibling to `shear()`,
+both built from `isometric_projection()` rather than a hand-typed
+inverse formula. Because that projection is a pure linear map with no
+translation component, `shear(a) - shear(b) = shear(a - b)` — so the
+camera never needs shearing separately, only the offset does.
+`screen_to_world` now takes `is_isometric` and applies `inverse_shear`
+to the zoom-adjusted offset before adding `smoothed_camera` (ADR-100).
+
+This is a literal-inverse case, distinct from ADR-088's movement
+inverse (rejected there for control-feel reasons, not mathematical
+ones) — picking recovers a geometric fact, not a stylistic choice, so
+the literal inverse is correct and required here. Satisfies ADR-097's
+named hard dependency for the tile painter; cursor highlight and the
+mouse-position HUD are both immediately correct with no changes to
+either consumer.
+
+Docs-as-code: docs/screenshots/ covers m5-24 — the tile-editor cursor
+highlight tracking correctly in isometric mode at zoom, confirming the
+fix.
+
+---
+
+### Phase 39 — Inspector Widget Architecture & Tile Palette (completed)
+
+Generalizes `InspectorSection` from a single hardcoded widget
+(`volume_slider`) to `widgets: Vec<SectionWidget>` (`Slider | TilePalette
+| TilesetControls`), since the tileset palette's wrap-dependent height
+broke the previous fixed-`40.0`-per-section assumption outright. A
+widget's `required_height(content_width)` is asked before section
+height is known; `InspectorSection::required_height` sums its widgets'
+heights plus gaps, and `stack_widgets` resolves each widget's own
+`(top_left, height)` fresh every call — never cached, consistent with
+every other layout value in this file — via the same accumulate-and-
+stack approach `compute_section_offset` already used one level up, for
+sections within the panel (ADR-101).
+
+`TilePalette` renders every entry in `tile::tile_names()` (sorted, since
+it's `HashMap`-backed and iteration order is otherwise unspecified) as
+a fixed-size thumbnail, wrapping into rows based on current panel
+width. Selection is click-to-select, edge-triggered on a new one-shot
+`left_mouse_pressed` flag distinct from the held `left_mouse_down` the
+slider already used for dragging, highlighted with the same green
+highlight color as the world cursor. Thumbnails re-render via
+`tile::tile_uv`'s existing iso/flat row selection whenever
+`is_isometric` flips — one tile identity, two renderings of ADR-098's
+UV-pair convention, no separate iso/flat catalog needed (ADR-102).
+
+Rendering thumbnails required a genuinely new engine capability — a
+textured (not solid-color) quad drawable in UI/screen space
+(`Renderer::render_ui_tiles`, `mesh::build_thumbnail_mesh`), kept
+deliberately separate from world-space `render_tiles`/`build_tile_mesh`
+since thumbnails have no `GEOMETRY_OVERLAP` seam concern and a
+UI-fixed size unrelated to world tile scale.
+
+Docs-as-code: docs/screenshots/ covers m5-25 through m5-26 — the
+tileset palette rendering correctly in flat mode (m5-25) and isometric
+mode (m5-26), confirming mode-aware thumbnail selection.
+
+---
+
+### Phase 40 — Tileset Paint Controls (completed)
+
+Adds `TilesetControls` as a second widget in the Tileset section:
+Place/Remove as a two-button radio group, Save/Clear as one-shot
+action buttons. `Button::build` produces a button's rect and its
+centered label glyphs together from one `is_selected`/`is_disabled`
+resolution (`Button::colors` returning a fill/border/text three-tuple,
+so a button's box and label can never disagree about state). Clicking
+returns a `TilesetAction` (`SetMode`/`Save`/`Clear`/`None`) for
+`AppState` to act on, rather than the widget reaching into scene/file
+state directly — the same event-return pattern `Slider::update`
+already established (ADR-103).
+
+Label centering required `TextBounds` — min/max glyph extents tracked
+during `layout_ttf_text`, giving an exact center regardless of label
+length, rather than the fixed-pixel-offset precedent
+`draw_section_titles` uses for section headers. `layout_ttf_text`'s
+return type changed to include these bounds, rippling to its one
+existing call site. Button sizing consolidated into shared
+module-level constants (`BUTTON_SIZE`, `BUTTON_GAP`), with every
+offset/`required_height` derived from them rather than independent
+hardcoded literals per button.
+
+Docs-as-code: docs/screenshots/ covers m5-27 through m5-28 — the
+tileset controls disabled outside paint mode (m5-27) versus enabled
+within it (m5-28), confirming the three-color-state system reads
+correctly at a glance.
+
+---
+
+### Phase 41 — Paint Session, Ghost Tile Preview & Persistence (completed)
+
+`AppState.paint_session: Option<TileGrid>` holds a clone of the
+scene's tile grid, seeded on F8 entry and reseeded (via one shared
+`reset_paint_session` helper) on Save, Clear, and a scene change while
+paint mode is active; cleared to `None` on F8 exit as an implicit
+discard, no confirmation prompt. The tile-render pass reads from
+`paint_session` when present, falling back to `scene.tile_grid`
+otherwise — one reference, no unconditional per-frame cloning.
+
+A live "ghost tile" preview replaces the earlier plain-rect cursor
+highlight entirely: the hovered cell's entry is patched in place during
+the same pass that already builds `tile_entries` — swapped to the
+selected tile in Place mode, filtered out (hidden) in Remove mode —
+rather than mutating a second throwaway grid clone. Mutating
+`paint_session` directly on hover was tried and rejected first: it
+behaves like a drag/brush mode (tiles persisting from mere hovering,
+no click needed), which ADR-097 already deferred past v1. Patching
+`tile_entries` in place also avoids a second, separately-drawn
+overlapping quad, which would let a non-opaque replacement tile show
+the old one through at its edges (ADR-104).
+
+Testing this surfaced a real bug: painting outside while never leaving
+paint mode, then walking indoors, carried the outdoor edits inside too
+— the same stale session kept rendering after the scene changed
+underneath it. Fixed by reseeding the session on scene change whenever
+paint mode is active.
+
+Separately, implementing ADR-097's save format against real sparse,
+possibly-negative coordinates surfaced that its literal text ("one row
+per line") implicitly assumed a dense, bounded grid — impossible to
+satisfy without inventing an origin/offset scheme. A considered
+numeric-tile-ID optimization was evaluated and rejected too, since it
+would need a second hand-maintained id↔cell table alongside the
+existing `tile_names()`, reintroducing the duplicated-source-of-truth
+pattern this project treats as its most common bug root cause — to
+save a parse cost unmeasurable at this project's scale. The corrected
+format is one populated cell per line, `world_x world_y tile_name`;
+`load_tilemap` parses this and is called once from `build_scene`,
+generically for every scene; malformed lines panic naming the file,
+line number, and content (ADR-105, superseding ADR-097's row/ID
+assumptions).
+
+`home.rs`'s hardcoded `set_named` tile-authoring calls are retired,
+replaced by a real, save-verified `assets/tile/home.tilemap` —
+confirmed via the painter before the hardcoded fallback was deleted,
+avoiding a content regression. `village.rs` needed no equivalent
+migration, having never had hardcoded tiles.
+
+Docs-as-code: docs/screenshots/ covers m5-29 through m5-31 — the
+ghost-tile preview in Place mode (m5-29) and Remove mode (m5-30), and
+a saved tilemap confirmed present after a full app restart, not just a
+scene re-entry (m5-31).
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -2898,11 +3050,195 @@ toggled off-screen via F12.
   distinct fixes across resumed()/build_scene/the warp-handling path,
   each a genuinely separate root cause, not the same bug recurring.
 
+### ADR-100: Screen-to-world mouse picking corrected for isometric shear via Renderer::inverse_shear
+- **Context:** `screen_to_world` existed (inverting camera/zoom only) but
+  silently returned sheared-space coordinates mislabeled as world space
+  whenever `is_isometric` was true, since it never inverted ADR-087's
+  shear. This was ADR-097's named hard dependency for the tile painter,
+  surfaced by testing the tile-editor cursor highlight, which tracked
+  correctly in flat mode but not isometric.
+- **Decision:** `Renderer::inverse_shear` added as a named sibling to
+  `shear()`, both built from `isometric_projection()` (one direct, one
+  via `.inverse()`) rather than a hand-typed inverse formula.
+  `screen_to_world` now takes `is_isometric` and applies `inverse_shear`
+  to the zoom-adjusted offset before adding `smoothed_camera`.
+- **Rationale:** `isometric_projection()` is a pure linear map with no
+  translation component, so `shear(a) - shear(b) = shear(a - b)` —
+  meaning the camera never needs to be sheared separately, only the
+  offset does. This is a literal-inverse case, distinct from ADR-088's
+  movement inverse, which was rejected for control-feel reasons rather
+  than mathematical ones; picking recovers a geometric fact (which cell
+  is under this pixel), not a stylistic choice, so the literal inverse
+  is required and correct here.
+- **Consequences:** cursor highlight and mouse-position HUD both
+  immediately correct in isometric mode at any zoom, no changes needed
+  to either consumer. Unblocks the tile painter's click-to-place with
+  no further engine work on the picking side.
+
+### ADR-101: Inspector sections generalized to own multiple stacked widgets
+- **Context:** `InspectorState` originally held a single hardcoded
+  `volume_slider` field alongside a `Vec<InspectorSection>`, with
+  section height a fixed `40.0` constant. The tileset palette (variable
+  height depending on tile-wrap) and, in the same pass, the tileset
+  paint controls both needed to live in the same section, breaking
+  both the single-widget-per-section and fixed-height assumptions at
+  once.
+- **Decision:** `InspectorSection` now owns `widgets: Vec<SectionWidget>`,
+  an enum (`Slider | TilePalette | TilesetControls`). A widget's
+  `required_height(content_width)` is asked before section height is
+  known; `InspectorSection::required_height` sums its widgets' heights
+  plus gaps, and `stack_widgets` resolves each widget's own
+  `(top_left, height)` fresh every call — never cached — by the same
+  accumulate-and-stack approach `compute_section_offset` already used
+  for sections within the panel, recursed one level down for widgets
+  within a section.
+- **Rationale:** treated as necessary generalization, not premature —
+  a section holding a wrap-dependent-height widget cannot be laid out
+  at all under a fixed-height assumption; it's a load-bearing
+  precondition for the feature. Recomputing fresh (never caching
+  stacked positions) keeps this consistent with every other layout
+  value in this file.
+- **Consequences:** sections can hold any number of widgets going
+  forward with no further architectural change — confirmed useful
+  immediately, since Tileset needed exactly two (`TilePalette`,
+  `TilesetControls`) in this same pass.
+
+### ADR-102: Tile palette widget — thumbnail grid, click-to-select, mode-aware rendering
+- **Context:** the tile painter's palette (hover/click-to-select
+  against tile thumbnails) was ADR-097's second named prerequisite,
+  alongside mouse picking.
+- **Decision:** `TilePalette` renders every entry in `tile::tile_names()`
+  (sorted for stable order, since it's backed by a `HashMap`) as a
+  fixed-size on-screen thumbnail, wrapping into rows based on current
+  panel width. Selection is click-to-select, edge-triggered on a new
+  one-shot `left_mouse_pressed` flag distinct from the held
+  `left_mouse_down` slider-dragging already used elsewhere, highlighted
+  with a transparent-fill/green-border box reusing the world cursor's
+  existing highlight color. Thumbnails re-render using `tile::tile_uv`'s
+  existing iso/flat row selection whenever `is_isometric` flips — one
+  tile identity, two renderings of ADR-098's existing UV-pair
+  convention, no separate iso/flat catalog.
+- **Rationale:** a fixed on-screen thumbnail size sidesteps needing
+  separate iso/flat scale factors — both variants simply stretch to
+  fill the same box, reusing `tile_uv` as-is rather than inventing new
+  atlas logic.
+- **Consequences:** introduced a new engine capability — a textured
+  (not solid-color) quad drawable in UI/screen space
+  (`Renderer::render_ui_tiles`, `mesh::build_thumbnail_mesh`),
+  deliberately separate from world-space `render_tiles`/
+  `build_tile_mesh`, since thumbnails have no `GEOMETRY_OVERLAP` seam
+  concern and a UI-fixed size unrelated to world tile scale.
+
+### ADR-103: Tileset paint controls — Place/Remove/Save/Clear as a button widget cluster
+- **Context:** painting needs a brush mode (Place vs. Remove) and
+  explicit commit/reset actions (Save, Clear) alongside tile selection.
+- **Decision:** `TilesetControls` is a second widget in the Tileset
+  section, holding four `Button` instances (two radio `mode_buttons`,
+  two one-shot `action_buttons`). `Button::build` produces both its
+  rect and its centered label glyphs together from one
+  `is_selected`/`is_disabled` resolution (`Button::colors` returns a
+  fill/border/text three-tuple, so a button's box and label can never
+  disagree about state). Clicking returns a `TilesetAction`
+  (`SetMode`/`Save`/`Clear`/`None`) for `AppState` to act on, rather
+  than the widget reaching into scene/file state directly — the same
+  event-return pattern `Slider::update` already used.
+- **Rationale:** label centering uses `TextBounds` (min/max glyph
+  extents tracked during `layout_ttf_text`, added specifically for
+  this), giving an exact center regardless of label length — unlike
+  the fixed-pixel-offset precedent `draw_section_titles` uses for
+  section headers.
+- **Consequences:** `layout_ttf_text`'s return type changed
+  (`Vec<PositionedTTFGlyph>` → `(Vec<PositionedTTFGlyph>, TextBounds)`),
+  rippling to its one existing call site. Button sizing consolidated
+  into shared module-level constants (`BUTTON_SIZE`, `BUTTON_GAP`),
+  with every offset/`required_height` derived from them rather than
+  independent hardcoded literals per button.
+
+### ADR-104: Paint session as a cloned draft grid; ghost-tile hover preview replaces debug cursor highlight
+- **Context:** painting needs to preview edits live without corrupting
+  the scene's real tile grid until an explicit save, and needs to show
+  what a click would place/remove before it happens.
+- **Decision:** `AppState.paint_session: Option<TileGrid>` holds a
+  clone of the scene's tile grid, seeded on F8 entry and reseeded (via
+  one shared `reset_paint_session` helper) on Save, Clear, and a scene
+  change while paint mode is active; cleared to `None` on F8 exit — an
+  implicit discard, no confirmation prompt, consistent with this
+  project's solo-dev "just do the thing" precedent. The tile-render
+  pass reads from `paint_session` when present, falling back to
+  `scene.tile_grid` otherwise — one reference, no unconditional
+  per-frame cloning. A live "ghost tile" preview replaces the earlier
+  plain-rect cursor highlight entirely: the hovered cell's entry is
+  patched in place during the same pass that already builds
+  `tile_entries` (swapped to the selected tile in Place mode, filtered
+  out in Remove mode), rather than mutating a second throwaway grid
+  clone.
+- **Rationale:** mutating `paint_session` directly on hover (instead of
+  patching the derived entry list) was tried and rejected — it behaves
+  like a drag/brush mode, tiles persisting from mere hovering with no
+  click needed, which ADR-097 already deferred past v1. Patching
+  `tile_entries` in place also avoids the transparency/overlap problem
+  a second, separately-drawn overlapping quad would cause (a
+  non-opaque replacement tile would let the old one show through at
+  the edges).
+- **Consequences:** a real bug this design surfaced and fixed —
+  painting while wandering between scenes without leaving paint mode
+  carried one scene's edits into another, since the same stale session
+  kept rendering after the scene changed underneath it; fixed by
+  reseeding on scene change whenever paint mode is active.
+  `mesh::build_tile_mesh` (single-tile) is split out of the batch
+  `build_tileset_mesh`, letting the ghost's one-off draw entry share
+  the exact mesh logic real tiles use. `build_cursor_highlight_mesh`
+  and `draw_debug_geometry`'s `mouse_pos` parameter are removed,
+  fully superseded.
+
+### ADR-105: Tile save format corrected to sparse per-cell lines with tile names;
+### loading wired at scene construction (supersedes ADR-097's dense-array/numeric-ID assumptions)
+- **Context:** implementing ADR-097 surfaced two problems with its
+  literal text. First, "whitespace-separated integers, one row per
+  line" implicitly assumes a dense, bounded grid with a fixed origin
+  at row 0 — but `TileGrid` is sparse and cells may be negative, so
+  there is no meaningful "row N" to write without inventing a separate
+  origin/offset scheme. Second, a considered numeric-tile-ID
+  optimization (small integers instead of names) was evaluated and
+  rejected — it would require a second, hand-maintained id↔cell table
+  alongside the existing name↔cell `tile_names()` (itself a `HashMap`
+  with unspecified iteration order, so an ID cannot be derived from
+  position), reintroducing the duplicated-source-of-truth pattern this
+  project's own retrospective principles already flag as its most
+  common bug root cause — to save a parse cost (`HashMap` lookup vs.
+  array index) unmeasurable at this project's file sizes and load
+  frequency (once per scene construction).
+- **Decision:** the save format is one populated cell per line, three
+  whitespace-separated fields — `world_x world_y tile_name` — nothing
+  written for unpainted cells, no bounding box or origin offset
+  anywhere. `TileGrid::tile_name_for` (the reverse of `tile_names()`)
+  is added for save-time lookup; `load_tilemap` parses each line,
+  panicking with the file path, 1-indexed line number, and offending
+  content on any malformed line — an actual implementation of
+  ADR-097's stated "panic loudly, naming the file and the specific
+  problem," rather than a bare `.unwrap()`. Loading is called once from
+  `build_scene`, generically for every scene, matching ADR-097's "same
+  moment textures are already loaded" placement.
+- **Rationale:** every other part of ADR-097's original decision
+  (plain text, no schema/serde/RON, panic-loudly-on-malformed,
+  read-once-at-construction) remains correct and unchanged — only the
+  row-shape and value-encoding assumptions needed correcting, once
+  sparse/negative coordinates and the never-hand-edited context were
+  actually reasoned through against real implementation.
+- **Consequences:** `home.rs`'s hardcoded `set_named` scene-authoring
+  calls are retired, replaced by `assets/tile/home.tilemap` — verified
+  via the painter (paint, save, confirm file contents) before the
+  hardcoded fallback was deleted, avoiding a content regression.
+  `village.rs` needed no equivalent migration, having never had
+  hardcoded tiles. `save_paint_session` writes the file and only
+  commits into `scene.tile_grid` if that write succeeds, so a failed
+  write leaves an in-progress edit intact rather than losing it.
+
 ---
 
 ## 5. Current State & Open Questions
 
-### Where the project stands (August 2026, v4)
+### Where the project stands (August 2026)
 
 - ✅ Design phase, derivation pass, naming (Phases 0–9, unchanged).
 - ✅ **M1 (The Toolchain and Window):** winit 0.30 integrated, window,
@@ -3006,6 +3342,20 @@ toggled off-screen via F12.
   the docs pass (this entry), then mouse picking, then the actual
   tile painter, then resume M5 content authoring (clue chain,
   remaining NPCs, guard/sword) — village.rs still has only villager_1.
+- ✅ **Tile painter: mouse picking, inspector widgets, paint session &
+  persistence (Phases 38–41):** the interactive tile painter is fully
+  built and playtested — isometric-aware picking (Phase 38), the
+  Inspector generalized to multi-widget sections plus the tile
+  palette (Phase 39), Place/Remove/Save/Clear controls (Phase 40), and
+  a cloned paint-session with live ghost-tile preview and file
+  persistence surviving a full app restart (Phase 41) — ADR-100
+  through ADR-105. `home.rs`'s hardcoded tiles retired in favor of a
+  real, saved tilemap file. **Still open:** player/entity iso
+  feet-alignment, NPC-vs-player collider shape question, facing during
+  isometric movement, entity-dimming while painting, draw-call
+  batching. **Next:** general inspector additions and fixes, then
+  actual M5 content authoring — paint Village, remaining ambient NPCs,
+  the flag-conditioned clue chain, the guard/sword moment.
 
 ### Open questions
 
@@ -3121,6 +3471,24 @@ Not an ADR.
   surface (per-battle environmental state, movement/visibility
   modifiers) with no beat currently demanding it. Revisit only once
   boss/executive-tier encounters are actually being designed.
+
+### Parked — Debug/Inspector naming split
+
+Raised while building the Tileset section (Phases 39–40). `debug.rs`/`DebugSettings` originally covered exclusively debug views (collider overlay, FPS, mouse position, grid visualization). It now also gates genuinely non-debug, content-authoring UI — the volume slider, the tileset palette and paint controls — under the same `show_debug_renderer` flag and file.
+
+Not renamed now — no second widget category has yet forced a concrete decision about where the line sits (e.g., a future click-to-inspect-entity feature would need to decide whether it's a debug view or an authoring widget too, and answering that once, deliberately, alongside a real second case, will produce a better split than guessing at one now). Revisit once another widget of either kind is added.
+
+### Parked — Entity-selection-in-inspector
+
+Raised while building the tile painter's Inspector widgets. A natural extension: click a collider in the world to "select" it (highlighted rect, same visual language as the tile-palette highlight), with its fields — and any children's — shown as a new Inspector section.
+
+Carries the same debug-view-vs-authoring-widget identity ambiguity as the parked naming split above: read-only field display reads as a debug view, but the same fields becoming editable later reads as authoring input, same as the tileset controls. Not designed now — no current content needs it, and it would be better resolved together with the naming question than guessed at in isolation.
+
+### Parked — Confirmation modal for destructive inspector actions
+
+Raised while designing the tileset Save/Clear buttons. Both currently act immediately and silently — Save always overwrites the scene's `.tilemap` file, Clear always resets the paint session to the scene's last-committed state — with no "are you sure?" prompt, consistent with this project's solo-dev "just do the thing" precedent.
+
+A small reusable confirmation-modal widget (a yes/no prompt gating any destructive one-shot action) is a plausible future need once a second consumer of the same pattern exists. Not built now — a bespoke modal for exactly one button pair would be guessing at a shape with only one real use case to inform it. Revisit when a second destructive action needs the same guard.
 
 ### Next session agenda (Milestone Chat #3: The Room / M3)
 
