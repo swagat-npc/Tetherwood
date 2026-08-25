@@ -1,5 +1,6 @@
 use super::{Direction, Entity, EntityId, Rect, Scene, Trigger, TriggerKind};
-use crate::engine::{entity::Collider, scene::TriggerId};
+use crate::engine::entity::Collider;
+use crate::engine::scene::TriggerId;
 use anyhow::Result;
 use glam::Vec2;
 

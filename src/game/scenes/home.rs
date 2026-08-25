@@ -1,6 +1,5 @@
 use crate::engine::entity::{Collider, Direction, Entity, EntityId, Rect};
 use crate::engine::renderer::texture::TextureStore;
-use crate::engine::renderer::tile;
 use crate::engine::scene::{
     Background, CameraMode, Scene, SceneId, Trigger, TriggerKind, WarpId, builder,
 };
@@ -147,14 +146,6 @@ fn build_background(
         position: door_position,
         size: door_size,
     });
-
-    let names = tile::tile_names();
-    scene.tile_grid.set_named((0, 0), "floor", &names);
-    scene.tile_grid.set_named((1, 0), "floor", &names);
-    scene.tile_grid.set_named((0, 1), "floor", &names);
-    scene.tile_grid.set_named((1, 1), "half-floor", &names);
-    scene.tile_grid.set_named((0, 2), "floor", &names);
-    scene.tile_grid.set_named((1, 2), "staircase-right", &names);
     Ok(())
 }
 

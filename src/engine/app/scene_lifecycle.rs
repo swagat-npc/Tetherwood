@@ -33,6 +33,7 @@ impl AppState {
             )
             .expect("failed to build village scene"),
         };
+        Self::load_tilemap(&mut new_scene);
         new_scene.build_static_grid(multiplying_factor);
         renderer.prepare_scene(&new_scene);
 
@@ -51,6 +52,11 @@ impl AppState {
             self.is_isometric,
             &mut self.progression,
         );
+        // Note: This is only relevant if player is allowed to
+        // move when in the tile editor mode
+        if self.debug.show_tile_editor {
+            self.reset_paint_session();
+        }
     }
 
     pub fn reset_scene(&mut self) {

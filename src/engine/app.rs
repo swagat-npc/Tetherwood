@@ -118,6 +118,10 @@ impl AppState {
         }
     }
 
+    fn reset_paint_session(&mut self) {
+        self.paint_session = Some(self.scene.tile_grid.clone());
+    }
+
     pub fn save_paint_session(&mut self) {
         let Some(session) = &self.paint_session else {
             return;
@@ -138,7 +142,7 @@ impl AppState {
 
         match std::fs::write(&path, contents) {
             Ok(()) => {
-                self.scene.tile_grid = self.paint_session.take().unwrap();
+                self.scene.tile_grid = self.paint_session.clone().unwrap();
                 self.notify("Tilemap saved");
             }
             Err(e) => {
@@ -149,10 +153,37 @@ impl AppState {
         }
     }
 
-    // TODO: Read tilemap from disk and load into scene
-    pub fn load_tilemap(&mut self, scene_id: SceneId) {
-        let path = Self::tilemap_path(scene_id);
-        if let Some(contents) = std::fs::read_to_string(&path).ok() {}
+    pub fn load_tilemap(scene: &mut Scene) {
+        let path = Self::tilemap_path(scene.id);
+        let Ok(contents) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        let names = tile::tile_names();
+
+        for (line_number, line) in contents.lines().enumerate() {
+            let fields: Vec<&str> = line.split(' ').collect();
+            if fields.len() != 3 {
+                panic!(
+                    "malformed tilemap {path} at line {}: expected 'x y tile_name', got {line:?}",
+                    line_number + 1
+                );
+            }
+            let x = fields[0].parse::<i32>().unwrap_or_else(|e| {
+                panic!(
+                    "malformed tilemap {path} at line {}: bad x {:?}: {e}",
+                    line_number + 1,
+                    fields[0]
+                )
+            });
+            let y = fields[1].parse::<i32>().unwrap_or_else(|e| {
+                panic!(
+                    "malformed tilemap {path} at line {}: bad y {:?}: {e}",
+                    line_number + 1,
+                    fields[1]
+                )
+            });
+            scene.tile_grid.set_named((x, y), fields[2], &names);
+        }
     }
 }
 
@@ -439,7 +470,7 @@ impl ApplicationHandler for App {
                         state.notify(state_msg);
                         if state.debug.show_tile_editor {
                             state.window.set_cursor(state.tile_cursor.clone());
-                            state.paint_session = Some(state.scene.tile_grid.clone());
+                            state.reset_paint_session();
                         } else {
                             state.window.set_cursor(CursorIcon::Default);
                             state.paint_session = None;

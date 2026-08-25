@@ -19,16 +19,18 @@ const TILE_CELL_PADDING: f32 = 6.0;
 const TILE_THUMBNAIL_SIZE: f32 = TILE_CELL_SIZE - 2.0 * TILE_CELL_PADDING;
 const TILE_CELL_GAP: f32 = 8.0;
 
+#[derive(Debug, Clone, Copy)]
 pub enum PaintMode {
     Place,
     Remove,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum TilesetAction {
     None,
     SetMode(PaintMode),
     Save,
-    Discard,
+    Clear,
 }
 
 pub enum SectionWidget {
@@ -243,13 +245,13 @@ impl Inspector {
                         label: "Save".to_string(),
                     },
                     Button {
-                        id: "discard",
+                        id: "clear",
                         offset: Vec2::new(
                             INSPECTOR_SECTION_PADDING + BUTTON_SIZE.x + BUTTON_GAP,
                             BUTTON_SIZE.y + BUTTON_GAP,
                         ),
                         size: BUTTON_SIZE + Vec2::new(20.0, 0.0),
-                        label: "Discard".to_string(),
+                        label: "Clear".to_string(),
                     },
                 ],
             }),
@@ -758,7 +760,7 @@ impl TilesetControls {
     }
 
     /// is_active: whether paint mode (show_tile_editor) is currently
-    /// on - Save/Discard are meaningless with no session grid, so they
+    /// on - Save/Clear are meaningless with no session grid, so they
     /// render disabled otherwise. current_mode: AppState's live paint
     /// mode, for radio-highlight comparison. Neither is stored on this
     /// struct - both are supplied fresh, same as TilePalette never
@@ -814,7 +816,7 @@ impl TilesetControls {
             if button.contains(section_top_left, mouse_pos) {
                 return match button.id {
                     "save" => TilesetAction::Save,
-                    "discard" => TilesetAction::Discard,
+                    "clear" => TilesetAction::Clear,
                     _ => TilesetAction::None,
                 };
             }

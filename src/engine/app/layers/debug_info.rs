@@ -73,7 +73,7 @@ impl AppState {
         match tileset_action {
             TilesetAction::SetMode(mode) => self.paint_mode = mode,
             TilesetAction::Save => self.save_paint_session(),
-            TilesetAction::Discard => self.paint_session = None,
+            TilesetAction::Clear => self.reset_paint_session(),
             TilesetAction::None => {}
         }
 
