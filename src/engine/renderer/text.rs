@@ -171,23 +171,46 @@ pub struct TTFGlyph {
     pub size: Vec2,   // glyph's bitmap size
 }
 
+pub struct TextBounds {
+    pub min: Vec2,
+    pub max: Vec2,
+}
+
+impl TextBounds {
+    pub fn width(&self) -> f32 {
+        self.max.x - self.min.x
+    }
+    pub fn height(&self) -> f32 {
+        self.max.y - self.min.y
+    }
+}
+
 pub fn layout_ttf_text(
     text: &str,
     font: &HashMap<char, TTFGlyph>,
     origin: Vec2,
     scale: f32,
     color: [f32; 4],
-) -> Vec<PositionedTTFGlyph> {
+) -> (Vec<PositionedTTFGlyph>, TextBounds) {
     let mut glyphs = Vec::new();
     let mut cursor = origin;
+    let mut min = origin;
+    let mut max = origin;
 
     for c in text.chars() {
         if let Some(g) = font.get(&c) {
+            let position = cursor + g.offset * scale;
+            let size = g.size * scale;
+            let bottom_right = position + size;
+
+            min = min.min(position);
+            max = max.max(bottom_right);
+
             glyphs.push(PositionedTTFGlyph {
                 uv_min: g.uv_min,
                 uv_max: g.uv_max,
-                position: cursor + g.offset * scale,
-                size: g.size * scale,
+                position,
+                size,
                 color,
             });
             cursor.x += g.advance * scale;
@@ -195,7 +218,13 @@ pub fn layout_ttf_text(
             cursor.x += scale * 8.0; // rough fallback for missing/space glyphs
         }
     }
-    glyphs
+
+    // Width still needs to reflect the final cursor position, not just
+    // the last real glyph's box - trailing fallback/space characters
+    // advance width without producing a glyph to compare against.
+    max.x = max.x.max(cursor.x);
+
+    (glyphs, TextBounds { min, max })
 }
 
 pub fn build_ttf_atlas(

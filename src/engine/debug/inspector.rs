@@ -443,7 +443,7 @@ impl Inspector {
                 bounds.center.x - bounds.half_size.x + 8.0,
                 bounds.center.y - bounds.half_size.y + 4.0,
             );
-            let glyphs = text::layout_ttf_text(
+            let (glyphs, _bounds) = text::layout_ttf_text(
                 &section.title,
                 &renderer.ttf_glyphs,
                 origin,
@@ -696,6 +696,27 @@ impl Button {
             border_color,
             border_thickness_px: 1.5,
         }
+    }
+
+    /// Lays out this button's label, then re-centers every glyph
+    /// inside the button's actual rect - two steps because layout
+    /// needs *some* origin to measure from before the real centered
+    /// origin is known.
+    fn build_label_glyphs(
+        &self,
+        section_top_left: Vec2,
+        font: &HashMap<char, TTFGlyph>,
+    ) -> Vec<PositionedTTFGlyph> {
+        let button_center = section_top_left + self.offset + self.size * 0.5;
+        let (mut glyphs, bounds) =
+            text::layout_ttf_text(&self.label, font, Vec2::ZERO, 1.0, [0.0, 0.0, 0.0, 1.0]);
+
+        let bounds_center = (bounds.min + bounds.max) * 0.5;
+        let shift = button_center - bounds_center;
+        for glyph in &mut glyphs {
+            glyph.position += shift;
+        }
+        glyphs
     }
 }
 
