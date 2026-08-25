@@ -5,10 +5,10 @@ mod player;
 mod scene_lifecycle;
 
 use super::debug::DebugSettings;
-use crate::engine::debug::inspector::Inspector;
+use crate::engine::debug::inspector::{Inspector, PaintMode};
 use crate::engine::debug::notifications::Notification;
 use crate::engine::renderer::{Renderer, tile};
-use crate::engine::scene::{InteractResult, Scene, SceneId};
+use crate::engine::scene::{InteractResult, Scene, SceneId, TileGrid};
 use crate::game::actions::{self, Action};
 use crate::game::dialogue::line_for;
 use crate::game::progression::ProgressionTracker;
@@ -64,6 +64,8 @@ struct AppState {
     inspector: Inspector,
     is_isometric: bool,
     progression: ProgressionTracker,
+    paint_session: Option<TileGrid>,
+    paint_mode: PaintMode,
 }
 
 impl AppState {
@@ -93,6 +95,48 @@ impl AppState {
         }
 
         delta.as_secs_f32()
+    }
+
+    fn current_scene_id(&self) -> SceneId {
+        self.scene.id
+    }
+
+    fn tilemap_path(id: SceneId) -> String {
+        match id {
+            SceneId::Home => "assets/tile/home.tilemap".to_string(),
+            SceneId::Village => "assets/tile/village.tilemap".to_string(),
+        }
+    }
+
+    pub fn save_paint_session(&mut self) {
+        let Some(session) = &self.paint_session else {
+            return;
+        };
+        let names = tile::tile_names();
+
+        let mut contents = String::new();
+        for (cell, atlas_cell) in session.iter() {
+            if let Some(name) = TileGrid::tile_name_for(atlas_cell, &names) {
+                contents.push_str(&format!("{} {} {}\n", cell.0, cell.1, name));
+            }
+        }
+
+        let path = Self::tilemap_path(self.current_scene_id());
+        if let Some(dir) = std::path::Path::new(&path).parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+
+        match std::fs::write(&path, contents) {
+            Ok(()) => {
+                self.scene.tile_grid = self.paint_session.take().unwrap();
+                self.notify("Tilemap saved");
+            }
+            Err(e) => {
+                self.notify(format!("Failed to save tilemap: {e}"));
+                // paint_session deliberately left intact - a failed
+                // write means nothing was lost, and the user can retry.
+            }
+        }
     }
 }
 
@@ -187,6 +231,8 @@ impl ApplicationHandler for App {
             debug: DebugSettings::new(),
             is_isometric,
             progression: ProgressionTracker::new(),
+            paint_session: None,
+            paint_mode: PaintMode::Place,
         };
 
         self.state = Some(state);
@@ -233,9 +279,11 @@ impl ApplicationHandler for App {
                         state.renderer.clear_frame(&frame);
 
                         // Tile Layer
-                        let mut tile_entries: Vec<(Vec2, (i32, i32), f32)> = state
-                            .scene
-                            .tile_grid
+                        let active_grid = state
+                            .paint_session
+                            .as_ref()
+                            .unwrap_or(&state.scene.tile_grid);
+                        let mut tile_entries: Vec<(Vec2, (i32, i32), f32)> = active_grid
                             .iter()
                             .map(|(cell, atlas_cell)| {
                                 let depth = (cell.0 + cell.1) as f32;
@@ -344,8 +392,10 @@ impl ApplicationHandler for App {
                         state.notify(state_msg);
                         if state.debug.show_tile_editor {
                             state.window.set_cursor(state.tile_cursor.clone());
+                            state.paint_session = Some(state.scene.tile_grid.clone());
                         } else {
                             state.window.set_cursor(CursorIcon::Default);
+                            state.paint_session = None;
                         }
                     } else if code == KeyCode::F10 {
                         state.is_isometric = !state.is_isometric;

@@ -1,16 +1,15 @@
-use glam::Vec2;
-
 use crate::engine::app::AppState;
-use crate::engine::debug;
-use crate::engine::debug::inspector::{Inspector, SectionWidget};
-use crate::engine::renderer::Frame;
+use crate::engine::debug::inspector::{Inspector, PaintMode, SectionWidget};
+use crate::engine::renderer::{Frame, tile};
+use crate::engine::{debug, entity};
+use glam::Vec2;
 
 impl AppState {
     pub fn update_debug_ui(&mut self) {
         let mouse_pressed_this_frame = self.left_mouse_pressed;
         self.left_mouse_pressed = false;
 
-        let world_mouse = Vec2::new(
+        let screen_mouse = Vec2::new(
             self.screen_mouse_position.0 as f32,
             self.screen_mouse_position.1 as f32,
         );
@@ -22,11 +21,12 @@ impl AppState {
         // inspector.state below - Vec2 is Copy, so this is a cheap
         // snapshot, not aliasing.
         let inspector_position = self.inspector.position;
+        let over_panel = entity::point_in_rect(screen_mouse, &self.inspector.bounds());
+        let is_paint_active = self.debug.show_tile_editor;
 
         let Some(inspector_state) = &mut self.inspector.state else {
             return;
         };
-
         for section in inspector_state.sections.iter_mut() {
             let bounds = Inspector::resolve_section_bounds(inspector_position, section);
             let section_top_left = bounds.center - bounds.half_size;
@@ -35,15 +35,38 @@ impl AppState {
             for widget in section.widgets.iter_mut() {
                 match widget {
                     SectionWidget::Slider(slider) => {
-                        if slider.update(world_mouse, self.left_mouse_down) {
+                        if slider.update(screen_mouse, self.left_mouse_down) {
                             self.blip_volume = slider.value;
                         }
                     }
                     SectionWidget::TilePalette(palette) => {
                         if mouse_pressed_this_frame {
-                            palette.handle_click(world_mouse, section_top_left, content_width);
+                            palette.handle_click(screen_mouse, section_top_left, content_width);
                         }
                     }
+                }
+            }
+        }
+
+        // World-click paint/erase: only when paint mode is active, the
+        // panel is settled (not mid-animation), the click isn't meant
+        // for the UI, and this is a genuine press (not a held button).
+        if is_paint_active && self.inspector.is_settled() && !over_panel && mouse_pressed_this_frame
+        {
+            let world_pos = self
+                .renderer
+                .screen_to_world(screen_mouse, self.is_isometric);
+            let cell =
+                tile::cell_at_position(world_pos, self.multiplying_factor, self.is_isometric);
+
+            if let Some(session) = &mut self.paint_session {
+                match self.paint_mode {
+                    PaintMode::Place => {
+                        if let Some(selected) = self.inspector.selected_tile() {
+                            session.set(cell, selected);
+                        }
+                    }
+                    PaintMode::Remove => session.remove(cell),
                 }
             }
         }

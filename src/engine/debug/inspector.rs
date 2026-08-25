@@ -7,6 +7,11 @@ const INSPECTOR_SECTION_PADDING: f32 = 12.0;
 const INSPECTOR_BORDER_THICKNESS: f32 = 4.0;
 const SECTION_BORDER_THICKNESS: f32 = 1.5;
 
+pub enum PaintMode {
+    Place,
+    Remove,
+}
+
 pub enum SectionWidget {
     Slider(Slider),
     TilePalette(TilePalette),
@@ -35,6 +40,12 @@ pub struct Inspector {
 }
 
 impl Inspector {
+    const VOLUME_SLIDER_SIZE: Vec2 = Vec2::new(120.0, 12.0);
+    const TILE_CELL_SIZE: f32 = 64.0;
+    const TILE_CELL_PADDING: f32 = 6.0;
+    const TILE_THUMBNAIL_SIZE: f32 = Self::TILE_CELL_SIZE - 2.0 * Self::TILE_CELL_PADDING;
+    const TILE_CELL_GAP: f32 = 8.0;
+
     pub fn new(screen_size: Vec2) -> Self {
         let width = 250.0;
         let border_thickness_px = INSPECTOR_BORDER_THICKNESS;
@@ -55,6 +66,19 @@ impl Inspector {
         inspector
     }
 
+    /// Call once per frame, before drawing. Eases `position` toward
+    /// visible_position, or fully off-screen to the right if hidden -
+    /// same lerp-toward-target pattern as Renderer::update_smoothed_camera.
+    pub fn update(&mut self) {
+        let target = self.target_position();
+        self.position = self.position.lerp(target, 0.15);
+    }
+
+    pub fn is_settled(&self) -> bool {
+        let target = self.target_position();
+        (self.position - target).length() < 0.5 // small epsilon — "close enough" to done animating
+    }
+
     pub fn toggle(&mut self) {
         self.is_hidden = !self.is_hidden;
         if let Some(state) = &mut self.state {
@@ -68,17 +92,27 @@ impl Inspector {
         }
     }
 
-    /// Call once per frame, before drawing. Eases `position` toward
-    /// visible_position, or fully off-screen to the right if hidden -
-    /// same lerp-toward-target pattern as Renderer::update_smoothed_camera.
-    pub fn update(&mut self) {
-        let target = self.target_position();
-        self.position = self.position.lerp(target, 0.15);
+    /// Full panel bounds, resolved fresh (position animates) - used to
+    /// gate world-clicks (paint mode) against clicks meant for the UI.
+    pub fn bounds(&self) -> Rect {
+        Rect {
+            center: self.position,
+            half_size: self.size * 0.5,
+        }
     }
 
-    pub fn is_settled(&self) -> bool {
-        let target = self.target_position();
-        (self.position - target).length() < 0.5 // small epsilon — "close enough" to done animating
+    /// Finds the first TilePalette widget in any section, by type, not
+    /// by section title - stays correct even if section names change.
+    pub fn selected_tile(&self) -> Option<(i32, i32)> {
+        let state = self.state.as_ref()?;
+        for section in &state.sections {
+            for widget in &section.widgets {
+                if let SectionWidget::TilePalette(p) = widget {
+                    return Some(p.selected);
+                }
+            }
+        }
+        None
     }
 
     fn get_panel_content_width(&self) -> f32 {
@@ -109,12 +143,6 @@ impl Inspector {
         self.position = self.target_position();
     }
 
-    const VOLUME_SLIDER_SIZE: Vec2 = Vec2::new(120.0, 12.0);
-    const TILE_CELL_SIZE: f32 = 64.0;
-    const TILE_CELL_PADDING: f32 = 6.0;
-    const TILE_THUMBNAIL_SIZE: f32 = Self::TILE_CELL_SIZE - 2.0 * Self::TILE_CELL_PADDING;
-    const TILE_CELL_GAP: f32 = 8.0;
-
     fn populate_inspector(&mut self) {
         let content_width = self.get_panel_content_width();
 
@@ -128,7 +156,7 @@ impl Inspector {
         let (volume_offset, volume_half_size) = self.compute_section_offset(0, &section_heights);
         let (tileset_offset, tileset_half_size) = self.compute_section_offset(1, &section_heights);
 
-        let state = InspectorState {
+        self.state = Some(InspectorState {
             sections: vec![
                 InspectorSection {
                     title: "Audio".to_string(),
@@ -146,9 +174,7 @@ impl Inspector {
                     widgets: vec![SectionWidget::TilePalette(tile_palette)],
                 },
             ],
-        };
-
-        self.state = Some(state);
+        });
     }
 
     /// Builds the slider with a fixed offset from Inspector.position,
@@ -309,8 +335,8 @@ impl Inspector {
 }
 
 pub struct Slider {
-    offset: Vec2,       // fixed, relative to whatever panel owns this slider
-    pub position: Vec2, // synced each frame from panel_position + offset
+    offset: Vec2,
+    pub position: Vec2,
     pub size: Vec2,
     pub min: f32,
     pub max: f32,
