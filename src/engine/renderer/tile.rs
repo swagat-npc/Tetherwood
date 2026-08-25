@@ -74,12 +74,7 @@ pub fn tile_world_position(cell: (i32, i32), multiplying_factor: f32, is_isometr
 /// Inverse of tile_world_position: given a world-space point, which
 /// cell contains it. Same offset constants (1.0 iso / 0.5 flat) as
 /// the forward function, since this is that formula solved for `cell`.
-pub fn cell_at_position(
-    world_pos: Vec2,
-    multiplying_factor: f32,
-    is_isometric: bool,
-) -> (i32, i32) {
-    let offset = if is_isometric { 1.0 } else { 0.5 };
-    let cell_f = (world_pos / multiplying_factor) / TILE_WORLD_SIZE - Vec2::splat(offset);
+pub fn cell_at_position(world_pos: Vec2, multiplying_factor: f32) -> (i32, i32) {
+    let cell_f = (world_pos / multiplying_factor) / TILE_WORLD_SIZE;
     (cell_f.x.floor() as i32, cell_f.y.floor() as i32)
 }

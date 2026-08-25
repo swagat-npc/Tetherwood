@@ -85,8 +85,7 @@ impl AppState {
             let world_pos = self
                 .renderer
                 .screen_to_world(screen_mouse, self.is_isometric);
-            let cell =
-                tile::cell_at_position(world_pos, self.multiplying_factor, self.is_isometric);
+            let cell = tile::cell_at_position(world_pos, self.multiplying_factor);
 
             if let Some(session) = &mut self.paint_session {
                 match self.paint_mode {
