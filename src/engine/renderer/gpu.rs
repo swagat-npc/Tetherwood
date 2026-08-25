@@ -1,9 +1,11 @@
 use super::mesh::{INDICES, SolidVertex, VERTICES, Vertex};
 use super::texture::{Texture, TextureId, TextureStore};
 use crate::engine::renderer;
+use crate::engine::renderer::text::TTFGlyph;
 use crate::engine::scene::Scene;
 use anyhow::Result;
 use glam::{Mat4, Vec2, Vec4};
+use std::collections::HashMap;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
@@ -46,7 +48,7 @@ pub struct Renderer {
     #[allow(dead_code)]
     ttf_atlas: Texture,
     pub(super) ttf_atlas_bind_group: wgpu::BindGroup,
-    pub ttf_glyphs: std::collections::HashMap<char, crate::engine::renderer::text::TTFGlyph>,
+    pub ttf_glyphs: HashMap<char, TTFGlyph>,
     pub camera_position: Vec2,
     pub smoothed_camera: Vec2,
     pub zoom: f32,

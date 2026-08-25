@@ -11,6 +11,14 @@ const INSPECTOR_BORDER_THICKNESS: f32 = 4.0;
 const SECTION_BORDER_THICKNESS: f32 = 1.5;
 const WIDGET_GAP: f32 = 8.0;
 
+const VOLUME_SLIDER_SIZE: Vec2 = Vec2::new(120.0, 12.0);
+const BUTTON_SIZE: Vec2 = Vec2::new(80.0, 30.0);
+const BUTTON_GAP: f32 = 8.0;
+const TILE_CELL_SIZE: f32 = 64.0;
+const TILE_CELL_PADDING: f32 = 6.0;
+const TILE_THUMBNAIL_SIZE: f32 = TILE_CELL_SIZE - 2.0 * TILE_CELL_PADDING;
+const TILE_CELL_GAP: f32 = 8.0;
+
 pub enum PaintMode {
     Place,
     Remove,
@@ -93,12 +101,6 @@ pub fn stack_widgets(
 }
 
 impl Inspector {
-    const VOLUME_SLIDER_SIZE: Vec2 = Vec2::new(120.0, 12.0);
-    const TILE_CELL_SIZE: f32 = 64.0;
-    const TILE_CELL_PADDING: f32 = 6.0;
-    const TILE_THUMBNAIL_SIZE: f32 = Self::TILE_CELL_SIZE - 2.0 * Self::TILE_CELL_PADDING;
-    const TILE_CELL_GAP: f32 = 8.0;
-
     pub fn new(screen_size: Vec2) -> Self {
         let width = 250.0;
         let border_thickness_px = INSPECTOR_BORDER_THICKNESS;
@@ -207,44 +209,46 @@ impl Inspector {
         // so they need no such fixup.
         let volume_widgets = vec![SectionWidget::Slider(Slider::new(
             Vec2::ZERO,
-            Self::VOLUME_SLIDER_SIZE,
+            VOLUME_SLIDER_SIZE,
             -40.0,
             0.0,
             -24.0,
         ))];
 
         let tileset_widgets = vec![
-            SectionWidget::TilePalette(TilePalette::new(
-                Self::TILE_CELL_SIZE,
-                Self::TILE_CELL_GAP,
-                (0, 0),
-            )),
+            SectionWidget::TilePalette(TilePalette::new(TILE_CELL_SIZE, TILE_CELL_GAP, (0, 0))),
             SectionWidget::TilesetControls(TilesetControls {
                 mode_buttons: vec![
                     Button {
                         id: "place",
                         offset: Vec2::new(INSPECTOR_SECTION_PADDING, 0.0),
-                        size: Vec2::new(80.0, 24.0),
+                        size: BUTTON_SIZE,
                         label: "Place".to_string(),
                     },
                     Button {
                         id: "remove",
-                        offset: Vec2::new(INSPECTOR_SECTION_PADDING + 88.0, 0.0),
-                        size: Vec2::new(80.0, 24.0),
+                        offset: Vec2::new(
+                            INSPECTOR_SECTION_PADDING + BUTTON_SIZE.x + BUTTON_GAP,
+                            0.0,
+                        ),
+                        size: BUTTON_SIZE + Vec2::new(20.0, 0.0),
                         label: "Remove".to_string(),
                     },
                 ],
                 action_buttons: vec![
                     Button {
                         id: "save",
-                        offset: Vec2::new(INSPECTOR_SECTION_PADDING, 30.0),
-                        size: Vec2::new(80.0, 24.0),
+                        offset: Vec2::new(INSPECTOR_SECTION_PADDING, BUTTON_SIZE.y + BUTTON_GAP),
+                        size: BUTTON_SIZE,
                         label: "Save".to_string(),
                     },
                     Button {
                         id: "discard",
-                        offset: Vec2::new(INSPECTOR_SECTION_PADDING + 88.0, 30.0),
-                        size: Vec2::new(80.0, 24.0),
+                        offset: Vec2::new(
+                            INSPECTOR_SECTION_PADDING + BUTTON_SIZE.x + BUTTON_GAP,
+                            BUTTON_SIZE.y + BUTTON_GAP,
+                        ),
+                        size: BUTTON_SIZE + Vec2::new(20.0, 0.0),
                         label: "Discard".to_string(),
                     },
                 ],
@@ -290,10 +294,10 @@ impl Inspector {
     fn populate_volume_slider(section_offset: Vec2, section_half_size: Vec2) -> Slider {
         let slider_offset = section_offset - section_half_size
             + Vec2::new(
-                INSPECTOR_SECTION_PADDING + Self::VOLUME_SLIDER_SIZE.x * 0.5,
-                INSPECTOR_SECTION_PADDING + Self::VOLUME_SLIDER_SIZE.y * 0.5,
+                INSPECTOR_SECTION_PADDING + VOLUME_SLIDER_SIZE.x * 0.5,
+                INSPECTOR_SECTION_PADDING + VOLUME_SLIDER_SIZE.y * 0.5,
             );
-        Slider::new(slider_offset, Self::VOLUME_SLIDER_SIZE, -40.0, 0.0, -24.0)
+        Slider::new(slider_offset, VOLUME_SLIDER_SIZE, -40.0, 0.0, -24.0)
     }
 
     // Draw order:
@@ -326,6 +330,7 @@ impl Inspector {
 
         let mut thumbnail_entries = Vec::new();
         let mut highlight_rects = Vec::new();
+        let mut label_glyphs = Vec::new();
 
         if let Some(state) = &self.state {
             for section in state.sections.iter() {
@@ -346,11 +351,14 @@ impl Inspector {
                             );
                         }
                         SectionWidget::TilesetControls(controls) => {
-                            rects.extend(controls.build_rects(
+                            let (button_rects, button_glyphs) = controls.build(
                                 *widget_top_left,
                                 paint_mode,
                                 is_paint_active,
-                            ));
+                                &renderer.ttf_glyphs,
+                            );
+                            rects.extend(button_rects);
+                            label_glyphs.extend(button_glyphs);
                         }
                     }
                 }
@@ -362,12 +370,12 @@ impl Inspector {
         renderer.render_ui_tiles(
             frame,
             &thumbnail_entries,
-            Self::TILE_THUMBNAIL_SIZE,
+            TILE_THUMBNAIL_SIZE,
             is_isometric,
             projection,
         );
         renderer.render_solid_rects(frame, &highlight_rects, projection, Mat4::IDENTITY);
-        self.draw_section_titles(renderer, frame);
+        self.draw_section_titles(renderer, frame, &label_glyphs);
     }
 
     fn build_panel(&self) -> Vec<SolidRect> {
@@ -435,8 +443,16 @@ impl Inspector {
             .collect()
     }
 
-    fn draw_section_titles(&self, renderer: &mut Renderer, frame: &Frame) {
+    fn draw_section_titles(
+        &self,
+        renderer: &mut Renderer,
+        frame: &Frame,
+        label_glyphs: &[PositionedTTFGlyph],
+    ) {
         let Some(state) = &self.state else { return };
+
+        let mut combined_glyphs = Vec::new();
+        combined_glyphs.extend(label_glyphs);
         for section in &state.sections {
             let bounds = self.section_bounds(section);
             let origin = Vec2::new(
@@ -450,8 +466,9 @@ impl Inspector {
                 1.0,
                 [1.0, 1.0, 1.0, 1.0],
             );
-            renderer.render_ttf_text(frame, &glyphs);
+            combined_glyphs.extend(&glyphs);
         }
+        renderer.render_ttf_text(frame, &combined_glyphs);
     }
 }
 
@@ -665,11 +682,14 @@ impl Button {
     const DISABLED_BG: [f32; 4] = [0.15, 0.15, 0.15, 0.6];
     const DISABLED_BORDER: [f32; 4] = [0.3, 0.3, 0.3, 0.6];
 
-    fn colors(is_selected: bool, is_disabled: bool) -> ([f32; 4], [f32; 4]) {
+    fn colors(is_selected: bool, is_disabled: bool) -> ([f32; 4], [f32; 4], [f32; 4]) {
+        const DEFAULT_TEXT: [f32; 4] = [0.0, 0.0, 0.0, 1.0]; // black
+        const SELECTED_TEXT: [f32; 4] = [1.0, 1.0, 1.0, 1.0]; // white
+        const DISABLED_TEXT: [f32; 4] = [0.5, 0.5, 0.5, 1.0]; // muted gray
         match (is_disabled, is_selected) {
-            (true, _) => (Self::DISABLED_BG, Self::DISABLED_BORDER),
-            (false, true) => (Self::SELECTED_BG, Self::SELECTED_BORDER),
-            (false, false) => (Self::DEFAULT_BG, Self::DEFAULT_BORDER),
+            (true, _) => (Self::DISABLED_BG, Self::DISABLED_BORDER, DISABLED_TEXT),
+            (false, true) => (Self::SELECTED_BG, Self::SELECTED_BORDER, SELECTED_TEXT),
+            (false, false) => (Self::DEFAULT_BG, Self::DEFAULT_BORDER, DEFAULT_TEXT),
         }
     }
 
@@ -681,21 +701,27 @@ impl Button {
             && point.y <= top_left.y + self.size.y
     }
 
-    fn build_rect(
+    /// Builds this button's rect and its centered label glyphs together -
+    /// one call per button, since both derive from the same
+    /// is_selected/is_disabled state and the same section_top_left.
+    fn build(
         &self,
         section_top_left: Vec2,
         is_selected: bool,
         is_disabled: bool,
-    ) -> SolidRect {
-        let (fill_color, border_color) = Self::colors(is_selected, is_disabled);
+        font: &HashMap<char, TTFGlyph>,
+    ) -> (SolidRect, Vec<PositionedTTFGlyph>) {
+        let (fill_color, border_color, text_color) = Self::colors(is_selected, is_disabled);
         let top_left = section_top_left + self.offset;
-        SolidRect {
+        let rect = SolidRect {
             position: top_left + self.size * 0.5,
             size: self.size,
             fill_color,
             border_color,
             border_thickness_px: 1.5,
-        }
+        };
+        let glyphs = self.build_label_glyphs(section_top_left, text_color, font);
+        (rect, glyphs)
     }
 
     /// Lays out this button's label, then re-centers every glyph
@@ -705,13 +731,14 @@ impl Button {
     fn build_label_glyphs(
         &self,
         section_top_left: Vec2,
+        text_color: [f32; 4],
         font: &HashMap<char, TTFGlyph>,
     ) -> Vec<PositionedTTFGlyph> {
         let button_center = section_top_left + self.offset + self.size * 0.5;
         let (mut glyphs, bounds) =
-            text::layout_ttf_text(&self.label, font, Vec2::ZERO, 1.0, [0.0, 0.0, 0.0, 1.0]);
+            text::layout_ttf_text(&self.label, font, Vec2::ZERO, 1.0, text_color);
 
-        let bounds_center = (bounds.min + bounds.max) * 0.5;
+        let bounds_center = bounds.min + Vec2::new(bounds.width(), bounds.height()) * 0.5;
         let shift = button_center - bounds_center;
         for glyph in &mut glyphs {
             glyph.position += shift;
@@ -727,9 +754,7 @@ pub struct TilesetControls {
 
 impl TilesetControls {
     pub fn required_height(&self) -> f32 {
-        let row_height = 24.0;
-        let row_gap = 6.0;
-        2.0 * INSPECTOR_SECTION_PADDING + row_height * 2.0 + row_gap
+        2.0 * INSPECTOR_SECTION_PADDING + BUTTON_SIZE.y * 2.0 + BUTTON_GAP
     }
 
     /// is_active: whether paint mode (show_tile_editor) is currently
@@ -738,25 +763,33 @@ impl TilesetControls {
     /// mode, for radio-highlight comparison. Neither is stored on this
     /// struct - both are supplied fresh, same as TilePalette never
     /// storing is_isometric.
-    pub fn build_rects(
+    pub fn build(
         &self,
         section_top_left: Vec2,
         current_mode: &PaintMode,
         is_active: bool,
-    ) -> Vec<SolidRect> {
+        font: &HashMap<char, TTFGlyph>,
+    ) -> (Vec<SolidRect>, Vec<PositionedTTFGlyph>) {
         let mut rects = Vec::new();
+        let mut glyphs = Vec::new();
+
         for button in &self.mode_buttons {
             let is_selected = is_active
                 && matches!(
                     (button.id, current_mode),
                     ("place", PaintMode::Place) | ("remove", PaintMode::Remove)
                 );
-            rects.push(button.build_rect(section_top_left, is_selected, !is_active));
+            let (rect, label_glyphs) =
+                button.build(section_top_left, is_selected, !is_active, font);
+            rects.push(rect);
+            glyphs.extend(label_glyphs);
         }
         for button in &self.action_buttons {
-            rects.push(button.build_rect(section_top_left, false, !is_active));
+            let (rect, label_glyphs) = button.build(section_top_left, false, !is_active, font);
+            rects.push(rect);
+            glyphs.extend(label_glyphs);
         }
-        rects
+        (rects, glyphs)
     }
 
     pub fn handle_click(

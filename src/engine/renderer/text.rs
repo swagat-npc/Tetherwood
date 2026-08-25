@@ -155,6 +155,7 @@ pub struct PositionedGlyph {
     pub scale: f32,
 }
 
+#[derive(Clone, Copy)]
 pub struct PositionedTTFGlyph {
     pub uv_min: Vec2,
     pub uv_max: Vec2,
