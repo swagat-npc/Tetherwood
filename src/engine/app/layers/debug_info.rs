@@ -1,5 +1,5 @@
 use crate::engine::app::AppState;
-use crate::engine::debug::inspector::{Inspector, PaintMode, SectionWidget};
+use crate::engine::debug::inspector::{self, Inspector, PaintMode, SectionWidget, TilesetAction};
 use crate::engine::renderer::{Frame, tile};
 use crate::engine::{debug, entity};
 use glam::Vec2;
@@ -13,6 +13,7 @@ impl AppState {
             self.screen_mouse_position.0 as f32,
             self.screen_mouse_position.1 as f32,
         );
+
         if !(self.debug.show_debug_renderer && self.inspector.is_settled()) {
             return;
         }
@@ -23,29 +24,57 @@ impl AppState {
         let inspector_position = self.inspector.position;
         let over_panel = entity::point_in_rect(screen_mouse, &self.inspector.bounds());
         let is_paint_active = self.debug.show_tile_editor;
+        let mut tileset_action = TilesetAction::None;
 
-        let Some(inspector_state) = &mut self.inspector.state else {
-            return;
-        };
-        for section in inspector_state.sections.iter_mut() {
-            let bounds = Inspector::resolve_section_bounds(inspector_position, section);
-            let section_top_left = bounds.center - bounds.half_size;
-            let content_width = bounds.half_size.x * 2.0;
+        {
+            let Some(inspector_state) = &mut self.inspector.state else {
+                return;
+            };
+            for section in inspector_state.sections.iter_mut() {
+                let bounds = Inspector::resolve_section_bounds(inspector_position, section);
+                let section_top_left = bounds.center - bounds.half_size;
+                let content_width = bounds.half_size.x * 2.0;
+                let slots =
+                    inspector::stack_widgets(&section.widgets, section_top_left, content_width);
+                // NOTE: stack_widgets is private in inspector.rs today - either
+                // make it pub(crate) or add a small pub wrapper; see note below.
 
-            for widget in section.widgets.iter_mut() {
-                match widget {
-                    SectionWidget::Slider(slider) => {
-                        if slider.update(screen_mouse, self.left_mouse_down) {
-                            self.blip_volume = slider.value;
+                for (widget, (widget_top_left, _height)) in
+                    section.widgets.iter_mut().zip(slots.iter())
+                {
+                    match widget {
+                        SectionWidget::Slider(slider) => {
+                            if slider.update(screen_mouse, self.left_mouse_down) {
+                                self.blip_volume = slider.value;
+                            }
                         }
-                    }
-                    SectionWidget::TilePalette(palette) => {
-                        if mouse_pressed_this_frame {
-                            palette.handle_click(screen_mouse, section_top_left, content_width);
+                        SectionWidget::TilePalette(palette) => {
+                            if mouse_pressed_this_frame {
+                                palette.handle_click(screen_mouse, *widget_top_left, content_width);
+                            }
+                        }
+                        SectionWidget::TilesetControls(controls) => {
+                            if mouse_pressed_this_frame {
+                                let action = controls.handle_click(
+                                    screen_mouse,
+                                    *widget_top_left,
+                                    is_paint_active,
+                                );
+                                if !matches!(action, TilesetAction::None) {
+                                    tileset_action = action;
+                                }
+                            }
                         }
                     }
                 }
             }
+        }
+
+        match tileset_action {
+            TilesetAction::SetMode(mode) => self.paint_mode = mode,
+            TilesetAction::Save => self.save_paint_session(),
+            TilesetAction::Discard => self.paint_session = None,
+            TilesetAction::None => {}
         }
 
         // World-click paint/erase: only when paint mode is active, the
@@ -77,8 +106,13 @@ impl AppState {
         debug::info::draw_notifications(&mut self.renderer, frame, &mut self.notifications);
 
         if self.debug.show_debug_renderer {
-            self.inspector
-                .draw(&mut self.renderer, frame, self.is_isometric);
+            self.inspector.draw(
+                &mut self.renderer,
+                frame,
+                self.is_isometric,
+                &self.paint_mode,
+                self.debug.show_tile_editor,
+            );
 
             if self.debug.show_debug_info {
                 // DEBUG::FPS Counter

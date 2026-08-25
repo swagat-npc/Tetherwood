@@ -1,4 +1,7 @@
+use std::collections::HashMap;
+
 use crate::engine::entity::Rect;
+use crate::engine::renderer::text::{PositionedTTFGlyph, TTFGlyph};
 use crate::engine::renderer::{Frame, Renderer, SolidRect, text, tile};
 use glam::{Mat4, Vec2};
 
@@ -6,15 +9,34 @@ const INSPECTOR_PADDING: f32 = 6.0;
 const INSPECTOR_SECTION_PADDING: f32 = 12.0;
 const INSPECTOR_BORDER_THICKNESS: f32 = 4.0;
 const SECTION_BORDER_THICKNESS: f32 = 1.5;
+const WIDGET_GAP: f32 = 8.0;
 
 pub enum PaintMode {
     Place,
     Remove,
 }
 
+pub enum TilesetAction {
+    None,
+    SetMode(PaintMode),
+    Save,
+    Discard,
+}
+
 pub enum SectionWidget {
     Slider(Slider),
     TilePalette(TilePalette),
+    TilesetControls(TilesetControls),
+}
+
+impl SectionWidget {
+    fn required_height(&self, content_width: f32) -> f32 {
+        match self {
+            SectionWidget::Slider(s) => s.size.y + 2.0 * INSPECTOR_SECTION_PADDING,
+            SectionWidget::TilePalette(p) => p.required_height(content_width),
+            SectionWidget::TilesetControls(c) => c.required_height(),
+        }
+    }
 }
 
 pub struct InspectorSection {
@@ -22,6 +44,16 @@ pub struct InspectorSection {
     offset: Vec2,
     half_size: Vec2,
     pub widgets: Vec<SectionWidget>,
+}
+
+impl InspectorSection {
+    fn required_height(widgets: &[SectionWidget], content_width: f32) -> f32 {
+        let sum: f32 = widgets
+            .iter()
+            .map(|w| w.required_height(content_width))
+            .sum();
+        sum + WIDGET_GAP * widgets.len().saturating_sub(1) as f32 + 2.0 * INSPECTOR_SECTION_PADDING
+    }
 }
 
 pub struct InspectorState {
@@ -37,6 +69,27 @@ pub struct Inspector {
     border_color: [f32; 4],
     border_thickness_px: f32,
     pub state: Option<InspectorState>,
+}
+
+/// Resolves every widget's own (top_left, height) within a section,
+/// stacked top-to-bottom. Recomputed fresh every call (click handling,
+/// drawing) - never cached, consistent with section_bounds() and
+/// every other layout value in this file.
+pub fn stack_widgets(
+    widgets: &[SectionWidget],
+    section_top_left: Vec2,
+    content_width: f32,
+) -> Vec<(Vec2, f32)> {
+    let mut cursor_y = section_top_left.y;
+    widgets
+        .iter()
+        .map(|w| {
+            let height = w.required_height(content_width);
+            let top_left = Vec2::new(section_top_left.x, cursor_y);
+            cursor_y += height + WIDGET_GAP;
+            (top_left, height)
+        })
+        .collect()
 }
 
 impl Inspector {
@@ -146,15 +199,70 @@ impl Inspector {
     fn populate_inspector(&mut self) {
         let content_width = self.get_panel_content_width();
 
-        let tile_palette = TilePalette::new(Self::TILE_CELL_SIZE, Self::TILE_CELL_GAP, (0, 0));
+        // Slider needs a real offset derived from section geometry,
+        // which isn't known until AFTER heights/offsets are computed -
+        // built with a placeholder here, corrected below once section
+        // geometry exists. Only Slider has this chicken-and-egg
+        // problem; TilePalette/TilesetControls never store an offset,
+        // so they need no such fixup.
+        let volume_widgets = vec![SectionWidget::Slider(Slider::new(
+            Vec2::ZERO,
+            Self::VOLUME_SLIDER_SIZE,
+            -40.0,
+            0.0,
+            -24.0,
+        ))];
+
+        let tileset_widgets = vec![
+            SectionWidget::TilePalette(TilePalette::new(
+                Self::TILE_CELL_SIZE,
+                Self::TILE_CELL_GAP,
+                (0, 0),
+            )),
+            SectionWidget::TilesetControls(TilesetControls {
+                mode_buttons: vec![
+                    Button {
+                        id: "place",
+                        offset: Vec2::new(INSPECTOR_SECTION_PADDING, 0.0),
+                        size: Vec2::new(80.0, 24.0),
+                        label: "Place".to_string(),
+                    },
+                    Button {
+                        id: "remove",
+                        offset: Vec2::new(INSPECTOR_SECTION_PADDING + 88.0, 0.0),
+                        size: Vec2::new(80.0, 24.0),
+                        label: "Remove".to_string(),
+                    },
+                ],
+                action_buttons: vec![
+                    Button {
+                        id: "save",
+                        offset: Vec2::new(INSPECTOR_SECTION_PADDING, 30.0),
+                        size: Vec2::new(80.0, 24.0),
+                        label: "Save".to_string(),
+                    },
+                    Button {
+                        id: "discard",
+                        offset: Vec2::new(INSPECTOR_SECTION_PADDING + 88.0, 30.0),
+                        size: Vec2::new(80.0, 24.0),
+                        label: "Discard".to_string(),
+                    },
+                ],
+            }),
+        ];
 
         let section_heights = [
-            Self::VOLUME_SLIDER_SIZE.y + 2.0 * INSPECTOR_SECTION_PADDING,
-            tile_palette.required_height(content_width),
+            InspectorSection::required_height(&volume_widgets, content_width),
+            InspectorSection::required_height(&tileset_widgets, content_width),
         ];
 
         let (volume_offset, volume_half_size) = self.compute_section_offset(0, &section_heights);
         let (tileset_offset, tileset_half_size) = self.compute_section_offset(1, &section_heights);
+
+        let mut volume_widgets = volume_widgets;
+        if let Some(SectionWidget::Slider(slider)) = volume_widgets.get_mut(0) {
+            *slider = Self::populate_volume_slider(volume_offset, volume_half_size);
+        }
 
         self.state = Some(InspectorState {
             sections: vec![
@@ -162,16 +270,13 @@ impl Inspector {
                     title: "Audio".to_string(),
                     offset: volume_offset,
                     half_size: volume_half_size,
-                    widgets: vec![SectionWidget::Slider(Self::populate_volume_slider(
-                        volume_offset,
-                        volume_half_size,
-                    ))],
+                    widgets: volume_widgets,
                 },
                 InspectorSection {
                     title: "Tileset".to_string(),
                     offset: tileset_offset,
                     half_size: tileset_half_size,
-                    widgets: vec![SectionWidget::TilePalette(tile_palette)],
+                    widgets: tileset_widgets,
                 },
             ],
         });
@@ -198,7 +303,14 @@ impl Inspector {
     // on top of thumbnails so its border is visible),
     // THEN text - same layering logic as the main frame's
     // own layer order (tiles, then entities, then debug).
-    pub fn draw(&mut self, renderer: &mut Renderer, frame: &Frame, is_isometric: bool) {
+    pub fn draw(
+        &mut self,
+        renderer: &mut Renderer,
+        frame: &Frame,
+        is_isometric: bool,
+        paint_mode: &PaintMode,
+        is_paint_active: bool,
+    ) {
         if let Some(state) = &mut self.state {
             for section in state.sections.iter_mut() {
                 for widget in section.widgets.iter_mut() {
@@ -220,16 +332,25 @@ impl Inspector {
                 let bounds = self.section_bounds(section);
                 let section_top_left = bounds.center - bounds.half_size;
                 let content_width = bounds.half_size.x * 2.0;
+                let slots = stack_widgets(&section.widgets, section_top_left, content_width);
 
-                for widget in section.widgets.iter() {
+                for (widget, (widget_top_left, _height)) in section.widgets.iter().zip(slots.iter())
+                {
                     match widget {
                         SectionWidget::Slider(slider) => rects.extend(slider.build_rects()),
                         SectionWidget::TilePalette(palette) => {
                             thumbnail_entries
-                                .extend(palette.thumbnail_entries(section_top_left, content_width));
+                                .extend(palette.thumbnail_entries(*widget_top_left, content_width));
                             highlight_rects.extend(
-                                palette.build_highlight_rect(section_top_left, content_width),
+                                palette.build_highlight_rect(*widget_top_left, content_width),
                             );
+                        }
+                        SectionWidget::TilesetControls(controls) => {
+                            rects.extend(controls.build_rects(
+                                *widget_top_left,
+                                paint_mode,
+                                is_paint_active,
+                            ));
                         }
                     }
                 }
@@ -526,5 +647,124 @@ impl TilePalette {
             }
             _ => false,
         }
+    }
+}
+
+pub struct Button {
+    id: &'static str,
+    offset: Vec2,
+    size: Vec2,
+    label: String,
+}
+
+impl Button {
+    const DEFAULT_BG: [f32; 4] = [0.2, 0.2, 0.2, 0.9];
+    const DEFAULT_BORDER: [f32; 4] = [0.6, 0.6, 0.6, 1.0];
+    const SELECTED_BG: [f32; 4] = [0.0, 0.5, 0.0, 0.9];
+    const SELECTED_BORDER: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
+    const DISABLED_BG: [f32; 4] = [0.15, 0.15, 0.15, 0.6];
+    const DISABLED_BORDER: [f32; 4] = [0.3, 0.3, 0.3, 0.6];
+
+    fn colors(is_selected: bool, is_disabled: bool) -> ([f32; 4], [f32; 4]) {
+        match (is_disabled, is_selected) {
+            (true, _) => (Self::DISABLED_BG, Self::DISABLED_BORDER),
+            (false, true) => (Self::SELECTED_BG, Self::SELECTED_BORDER),
+            (false, false) => (Self::DEFAULT_BG, Self::DEFAULT_BORDER),
+        }
+    }
+
+    fn contains(&self, section_top_left: Vec2, point: Vec2) -> bool {
+        let top_left = section_top_left + self.offset;
+        point.x >= top_left.x
+            && point.x <= top_left.x + self.size.x
+            && point.y >= top_left.y
+            && point.y <= top_left.y + self.size.y
+    }
+
+    fn build_rect(
+        &self,
+        section_top_left: Vec2,
+        is_selected: bool,
+        is_disabled: bool,
+    ) -> SolidRect {
+        let (fill_color, border_color) = Self::colors(is_selected, is_disabled);
+        let top_left = section_top_left + self.offset;
+        SolidRect {
+            position: top_left + self.size * 0.5,
+            size: self.size,
+            fill_color,
+            border_color,
+            border_thickness_px: 1.5,
+        }
+    }
+}
+
+pub struct TilesetControls {
+    mode_buttons: Vec<Button>,
+    action_buttons: Vec<Button>,
+}
+
+impl TilesetControls {
+    pub fn required_height(&self) -> f32 {
+        let row_height = 24.0;
+        let row_gap = 6.0;
+        2.0 * INSPECTOR_SECTION_PADDING + row_height * 2.0 + row_gap
+    }
+
+    /// is_active: whether paint mode (show_tile_editor) is currently
+    /// on - Save/Discard are meaningless with no session grid, so they
+    /// render disabled otherwise. current_mode: AppState's live paint
+    /// mode, for radio-highlight comparison. Neither is stored on this
+    /// struct - both are supplied fresh, same as TilePalette never
+    /// storing is_isometric.
+    pub fn build_rects(
+        &self,
+        section_top_left: Vec2,
+        current_mode: &PaintMode,
+        is_active: bool,
+    ) -> Vec<SolidRect> {
+        let mut rects = Vec::new();
+        for button in &self.mode_buttons {
+            let is_selected = is_active
+                && matches!(
+                    (button.id, current_mode),
+                    ("place", PaintMode::Place) | ("remove", PaintMode::Remove)
+                );
+            rects.push(button.build_rect(section_top_left, is_selected, !is_active));
+        }
+        for button in &self.action_buttons {
+            rects.push(button.build_rect(section_top_left, false, !is_active));
+        }
+        rects
+    }
+
+    pub fn handle_click(
+        &self,
+        mouse_pos: Vec2,
+        section_top_left: Vec2,
+        is_active: bool,
+    ) -> TilesetAction {
+        if !is_active {
+            return TilesetAction::None; // buttons disabled outside paint mode
+        }
+        for button in &self.mode_buttons {
+            if button.contains(section_top_left, mouse_pos) {
+                return match button.id {
+                    "place" => TilesetAction::SetMode(PaintMode::Place),
+                    "remove" => TilesetAction::SetMode(PaintMode::Remove),
+                    _ => TilesetAction::None,
+                };
+            }
+        }
+        for button in &self.action_buttons {
+            if button.contains(section_top_left, mouse_pos) {
+                return match button.id {
+                    "save" => TilesetAction::Save,
+                    "discard" => TilesetAction::Discard,
+                    _ => TilesetAction::None,
+                };
+            }
+        }
+        TilesetAction::None
     }
 }
