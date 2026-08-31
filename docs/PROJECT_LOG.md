@@ -3,7 +3,7 @@
 
 **Document type:** Living project record (docs-as-code)
 **Started:** July 2026
-**Revision:** v16
+**Revision:** v17
 **Status:** M1–M4 complete, M5 (The Village) in progress through Phase 32. A design-only session (Phase 33) settled tile-based scene background authoring, superseding ADR-028's last standing clause (ADR-096) and carving out minimal file-based persistence for tile grids specifically from ADR-027 (ADR-097) — not yet implemented, ready to hand to an M5 implementation session. Companion document: `docs/DERIVATION.md`.
 **Maintenance model:** Single canonical file at `docs/PROJECT_LOG.md`, versioned with git. Updated when decisions accumulate, not on a timer.
 **Screenshots at each visual milestone** are part of this ritual, not an afterthought — historically the step most likely to be skipped (M4's first two phases shipped with none until caught retroactively); a phase isn't fully closed until its screenshots exist and are named.
@@ -1887,6 +1887,100 @@ ghost-tile preview in Place mode (m5-29) and Remove mode (m5-30), and
 a saved tilemap confirmed present after a full app restart, not just a
 scene re-entry (m5-31).
 
+### Phase 42 — Entity Position/Anchor Refactor & Sandbox Scene (completed)
+
+Adds SceneId::Sandbox, a curated test scene laying out every entity
+type against a full grid of block-size permutations, purpose-built to
+surface isometric rendering/collider edge cases real content (Home,
+Village) doesn't happen to trigger.
+
+Redefines Entity.position as a mode-uniform ground/feet anchor
+(ADR-106, superseding ADR-033's sprite-center convention) - discovered
+necessary after tracing a real, screenshot-confirmed bug: the debug
+collider overlay and the rendered sprite visually detached from each
+other in isometric mode whenever a collider had a nonzero flat offset,
+traced to the sprite anchoring at an arbitrary center point while the
+debug overlay correctly shear-projected the collider's true position.
+A first attempt (a per-entity tunable visual_anchor_offset correcting
+for this after the fact) was built, then deliberately discarded once
+redefining position itself removed the need for any per-entity tuning
+at all - author intent ("place this entity's feet here") now matches
+the code's own semantics directly.
+
+FootprintAnchor (BottomCenter for walking characters, BottomLeft for
+placed objects) replaces an is_player special case that had crept
+into the render/collider math - correctly generalizing to any future
+NPC with no additional work. Colliders are now constructed bottom-
+anchored (grow only upward from the ground point), and duplicated
+isometric footprint padding math is consolidated into shared tile.rs
+helpers.
+
+Docs-as-code: docs/screenshots/ covers m5-32 through m5-33 - updated
+isometric sprites showing correct anchor/collider alignment after the
+position=feet refactor (m5-32), and the new Sandbox scene overview in
+isometric mode, showing the block-size wall and furniture laid out
+for reference (m5-33).
+
+---
+
+### Phase 43 — Texture-Path Convention & Isometric Depth-Sort (completed)
+
+texture_path() lets every entity author one bare name, deriving its
+flat/isometric asset paths automatically (ADR-107) - every real
+entity in Home, Village, and Sandbox's furniture now has a matched
+flat/iso asset pair. spawn_entity_with_path remains an explicit
+escape hatch for Sandbox's non-conforming procedural block assets,
+kept out of the shared convention rather than special-cased into it.
+
+Isometric entity depth-sort is corrected from a naive point-based
+x+y comparison (wrong for anything with real footprint width/depth)
+to a per-axis-overlap AABB comparator (ADR-108) - verified by hand
+against a real reported bug (player sorting behind furniture it
+should be in front of, and vice versa, at specific approach angles),
+traced to the exact formula predicting every observed threshold. Two
+more sophisticated alternatives were tried and rejected: a magnitude-
+based version was more often correct but produced a genuine 3-entity
+sort cycle on a specific Sandbox configuration, which Rust's sort
+correctly panicked on rather than silently corrupting draw order -
+the shipped version is a deliberate, imperfect middle ground, chosen
+for practical correctness today, left panicking loudly rather than
+guarded against its own known remaining limitation.
+
+Docs-as-code: docs/screenshots/ covers m5-34 through m5-35 - the
+player correctly sorting in front of (m5-34) and behind (m5-35) the
+nightstand/wardrobe at approach angles previously reported broken.
+
+---
+
+### Phase 44 — Projection-Toggle Scene Refresh, Tilemap Layers, Debug Readouts (completed)
+
+F10 now fully rebuilds the current scene (ADR-109) so entities pick
+up their isometric/flat texture variant on toggle, rather than
+keeping whichever was loaded at scene construction - reusing
+build_scene rather than a separate refresh path. Known gap: only
+player position survives the rebuild; door/pickup/future flag state
+does not yet transfer.
+
+Tilemap lines gain a layer field, intended for future floor-under-
+wall stacking - not yet load-bearing, since TileGrid's (x,y)-only
+keying means two layers at the same cell silently overwrite rather
+than coexist (confirmed actively discarding data in the committed
+home.tilemap today). Parked pending a proper layer-aware TileGrid
+redesign; stopgap is to avoid authoring overlapping layers until then.
+Also fixes a malformed-tile-name panic message that named the wrong
+field.
+
+Adds player-position and hovered-cell debug readouts (debug/info.rs),
+used throughout this session's diagnosis work. Fixes a stale tile
+atlas filename and removes the two files it orphaned.
+
+Docs-as-code: docs/screenshots/ covers m5-36 through m5-37 - the debug
+overlay showing world position, cell position, and player position
+readouts together (m5-36), and entities correctly showing their
+updated isometric sprites immediately after switching to flat mode via
+F10, confirming refresh_scene actually reloads textures rather than
+leaving stale-mode art on screen (m5-37).
+
 ---
 
 ## 4. Decision Log (ADRs)
@@ -3234,6 +3328,108 @@ scene re-entry (m5-31).
   commits into `scene.tile_grid` if that write succeeds, so a failed
   write leaves an in-progress edit intact rather than losing it.
 
+### ADR-106: Entity.position redefined as a mode-uniform ground/feet anchor;
+### FootprintAnchor replaces is_player (supersedes ADR-033)
+- **Context:** ADR-033's position=sprite-center convention meant every
+  isometric render had to separately correct for the gap between an
+  arbitrary center point and an entity's real collider/footprint - a
+  correction that varied per entity and had no principled value
+  without hunting for it by trial and error, confirmed directly via
+  side-by-side screenshots isolating collider offset from the
+  correction offset.
+- **Decision:** Entity.position now means the same thing in flat and
+  isometric mode: the entity's ground/feet anchor. Rendering shears
+  (or doesn't) this one point, then lifts by a precomputed
+  texture_offset - no separate per-entity tunable needed.
+  FootprintAnchor (BottomCenter | BottomLeft) determines how a
+  collider's center is derived from this anchor: BottomCenter (walking
+  characters) keeps the collider horizontally centered regardless of
+  facing; BottomLeft (placed objects) grows from a fixed corner. Both
+  shift the collider up by half its own height, so it never hangs
+  below the ground point.
+- **Rationale:** the y-sort baseline calculation already independently
+  derived "feet" as position.y + size.y/2 before this change - a
+  second place computing the same fact as a formula, rather than
+  having it be the primitive value itself. Making position mean feet
+  directly removes that duplication and eliminates the tunable-offset
+  hunting problem at its root, rather than compensating for it after
+  the fact.
+- **Consequences:** every existing entity spawn site's collider
+  offset/size needed re-deriving under the new meaning - not
+  automatic, verified one entity at a time against the debug collider
+  overlay. A future NPC gets correct behavior via FootprintAnchor with
+  zero special-casing, unlike the is_player bool it replaces.
+
+### ADR-107: texture_path() naming convention for paired flat/iso entity assets
+- **Context:** every real entity now has matched flat and isometric
+  art; before this, each spawn site independently branched on
+  is_isometric to pick between two explicitly-typed path strings.
+- **Decision:** entities author one bare name; texture_path(name,
+  is_isometric) derives assets/{name}.aseprite or
+  assets/isometric_{name}.aseprite. spawn_entity_with_path is a
+  separate, explicit function taking an already-resolved path
+  directly, for content that doesn't follow the naming convention.
+- **Rationale:** tiles could share one atlas file because every cell
+  is the same fixed pixel size (ADR-098); entities have no such shared
+  pitch (wildly differing canvas sizes per entity, and often between
+  an entity's own flat/iso variants), so a tile-style shared-atlas
+  approach doesn't transfer - a naming convention solves the actual
+  pain point (duplicated path bookkeeping) without inventing per-
+  entity offset math a shared atlas would require.
+- **Consequences:** Sandbox's 27 procedurally-named block assets (iso-
+  only, non-conforming filenames) route through spawn_entity_with_path
+  rather than distorting the shared convention to accommodate scratch
+  test content.
+
+### ADR-108: Isometric entity depth-sort via per-axis-overlap AABB comparator
+- **Context:** entities with real footprint width/depth (furniture,
+  blocks) can't be depth-sorted by a single point coordinate - a naive
+  x+y sort collapses an entire diagonal to one value, confirmed wrong
+  against reported player/furniture sort-order bugs whose exact
+  thresholds matched the formula's predicted failure points.
+- **Decision:** pairwise comparator - if two entities' collider AABBs
+  overlap on the x-axis, compare by y (whoever reaches further "south"
+  is nearer); otherwise compare by x directly.
+- **Rationale:** two more sophisticated alternatives were tried and
+  rejected. A magnitude-based "trust whichever axis has the smaller
+  overlap" version was more often correct in isolated pair tests, but
+  is not a globally consistent ordering - a real 3-entity cycle (A
+  before B, B before C, C before A) was found via Sandbox's block
+  wall, which Rust's sort correctly panicked on ("does not correctly
+  implement a total order") rather than silently corrupting draw
+  order. A single-scalar far-corner sum (guaranteed panic-free) was
+  tried as a fallback but was empirically less visually correct
+  against real content than the shipped version.
+- **Consequences:** correct for every grid-aligned case tested and
+  most fractional/off-grid footprints from most approach directions;
+  known to still be wrong approaching a fractional footprint's
+  bottom/right corner specifically, and theoretically capable of the
+  same cycle-panic under an untested configuration - left as an
+  unguarded panic deliberately, so a future occurrence is loud rather
+  than silent. True occlusion-correct sorting is tracked as future
+  work alongside the parked NPC-collider-shape question, not solved
+  here.
+
+### ADR-109: Scene rebuild on projection toggle (refresh_scene)
+- **Context:** entities now have distinct flat/iso texture variants
+  (ADR-107), but is_isometric was only ever read at scene construction
+  - toggling F10 flipped the flag without ever reloading textures,
+  leaving stale-mode art on screen.
+- **Decision:** F10 now calls refresh_scene, which fully rebuilds the
+  current scene via the same build_scene every scene entry already
+  uses, with the new is_isometric value, then copies the player's
+  position across into the freshly-built scene.
+- **Rationale:** reusing build_scene rather than writing a second,
+  parallel construction path keeps texture/entity/tilemap loading
+  logic in exactly one place, consistent with this project's "one
+  source of truth" precedent - at the cost of a meaningfully heavier
+  operation (disk I/O, full GPU texture reload) on a single keypress
+  than a lighter, incremental re-texturing approach would have been.
+- **Consequences:** only player position transfers across the
+  rebuild today - door open/closed state, item-pickup state, and any
+  future dialogue/quest flags do not yet survive a projection toggle.
+  Known, explicitly unaddressed gap, not silently accepted as solved.
+
 ---
 
 ## 5. Current State & Open Questions
@@ -3356,6 +3552,23 @@ scene re-entry (m5-31).
   batching. **Next:** general inspector additions and fixes, then
   actual M5 content authoring — paint Village, remaining ambient NPCs,
   the flag-conditioned clue chain, the guard/sword moment.
+- ✅ **Entity position/anchor refactor, texture-path convention,
+  isometric depth-sort, scene-refresh (Phases 42–44):** Entity.position
+  redefined as a mode-uniform ground/feet anchor with FootprintAnchor
+  replacing is_player (ADR-106); texture_path() naming convention for
+  paired flat/iso assets (ADR-107); isometric depth-sort corrected via
+  a per-axis-overlap AABB comparator, with known remaining limitations
+  left to panic loudly rather than silently corrupt (ADR-108); F10
+  rebuilds the current scene to refresh entity textures (ADR-109). New
+  Sandbox scene (SceneId::Sandbox) provides a permanent test bed for
+  entity/collider/depth-sort verification. **Still open:** door/pickup/
+  future-flag state not preserved across a projection-toggle refresh;
+  true occlusion-correct depth sorting (grouped with the parked NPC-
+  collider-shape question); the patio door still bypasses
+  FootprintAnchor entirely (TODO left in code, deferred until Village
+  work resumes). **Next:** M5 content authoring - paint Village,
+  remaining ambient NPCs, the flag-conditioned clue chain, the
+  guard/sword moment.
 
 ### Open questions
 
@@ -3489,6 +3702,21 @@ Carries the same debug-view-vs-authoring-widget identity ambiguity as the parked
 Raised while designing the tileset Save/Clear buttons. Both currently act immediately and silently — Save always overwrites the scene's `.tilemap` file, Clear always resets the paint session to the scene's last-committed state — with no "are you sure?" prompt, consistent with this project's solo-dev "just do the thing" precedent.
 
 A small reusable confirmation-modal widget (a yes/no prompt gating any destructive one-shot action) is a plausible future need once a second consumer of the same pattern exists. Not built now — a bespoke modal for exactly one button pair would be guessing at a shape with only one real use case to inform it. Revisit when a second destructive action needs the same guard.
+
+### Parked — Layer-aware TileGrid for floor/wall stacking
+
+Raised while extending the tilemap format with a layer field (Phase
+44), intended to support a full block's floor tile with a flat-floor
+tile drawn on top of it at the same cell - mirroring Tiled's layer
+model.
+
+Not implemented - TileGrid is still keyed by (x,y) alone, so two
+layers writing the same cell silently overwrite rather than coexist,
+confirmed actively discarding data in the committed home.tilemap
+today (every "floor" entry is currently lost to its co-located
+"flat-floor" entry). Stopgap: don't author overlapping layers at the
+same cell until this is redesigned. Needs its own ADR - likely a
+(x,y,layer)-keyed grid or a small Vec of grids - not a quick patch.
 
 ### Next session agenda (Milestone Chat #3: The Room / M3)
 
