@@ -14,17 +14,43 @@ impl Renderer {
         let projection = self.world_projection();
         let sprite_camera_view = self.sprite_camera_view(is_isometric);
 
-        // y-sort: entities drawn in ascending order of baseline
-        // (bottom edge = position.y + half height), so entities with a
-        // lower baseline draw first and correctly end up behind
-        // entities with a higher one.
+        // Depth-sort entities before drawing, so nearer/lower things draw
+        // after (on top of) things behind them. The metric differs by mode:
+        //
+        // - Flat mode: a simple 1D baseline sort is sufficient - position.y
+        //   IS the entity's ground/feet anchor (post position=feet refactor),
+        //   so a lower baseline unambiguously means "closer to camera."
+        //
+        // - Isometric mode: for each pair, checks whether the two entities'
+        //   collider AABBs (position + collider.center ± collider.half_size)
+        //   overlap on the x-axis. If they do, x can't distinguish who's in
+        //   front, so y decides; otherwise x decides directly. Correct for
+        //   every grid-aligned case tested (the Sandbox block wall, the bed,
+        //   approaching a footprint's top/left corners) and for most
+        //   fractional/off-grid footprints (nightstand, wardrobe) approached
+        //   from most directions - known to still give the wrong order when
+        //   approaching such a footprint's bottom/right corner specifically,
+        //   traced to real dual-axis overlap at that exact position.
+        //
+        //   Two alternatives were tried and rejected: a magnitude-based
+        //   "compare whichever axis has the smaller overlap" version was
+        //   more often correct, but is NOT a globally consistent ordering -
+        //   it can produce a 3-entity cycle (A in front of B, B in front of
+        //   C, C in front of A), which made Rust's sort panic outright on a
+        //   specific block/approach combination. A single-scalar (x+y of the
+        //   far corner) fallback never panics, but was empirically LESS
+        //   visually correct than this version against real content. This
+        //   version is a deliberate middle ground - chosen for practical
+        //   correctness on everything actually in the game today, NOT proven
+        //   free of the same cycle risk that broke the magnitude-based
+        //   version; an untested future configuration could still panic.
+        //   True occlusion-correct sorting needs real occlusion-graph
+        //   topological sorting, tracked alongside the parked
+        //   NPC-collider-shape question, not solved here.
         let mut order: Vec<usize> = (0..scene.entities.len()).collect();
         if is_isometric {
-            // TODO: fix the sorting for isometric
             order.sort_by(|&a, &b| {
-                let baseline_a = scene.entities[a].position.y;
-                let baseline_b = scene.entities[b].position.y;
-                baseline_a.partial_cmp(&baseline_b).unwrap()
+                Self::isometric_depth_order(&scene.entities[a], &scene.entities[b])
             });
         } else {
             order.sort_by(|&a, &b| {
@@ -168,5 +194,30 @@ impl Renderer {
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
+    fn entity_aabb(entity: &entity::Entity) -> (Vec2, Vec2) {
+        match &entity.collider {
+            Some(collider) => {
+                let center = entity.position + collider.rect.center;
+                (
+                    center - collider.rect.half_size,
+                    center + collider.rect.half_size,
+                )
+            }
+            None => (entity.position, entity.position),
+        }
+    }
+
+    fn isometric_depth_order(a: &entity::Entity, b: &entity::Entity) -> std::cmp::Ordering {
+        let (a_min, a_max) = Self::entity_aabb(a);
+        let (b_min, b_max) = Self::entity_aabb(b);
+
+        let x_overlaps = a_min.x < b_max.x && b_min.x < a_max.x;
+        if x_overlaps {
+            a_max.y.partial_cmp(&b_max.y).unwrap()
+        } else {
+            a_max.x.partial_cmp(&b_max.x).unwrap()
+        }
     }
 }
