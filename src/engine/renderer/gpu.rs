@@ -251,7 +251,8 @@ impl Renderer {
         });
 
         let mut tile_store = TextureStore::new();
-        let tile_atlas_id = tile_store.load(&device, &queue, "assets/isometric_tiles.aseprite")?;
+        let tile_atlas_id =
+            tile_store.load(&device, &queue, "assets/isometric_tileset.aseprite")?;
         let tile_atlas = tile_store.take(tile_atlas_id);
 
         let tile_atlas_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
