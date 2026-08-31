@@ -17,6 +17,8 @@ pub struct Entity {
     pub collider: Option<Collider>,
     /// Which texture to render for this entity, if any. If `None`, the entity is invisible.
     pub texture_id: Option<TextureId>,
+    /// The offset to render tiles perfectly on top of colliders.
+    pub texture_offset: Vec2,
     /// Last non-idle movement direction. Defaults to Down at construction; updated only when movement is nonzero.
     pub facing: Direction,
     /// Whether this entity is active and should be rendered/updated.

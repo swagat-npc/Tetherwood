@@ -1,5 +1,7 @@
 use crate::engine::entity::{Collider, Direction, Entity, EntityId, Rect};
+use crate::engine::grid::CELL_SIZE;
 use crate::engine::renderer::texture::TextureStore;
+use crate::engine::renderer::tile;
 use crate::engine::scene::{
     Background, CameraMode, Scene, SceneId, Trigger, TriggerKind, WarpId, builder,
 };
@@ -113,7 +115,8 @@ pub fn build(
     build_warp_trigger(&mut scene, multiplying_factor, &layout);
 
     // Create Entities
-    let home_entities = build_entities(&mut scene, device, queue, multiplying_factor)?;
+    let home_entities =
+        build_entities(&mut scene, device, queue, multiplying_factor, is_isometric)?;
 
     // Create Triggers
     build_triggers(
@@ -224,48 +227,153 @@ fn build_entities(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     multiplying_factor: f32,
+    is_isometric: bool,
 ) -> Result<HomeEntities> {
+    let wardrobe_base_size = tile::grid_to_pixel((2.0, 1.0));
+    let wardrobe_size = if is_isometric {
+        Vec2::new(48.0, 56.0)
+    } else {
+        Vec2::new(32.0, 48.0)
+    };
+    let wardrobe_collider_size = if is_isometric {
+        wardrobe_base_size
+    } else {
+        wardrobe_base_size
+    };
     scene.spawn_entity(
         device,
         queue,
         multiplying_factor,
-        builder::EntitySpec {
-            position: Vec2::new(16.0, 12.0),
-            size: Vec2::new(24.0, 40.0),
-            collider_offset: Vec2::ZERO,
-            collider_size: Vec2::new(24.0, 40.0),
-            texture_path: "assets/wardrobe.aseprite",
-            facing: Direction::Down,
-        },
+        is_isometric,
+        true,
+        builder::EntitySpec::new(
+            tile::world_at_cell((0, 1), multiplying_factor)
+                + Vec2::new(0.0, 6.0) * multiplying_factor,
+            wardrobe_size,
+            wardrobe_base_size,
+            Vec2::ZERO,
+            wardrobe_collider_size,
+            "wardrobe",
+            Direction::Down,
+        ),
     )?; // wardrobe
 
-    let bed_collider_offset = Vec2::new(0.0, 5.0);
-    let bed_collider_size = Vec2::new(32.0, 44.0);
+    let nightstand_base_size = if is_isometric {
+        tile::grid_to_pixel((2.0, 1.5))
+    } else {
+        tile::grid_to_pixel((2.0, 0.5))
+    };
+    let nightstand_size = if is_isometric {
+        Vec2::new(48.0, 48.0)
+    } else {
+        Vec2::new(32.0, 16.0)
+    };
+    let nightstand_collider_size = if is_isometric {
+        nightstand_base_size
+    } else {
+        nightstand_base_size
+    };
     scene.spawn_entity(
         device,
         queue,
         multiplying_factor,
-        builder::EntitySpec {
-            position: Vec2::new(16.0, 48.0),
-            size: Vec2::new(32.0, 64.0),
-            collider_offset: bed_collider_offset,
-            collider_size: bed_collider_size,
-            texture_path: "assets/bed.aseprite",
-            facing: Direction::Down,
-        },
+        is_isometric,
+        true,
+        builder::EntitySpec::new(
+            tile::world_at_cell((3, 3), multiplying_factor),
+            nightstand_size,
+            nightstand_base_size,
+            Vec2::new(0.0, 0.0),
+            nightstand_collider_size,
+            "nightstand",
+            Direction::Down,
+        ),
+    )?; // nightstand
+
+    let crate_base_size = if is_isometric {
+        tile::grid_to_pixel((1.0, 2.0))
+    } else {
+        tile::grid_to_pixel((1.0, 1.0))
+    };
+    let crate_size = if is_isometric {
+        Vec2::new(48.0, 40.0)
+    } else {
+        Vec2::new(16.0, 32.0)
+    };
+    let crate_collider_size = if is_isometric {
+        crate_base_size
+    } else {
+        crate_base_size
+    };
+    scene.spawn_entity(
+        device,
+        queue,
+        multiplying_factor,
+        is_isometric,
+        true,
+        builder::EntitySpec::new(
+            tile::world_at_cell((0, 8), multiplying_factor),
+            crate_size,
+            crate_base_size,
+            Vec2::ZERO,
+            crate_collider_size,
+            "crate",
+            Direction::Down,
+        ),
+    )?; // crate
+
+    let bed_base_size = if is_isometric {
+        tile::grid_to_pixel((2.0, 3.0))
+    } else {
+        tile::grid_to_pixel((2.0, 3.0))
+    };
+    let bed_size = if is_isometric {
+        Vec2::new(80.0, 64.0)
+    } else {
+        Vec2::new(32.0, 64.0)
+    };
+    let bed_collider_offset = if is_isometric {
+        Vec2::new(0.0, 0.0)
+    } else {
+        Vec2::new(0.0, 0.0)
+    };
+    let bed_collider_size = if is_isometric {
+        bed_base_size
+    } else {
+        bed_base_size
+    };
+    scene.spawn_entity(
+        device,
+        queue,
+        multiplying_factor,
+        is_isometric,
+        true,
+        builder::EntitySpec::new(
+            tile::world_at_cell((0, 5), multiplying_factor),
+            bed_size,
+            bed_base_size,
+            bed_collider_offset,
+            bed_collider_size,
+            "bed_him",
+            Direction::Down,
+        ),
     )?; // bed (left)
+
     scene.spawn_entity(
         device,
         queue,
         multiplying_factor,
-        builder::EntitySpec {
-            position: Vec2::new(112.0, 48.0),
-            size: Vec2::new(32.0, 64.0),
-            collider_offset: bed_collider_offset,
-            collider_size: bed_collider_size,
-            texture_path: "assets/bed.aseprite",
-            facing: Direction::Down,
-        },
+        is_isometric,
+        true,
+        builder::EntitySpec::new(
+            tile::world_at_cell((6, 5), multiplying_factor),
+            bed_size,
+            bed_base_size,
+            bed_collider_offset,
+            bed_collider_size,
+            "bed_her",
+            Direction::Down,
+        ),
     )?; // bed (right)
 
     let bed_prompt_tex = scene
@@ -273,6 +381,7 @@ fn build_entities(
         .load(device, queue, "assets/prompt.aseprite")?;
     scene.entities.push(Entity {
         position: Vec2::new(94.0, 25.0) * multiplying_factor,
+        texture_offset: Vec2::new(CELL_SIZE, -CELL_SIZE * 2.0) * multiplying_factor,
         size: Vec2::new(8.0, 8.0) * multiplying_factor,
         collider: None,
         texture_id: Some(bed_prompt_tex),
@@ -282,31 +391,30 @@ fn build_entities(
     });
     let bed_prompt = EntityId(scene.entities.len() - 1);
 
-    scene.spawn_entity(
-        device,
-        queue,
-        multiplying_factor,
-        builder::EntitySpec {
-            position: Vec2::new(64.0, 44.0),
-            size: Vec2::new(48.0, 48.0),
-            collider_offset: Vec2::new(0.0, 4.0),
-            collider_size: Vec2::new(48.0, 24.0),
-            texture_path: "assets/isometric_nightstand.aseprite",
-            facing: Direction::Down,
-        },
-    )?; // nightstand
-
+    let player_collider_offset = if is_isometric {
+        Vec2::new(0.0, 0.0)
+    } else {
+        Vec2::new(0.0, 0.0)
+    };
+    let player_collider_size = if is_isometric {
+        Vec2::new(6.0, 6.0)
+    } else {
+        Vec2::new(14.0, 6.0)
+    };
     scene.spawn_player(
         device,
         queue,
         multiplying_factor,
+        is_isometric,
         builder::EntitySpec {
-            position: Vec2::new(64.0, 86.0),
-            size: Vec2::new(14.0, 24.0),
-            collider_offset: Vec2::new(0.0, 6.0),
-            collider_size: Vec2::new(12.0, 12.0),
-            texture_path: "assets/player.aseprite",
+            position: tile::world_at_cell((3, 5), multiplying_factor),
+            render_size: Vec2::new(16.0, 32.0),
+            base_size: player_collider_size,
+            collider_offset: player_collider_offset,
+            collider_size: player_collider_size,
+            name: "player",
             facing: Direction::Down,
+            anchor: builder::FootprintAnchor::BottomCenter,
         },
     )?;
 
@@ -314,14 +422,17 @@ fn build_entities(
         device,
         queue,
         multiplying_factor,
-        builder::EntitySpec {
-            position: Vec2::new(112.0, 10.0),
-            size: Vec2::new(20.0, 20.0),
-            collider_offset: Vec2::new(0.0, 4.0),
-            collider_size: Vec2::new(8.0, 16.0),
-            texture_path: "assets/necklace.aseprite",
-            facing: Direction::Left,
-        },
+        is_isometric,
+        true,
+        builder::EntitySpec::new(
+            tile::world_at_cell((6, 0), multiplying_factor),
+            Vec2::new(20.0, 20.0),
+            Vec2::new(20.0, 20.0),
+            Vec2::new(0.0, 4.0),
+            Vec2::new(8.0, 16.0),
+            "necklace",
+            Direction::Left,
+        ),
     )?;
 
     Ok(HomeEntities {

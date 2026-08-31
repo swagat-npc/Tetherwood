@@ -1,7 +1,7 @@
 use glam::Vec2;
 use std::collections::HashMap;
 
-use crate::engine::renderer::Renderer;
+use crate::engine::{grid::CELL_SIZE, renderer::Renderer};
 
 pub const TILE_ATLAS_SIZE: Vec2 = Vec2::new(198.0, 352.0);
 pub const TILE_PIXEL_SIZE: f32 = 32.0;
@@ -20,6 +20,7 @@ pub fn tile_names() -> HashMap<&'static str, (i32, i32)> {
     HashMap::from([
         ("floor", (0, 0)),
         ("half-floor", (2, 0)),
+        ("flat-floor", (4, 0)),
         ("staircase-right", (2, 1)),
         ("staircase-left", (3, 1)),
     ])
@@ -66,10 +67,25 @@ pub fn tile_uv(cell: (i32, i32), is_isometric: bool) -> (Vec2, Vec2) {
 }
 
 pub fn tile_world_position(cell: (i32, i32), multiplying_factor: f32, is_isometric: bool) -> Vec2 {
-    let offset = if is_isometric { 1.0 } else { 0.5 };
+    let world_pos = world_at_cell(cell, multiplying_factor);
+    // This offset is to render the tile's top on this cell
+    // instead of the tile's bottom
+    let placement_offset = if is_isometric { 0.0 } else { 0.5 };
+    world_pos + Vec2::splat(placement_offset) * TILE_WORLD_SIZE * multiplying_factor
+}
+
+// Gets the pixel size from grid size
+pub fn grid_to_pixel(grid_size: (f32, f32)) -> Vec2 {
     Vec2::new(
-        (cell.0 as f32 + offset) * TILE_WORLD_SIZE.x,
-        (cell.1 as f32 + offset) * TILE_WORLD_SIZE.y,
+        grid_size.0 * TILE_WORLD_SIZE.x,
+        grid_size.1 * TILE_WORLD_SIZE.y,
+    )
+}
+
+pub fn world_at_cell(cell: (i32, i32), multiplying_factor: f32) -> Vec2 {
+    Vec2::new(
+        (cell.0 as f32) * TILE_WORLD_SIZE.x,
+        (cell.1 as f32) * TILE_WORLD_SIZE.y,
     ) * multiplying_factor
 }
 
@@ -79,6 +95,29 @@ pub fn tile_world_position(cell: (i32, i32), multiplying_factor: f32, is_isometr
 pub fn cell_at_position(world_pos: Vec2, multiplying_factor: f32) -> (i32, i32) {
     let cell_f = (world_pos / multiplying_factor) / TILE_WORLD_SIZE;
     (cell_f.x.floor() as i32, cell_f.y.floor() as i32)
+}
+
+/// Height (in grid cells) of a footprint's flat "floor" shape — the
+/// larger of its two grid dimensions. Used both to size a block's
+/// render_size (debug.rs) and to derive how much of an entity's
+/// render height is "extra Z" beyond its footprint (spawn_entity's
+/// isometric anchor correction).
+pub fn isometric_footprint_base_height(base_grid_x: f32, base_grid_y: f32) -> f32 {
+    base_grid_x.max(base_grid_y)
+}
+
+/// Extra isometric "lip" padding a footprint of this grid-unit shape
+/// needs so a cube-shaped block's top face renders flush — square
+/// footprints need a full cell, odd-sum rectangular footprints need
+/// half a cell, even-sum rectangular footprints need none.
+pub fn isometric_footprint_padding(base_grid_x: f32, base_grid_y: f32) -> f32 {
+    if base_grid_x == base_grid_y {
+        CELL_SIZE
+    } else if (base_grid_x + base_grid_y) % 2.0 != 0.0 {
+        CELL_SIZE * 0.5
+    } else {
+        0.0
+    }
 }
 
 pub fn tile_entry(

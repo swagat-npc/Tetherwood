@@ -1,4 +1,5 @@
 use crate::engine::entity::{Collider, Direction, Entity, EntityId, Rect};
+use crate::engine::grid::CELL_SIZE;
 use crate::engine::renderer::texture::{TextureId, TextureStore};
 use crate::engine::scene::{
     Background, CameraMode, Scene, SceneId, Trigger, TriggerKind, WarpId, builder,
@@ -46,6 +47,7 @@ pub fn build(
         device,
         queue,
         multiplying_factor,
+        is_isometric,
         patio_door_position,
         patio_door_half_width,
         patio_door_half_height,
@@ -180,24 +182,39 @@ fn build_entities(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     multiplying_factor: f32,
+    is_isometric: bool,
     patio_door_position: Vec2,
     patio_door_half_width: f32,
     patio_door_half_height: f32,
 ) -> Result<VillageEntities> {
+    let player_collider_offset = if is_isometric {
+        Vec2::new(0.0, 0.0)
+    } else {
+        Vec2::new(0.0, 0.0)
+    };
+    let player_collider_size = if is_isometric {
+        Vec2::new(6.0, 6.0)
+    } else {
+        Vec2::new(14.0, 6.0)
+    };
     scene.spawn_player(
         device,
         queue,
         multiplying_factor,
+        is_isometric,
         builder::EntitySpec {
             position: Vec2::new(64.0, 87.0),
-            size: Vec2::new(14.0, 24.0),
-            collider_offset: Vec2::new(0.0, 6.0),
-            collider_size: Vec2::new(12.0, 12.0),
-            texture_path: "assets/player.aseprite",
+            render_size: Vec2::new(16.0, 32.0),
+            base_size: player_collider_size,
+            collider_offset: player_collider_offset,
+            collider_size: player_collider_size,
+            name: "player",
             facing: Direction::Down,
+            anchor: builder::FootprintAnchor::BottomCenter,
         },
     )?;
 
+    // TODO: patio door still bypasses spawn_entity/FootprintAnchor entirely
     // Hand-authored, not spawn_entity: needs two texture frames
     // (closed/open) and a negative-Y collider offset - spawn_entity's
     // single-texture-path signature doesn't cover this case yet.
@@ -215,6 +232,7 @@ fn build_entities(
     };
     scene.entities.push(Entity {
         position: patio_door_position,
+        texture_offset: Vec2::new(CELL_SIZE, -CELL_SIZE * 2.0) * multiplying_factor,
         size: Vec2::new(patio_door_half_width * 2.0, patio_door_half_height * 2.0),
         collider: Some(Collider {
             rect: patio_door_closed_collider,
@@ -226,18 +244,21 @@ fn build_entities(
     });
     let patio_door_entity = EntityId(scene.entities.len() - 1);
 
-    let villager_1_id = scene.spawn_entity(
+    let villager_1_id = scene.spawn_human(
         device,
         queue,
         multiplying_factor,
-        builder::EntitySpec {
-            position: Vec2::new(150.0, 150.0),
-            size: Vec2::new(12.0, 24.0),
-            collider_offset: Vec2::ZERO,
-            collider_size: Vec2::new(12.0, 12.0),
-            texture_path: "assets/villager_1.aseprite",
-            facing: Direction::Left,
-        },
+        is_isometric,
+        true,
+        builder::EntitySpec::new(
+            Vec2::new(150.0, 150.0),
+            Vec2::new(12.0, 24.0),
+            Vec2::new(6.0, 6.0),
+            Vec2::ZERO,
+            Vec2::new(6.0, 6.0),
+            "villager_1",
+            Direction::Left,
+        ),
     )?;
 
     Ok(VillageEntities {

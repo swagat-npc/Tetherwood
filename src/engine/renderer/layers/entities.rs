@@ -1,3 +1,5 @@
+use glam::Vec2;
+
 use crate::engine::entity;
 use crate::engine::renderer::{Frame, Renderer, mesh};
 use crate::engine::scene::Scene;
@@ -17,17 +19,26 @@ impl Renderer {
         // lower baseline draw first and correctly end up behind
         // entities with a higher one.
         let mut order: Vec<usize> = (0..scene.entities.len()).collect();
-        order.sort_by(|&a, &b| {
-            let baseline_a = scene.entities[a].position.y + scene.entities[a].size.y / 2.0;
-            let baseline_b = scene.entities[b].position.y + scene.entities[b].size.y / 2.0;
-            baseline_a.partial_cmp(&baseline_b).unwrap()
-        });
+        if is_isometric {
+            // TODO: fix the sorting for isometric
+            order.sort_by(|&a, &b| {
+                let baseline_a = scene.entities[a].position.y;
+                let baseline_b = scene.entities[b].position.y;
+                baseline_a.partial_cmp(&baseline_b).unwrap()
+            });
+        } else {
+            order.sort_by(|&a, &b| {
+                let baseline_a = scene.entities[a].position.y;
+                let baseline_b = scene.entities[b].position.y;
+                baseline_a.partial_cmp(&baseline_b).unwrap()
+            });
+        }
 
         // Main draw list: background, then every non-overlay entity in
         // sorted order. Overlay entities (prompt icons, etc.) are excluded
         // here - drawn in a second pass below, always after, so they can
         // never be occluded by a normal entity regardless of y-sort.
-        let mut draws: Vec<(usize, glam::Vec2, glam::Vec2, entity::Direction)> = Vec::new();
+        let mut draws: Vec<(usize, Vec2, Vec2, entity::Direction)> = Vec::new();
         for bg in &scene.background {
             draws.push((bg.texture.0, bg.position, bg.size, entity::Direction::Down));
         }
@@ -37,7 +48,12 @@ impl Renderer {
                 continue;
             }
             if let Some(texture_id) = entity.texture_id {
-                draws.push((texture_id.0, entity.position, entity.size, entity.facing));
+                draws.push((
+                    texture_id.0,
+                    entity.position + entity.texture_offset,
+                    entity.size,
+                    entity.facing,
+                ));
             }
         }
 
@@ -46,7 +62,7 @@ impl Renderer {
         // cleared above, even if `draws` was somehow empty this frame -
         // background always pushes at least one entry). Extracting the
         // shared submission logic is a planned follow-up, not done yet.
-        let mut overlay_draws: Vec<(usize, glam::Vec2, glam::Vec2, entity::Direction)> = Vec::new();
+        let mut overlay_draws: Vec<(usize, Vec2, Vec2, entity::Direction)> = Vec::new();
         for &idx in &order {
             let entity = &scene.entities[idx];
             if !entity.is_overlay_layer {
@@ -110,8 +126,8 @@ impl Renderer {
         projection: glam::Mat4,
         sprite_camera_view: glam::Mat4,
         bind_group_index: usize,
-        position: glam::Vec2,
-        size: glam::Vec2,
+        position: Vec2,
+        size: Vec2,
     ) {
         let model = mesh::model_matrix(position, size);
         let transform = projection * sprite_camera_view * model;
