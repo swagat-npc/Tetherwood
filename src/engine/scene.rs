@@ -160,6 +160,7 @@ pub enum TriggerKind {
 pub enum SceneId {
     Home,
     Village,
+    Sandbox,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

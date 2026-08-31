@@ -115,6 +115,7 @@ impl AppState {
         match id {
             SceneId::Home => "assets/tile/home.tilemap".to_string(),
             SceneId::Village => "assets/tile/village.tilemap".to_string(),
+            SceneId::Sandbox => "assets/tile/debug.tilemap".to_string(),
         }
     }
 
@@ -231,10 +232,10 @@ impl ApplicationHandler for App {
         let multiplying_factor = 5.0;
         let mut progression = ProgressionTracker::new();
 
-        let is_isometric = false;
+        let is_isometric = true;
         let initial_scene = AppState::build_scene(
             &mut renderer,
-            SceneId::Home,
+            SceneId::Sandbox,
             multiplying_factor,
             is_isometric,
             &mut progression,

@@ -2,7 +2,7 @@ use crate::engine::app::AppState;
 use crate::engine::renderer::Renderer;
 use crate::engine::scene::{Scene, SceneId};
 use crate::game::progression::ProgressionTracker;
-use crate::game::scenes::{home, village};
+use crate::game::scenes::{home, sandbox, village};
 
 impl AppState {
     /// Builds and GPU-prepares a scene. Free of `self` so it can run
@@ -32,6 +32,14 @@ impl AppState {
                 progression,
             )
             .expect("failed to build village scene"),
+            SceneId::Sandbox => sandbox::build(
+                renderer.device(),
+                renderer.queue(),
+                multiplying_factor,
+                is_isometric,
+                progression,
+            )
+            .expect("failed to debug home scene"),
         };
         Self::load_tilemap(&mut new_scene);
         new_scene.build_static_grid(multiplying_factor);
