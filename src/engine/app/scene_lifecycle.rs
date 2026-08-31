@@ -76,4 +76,47 @@ impl AppState {
             &mut self.progression,
         );
     }
+
+    pub fn refresh_scene(&mut self) {
+        let mut new_scene = match self.scene.id {
+            SceneId::Home => home::refresh(
+                &mut self.scene,
+                self.renderer.device(),
+                self.renderer.queue(),
+                self.multiplying_factor,
+                self.is_isometric,
+                &mut self.progression,
+            )
+            .expect("failed to refresh home scene"),
+            SceneId::Village => village::refresh(
+                &mut self.scene,
+                self.renderer.device(),
+                self.renderer.queue(),
+                self.multiplying_factor,
+                self.is_isometric,
+                &mut self.progression,
+            )
+            .expect("failed to refresh village scene"),
+            SceneId::Sandbox => sandbox::refresh(
+                &mut self.scene,
+                self.renderer.device(),
+                self.renderer.queue(),
+                self.multiplying_factor,
+                self.is_isometric,
+                &mut self.progression,
+            )
+            .expect("failed to refresh debug scene"),
+        };
+
+        Self::load_tilemap(&mut new_scene);
+        new_scene.build_static_grid(self.multiplying_factor);
+        self.renderer.prepare_scene(&new_scene);
+
+        self.renderer.camera_position = new_scene.camera_target();
+        let player_position = new_scene.player().position;
+        self.renderer
+            .snap_camera(player_position, self.is_isometric);
+
+        self.scene = new_scene;
+    }
 }

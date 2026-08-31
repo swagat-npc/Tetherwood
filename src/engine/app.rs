@@ -482,6 +482,7 @@ impl ApplicationHandler for App {
                             "Isometric mode: {}",
                             if state.is_isometric { "ON" } else { "OFF" }
                         ));
+                        state.refresh_scene();
                         state.scene.sync_camera_mode(state.is_isometric);
                     } else if code == KeyCode::F11 {
                         let state_msg = state.debug.toggle_player_collider();

@@ -67,6 +67,27 @@ pub fn build(
     Ok(scene)
 }
 
+pub fn refresh(
+    scene: &mut Scene,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    multiplying_factor: f32,
+    is_isometric: bool,
+    progression: &ProgressionTracker,
+) -> Result<Scene> {
+    let player_position = scene.player().position;
+    let refreshed_scene = build(device, queue, multiplying_factor, is_isometric, progression);
+
+    let mut refreshed_scene = match refreshed_scene {
+        Ok(scene) => scene,
+        Err(err) => return Err(err),
+    };
+
+    refreshed_scene.player_mut().position = player_position;
+
+    Ok(refreshed_scene)
+}
+
 fn build_background(
     scene: &mut Scene,
     device: &wgpu::Device,
