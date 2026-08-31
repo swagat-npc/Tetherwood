@@ -159,31 +159,55 @@ impl AppState {
         let Ok(contents) = std::fs::read_to_string(&path) else {
             return;
         };
-        let names = tile::tile_names();
 
+        let mut layers: Vec<(i32, (i32, i32), &str)> = Vec::new();
         for (line_number, line) in contents.lines().enumerate() {
             let fields: Vec<&str> = line.split(' ').collect();
-            if fields.len() != 3 {
+            if fields.len() != 4 {
                 panic!(
-                    "malformed tilemap {path} at line {}: expected 'x y tile_name', got {line:?}",
+                    "malformed tilemap {path} at line {}: expected 'layer x y tile_name', got {line:?}",
                     line_number + 1
                 );
             }
-            let x = fields[0].parse::<i32>().unwrap_or_else(|e| {
+            let layer = fields[0].parse::<i32>().unwrap_or_else(|e| {
                 panic!(
-                    "malformed tilemap {path} at line {}: bad x {:?}: {e}",
+                    "malformed tilemap {path} at line {}: bad layer {:?}: {e}",
                     line_number + 1,
                     fields[0]
                 )
             });
-            let y = fields[1].parse::<i32>().unwrap_or_else(|e| {
+            let x = fields[1].parse::<i32>().unwrap_or_else(|e| {
                 panic!(
-                    "malformed tilemap {path} at line {}: bad y {:?}: {e}",
+                    "malformed tilemap {path} at line {}: bad x {:?}: {e}",
                     line_number + 1,
                     fields[1]
                 )
             });
-            scene.tile_grid.set_named((x, y), fields[2], &names);
+            let y = fields[2].parse::<i32>().unwrap_or_else(|e| {
+                panic!(
+                    "malformed tilemap {path} at line {}: bad y {:?}: {e}",
+                    line_number + 1,
+                    fields[2]
+                )
+            });
+            let tile_name = fields[3];
+            if tile_name.is_empty() {
+                panic!(
+                    "malformed tilemap {path} at line {}: bad tile name {:?}: tile name has to be provided",
+                    line_number + 1,
+                    fields[3]
+                )
+            }
+            layers.push((layer, (x, y), tile_name));
+        }
+        if layers.is_empty() {
+            return;
+        }
+        layers.sort_by_key(|(layer, _, _)| *layer);
+
+        let names = tile::tile_names();
+        for (_layer, cell, name) in layers {
+            scene.tile_grid.set_named(cell, name, &names);
         }
     }
 }
