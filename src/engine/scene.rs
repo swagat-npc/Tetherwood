@@ -19,7 +19,7 @@ pub struct Scene {
     pub triggers: Vec<Trigger>,
     pub entities: Vec<Entity>,
     pub texture_store: TextureStore,
-    player_index: usize,
+    pub player_index: usize,
     orthographic_camera_mode: CameraMode,
     isometric_camera_mode: CameraMode,
     current_camera_mode: CameraMode,

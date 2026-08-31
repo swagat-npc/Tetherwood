@@ -125,6 +125,14 @@ impl AppState {
                     self.multiplying_factor,
                     self.is_isometric,
                 );
+
+                // DEBUG::Player Position
+                debug::info::draw_player_position(
+                    &mut self.renderer,
+                    frame,
+                    self.multiplying_factor,
+                    &self.scene.entities[self.scene.player_index],
+                );
             }
         }
     }

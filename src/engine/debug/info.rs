@@ -1,5 +1,12 @@
 use super::notifications::Notification;
-use crate::engine::renderer::{Frame, Renderer, text};
+use crate::engine::{
+    entity::Entity,
+    renderer::{
+        Frame, Renderer,
+        text::{self, GLYPH_SIZE},
+        tile,
+    },
+};
 use glam::Vec2;
 
 pub fn draw_notifications(
@@ -46,9 +53,51 @@ pub fn draw_mouse_position(
     );
     let world_pos = renderer.screen_to_world(screen_pos, is_isometric);
     let authoring_pos = world_pos / multiplying_factor;
-    let mouse_text = format!("Mouse Pos: {:.0}, {:.0}", authoring_pos.x, authoring_pos.y);
+    let cell_pos = tile::cell_at_position(world_pos, multiplying_factor);
+
+    let mouse_pos_text = format!("World Pos: {:.0}, {:.0}", authoring_pos.x, authoring_pos.y);
+    let mouse_cell_text = format!("Cell Pos: {:.0}, {:.0}", cell_pos.0, cell_pos.1);
+
     let screen_size = renderer.screen_size();
     let mouse_text_pos = Vec2::new(text::DEBUG_TEXT_PADDING, screen_size.y - 25.0);
-    let glyphs = text::layout_text_scaled(&mouse_text, mouse_text_pos, text::DEBUG_TEXT_SCALE);
+    let mouse_cell_pos = Vec2::new(
+        text::DEBUG_TEXT_PADDING,
+        screen_size.y - 25.0 - GLYPH_SIZE.y - text::DEBUG_TEXT_PADDING,
+    );
+
+    let mut glyphs =
+        text::layout_text_scaled(&mouse_pos_text, mouse_text_pos, text::DEBUG_TEXT_SCALE);
+    glyphs.extend(text::layout_text_scaled(
+        &mouse_cell_text,
+        mouse_cell_pos,
+        text::DEBUG_TEXT_SCALE,
+    ));
+    renderer.render_text_with_bg(frame, &glyphs);
+}
+
+pub fn draw_player_position(
+    renderer: &mut Renderer,
+    frame: &Frame,
+    multiplying_factor: f32,
+    player: &Entity,
+) {
+    let player_pos = player.position / multiplying_factor;
+
+    let player_pos_text = format!("Player Pos: {:.0}, {:.0}", player_pos.x, player_pos.y);
+
+    let screen_size = renderer.screen_size();
+    let player_text_pos = Vec2::new(
+        text::DEBUG_TEXT_PADDING,
+        screen_size.y
+            - 25.0 // world pos text
+            - GLYPH_SIZE.y
+            - text::DEBUG_TEXT_PADDING // mouse cell pos text
+            - GLYPH_SIZE.y
+            - text::DEBUG_TEXT_PADDING * 2.0 - 4.0, // player pos text
+    );
+
+    let glyphs =
+        text::layout_text_scaled(&player_pos_text, player_text_pos, text::DEBUG_TEXT_SCALE);
+
     renderer.render_text_with_bg(frame, &glyphs);
 }
