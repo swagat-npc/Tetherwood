@@ -52,7 +52,7 @@ impl AppState {
                 {
                     match widget {
                         SectionWidget::Slider(slider) => {
-                            if slider.update(screen_mouse, self.left_mouse_down) {
+                            if slider.update(*widget_top_left, screen_mouse, self.left_mouse_down) {
                                 self.blip_volume = slider.value;
                             }
                         }

@@ -44,7 +44,7 @@ pub enum SectionWidget {
 impl SectionWidget {
     fn required_height(&self, content_width: f32, font: &HashMap<char, TTFGlyph>) -> f32 {
         match self {
-            SectionWidget::Slider(s) => s.size.y + 2.0 * INSPECTOR_SECTION_PADDING,
+            SectionWidget::Slider(s) => s.required_height(),
             SectionWidget::TilePalette(p) => p.required_height(content_width),
             SectionWidget::TilesetControls(c) => c.required_height(),
             SectionWidget::HotkeyList(h) => h.required_height(content_width, font),
@@ -72,7 +72,7 @@ impl InspectorSection {
         TITLE_BAR_HEIGHT
             + sum
             + WIDGET_GAP * widgets.len().saturating_sub(1) as f32
-            + 2.0 * INSPECTOR_SECTION_PADDING
+            + INSPECTOR_SECTION_PADDING
     }
 }
 
@@ -289,16 +289,11 @@ impl Inspector {
                 mode_buttons: vec![
                     Button {
                         id: "place",
-                        offset: Vec2::new(INSPECTOR_SECTION_PADDING, 0.0),
                         size: BUTTON_SIZE,
                         label: "Place".to_string(),
                     },
                     Button {
                         id: "remove",
-                        offset: Vec2::new(
-                            INSPECTOR_SECTION_PADDING + BUTTON_SIZE.x + BUTTON_GAP,
-                            0.0,
-                        ),
                         size: BUTTON_SIZE + Vec2::new(20.0, 0.0),
                         label: "Remove".to_string(),
                     },
@@ -306,16 +301,11 @@ impl Inspector {
                 action_buttons: vec![
                     Button {
                         id: "save",
-                        offset: Vec2::new(INSPECTOR_SECTION_PADDING, BUTTON_SIZE.y + BUTTON_GAP),
                         size: BUTTON_SIZE,
                         label: "Save".to_string(),
                     },
                     Button {
                         id: "clear",
-                        offset: Vec2::new(
-                            INSPECTOR_SECTION_PADDING + BUTTON_SIZE.x + BUTTON_GAP,
-                            BUTTON_SIZE.y + BUTTON_GAP,
-                        ),
                         size: BUTTON_SIZE + Vec2::new(20.0, 0.0),
                         label: "Clear".to_string(),
                     },
@@ -337,7 +327,7 @@ impl Inspector {
 
         let mut volume_widgets = volume_widgets;
         if let Some(SectionWidget::Slider(slider)) = volume_widgets.get_mut(0) {
-            *slider = Self::populate_volume_slider(volume_offset, volume_half_size);
+            *slider = Self::populate_volume_slider();
         }
 
         self.state = Some(InspectorState {
@@ -369,12 +359,11 @@ impl Inspector {
     /// actual screen position gets synced fresh each frame in draw(),
     /// via Slider::set_position, rather than trusting a value baked in
     /// once at construction time.
-    fn populate_volume_slider(section_offset: Vec2, section_half_size: Vec2) -> Slider {
-        let slider_offset = section_offset - section_half_size
-            + Vec2::new(
-                INSPECTOR_SECTION_PADDING + VOLUME_SLIDER_SIZE.x * 0.5,
-                INSPECTOR_SECTION_PADDING * 2.0 + VOLUME_SLIDER_SIZE.y * 0.5,
-            );
+    fn populate_volume_slider() -> Slider {
+        let slider_offset = Vec2::new(
+            INSPECTOR_SECTION_PADDING + VOLUME_SLIDER_SIZE.x * 0.5,
+            INSPECTOR_SECTION_PADDING + VOLUME_SLIDER_SIZE.y * 0.5,
+        );
         Slider::new(slider_offset, VOLUME_SLIDER_SIZE, -40.0, 0.0, -24.0)
     }
 
@@ -415,7 +404,9 @@ impl Inspector {
                 for (widget, (widget_top_left, _height)) in section.widgets.iter().zip(slots.iter())
                 {
                     match widget {
-                        SectionWidget::Slider(slider) => section_rects.extend(slider.build_rects()),
+                        SectionWidget::Slider(slider) => {
+                            section_rects.extend(slider.build_rects(*widget_top_left))
+                        }
                         SectionWidget::TilePalette(palette) => {
                             thumbnail_entries
                                 .extend(palette.thumbnail_entries(*widget_top_left, content_width));
@@ -579,7 +570,6 @@ impl Inspector {
 
 pub struct Slider {
     offset: Vec2,
-    pub position: Vec2,
     pub size: Vec2,
     pub min: f32,
     pub max: f32,
@@ -591,7 +581,6 @@ impl Slider {
     pub fn new(offset: Vec2, size: Vec2, min: f32, max: f32, value: f32) -> Self {
         Self {
             offset,
-            position: offset,
             size,
             min,
             max,
@@ -600,12 +589,8 @@ impl Slider {
         }
     }
 
-    /// Call once per frame, before update/build_rects, with the
-    /// current absolute position of whatever panel this slider lives
-    /// in - keeps position following the panel without needing the
-    /// slider to know anything about panels/animation itself.
-    pub fn sync_position(&mut self, panel_position: Vec2) {
-        self.position = panel_position + self.offset;
+    fn required_height(&self) -> f32 {
+        INSPECTOR_SECTION_PADDING + self.size.y
     }
 
     pub fn cancel_drag(&mut self) {
@@ -615,16 +600,18 @@ impl Slider {
     /// Call once per frame while the slider is visible. Returns true
     /// if value changed this call, so the caller knows when to act
     /// on it (rather than re-applying an unchanged value every frame).
-    pub fn update(&mut self, mouse_pos: Vec2, mouse_down: bool) -> bool {
+    pub fn update(&mut self, widget_top_left: Vec2, mouse_pos: Vec2, mouse_down: bool) -> bool {
+        let position = widget_top_left + self.offset;
+
         let half_size = self.size * 0.5;
-        let over_track = mouse_pos.x >= self.position.x - half_size.x
-            && mouse_pos.x <= self.position.x + half_size.x
-            && mouse_pos.y >= self.position.y - half_size.y
-            && mouse_pos.y <= self.position.y + half_size.y;
+        let over_track = mouse_pos.x >= position.x - half_size.x
+            && mouse_pos.x <= position.x + half_size.x
+            && mouse_pos.y >= position.y - half_size.y
+            && mouse_pos.y <= position.y + half_size.y;
 
         if mouse_down && (self.dragging || over_track) {
             self.dragging = true;
-            let t = ((mouse_pos.x - (self.position.x - half_size.x)) / self.size.x).clamp(0.0, 1.0);
+            let t = ((mouse_pos.x - (position.x - half_size.x)) / self.size.x).clamp(0.0, 1.0);
             let new_value = self.min + t * (self.max - self.min);
             let changed = new_value != self.value;
             self.value = new_value;
@@ -637,20 +624,21 @@ impl Slider {
     /// Produces the track + handle as SolidRects, ready for
     /// render_solid_rects — same primitive every other UI element
     /// (the dialogue panel, debug backgrounds) already uses.
-    pub fn build_rects(&self) -> Vec<SolidRect> {
+    pub fn build_rects(&self, widget_top_left: Vec2) -> Vec<SolidRect> {
+        let position = widget_top_left + self.offset;
         let handle_t = (self.value - self.min) / (self.max - self.min);
-        let handle_x = self.position.x - self.size.x * 0.5 + handle_t * self.size.x;
+        let handle_x = position.x - self.size.x * 0.5 + handle_t * self.size.x;
 
         vec![
             SolidRect {
-                position: self.position,
+                position: position,
                 size: self.size,
                 fill_color: [0.3, 0.3, 0.3, 0.9],
                 border_color: [0.8, 0.8, 0.8, 1.0],
                 border_thickness_px: 2.0,
             },
             SolidRect {
-                position: Vec2::new(handle_x, self.position.y),
+                position: Vec2::new(handle_x, position.y),
                 size: Vec2::new(8.0, self.size.y + 6.0),
                 fill_color: [1.0, 1.0, 1.0, 1.0],
                 border_color: [1.0, 1.0, 1.0, 1.0],
@@ -693,7 +681,7 @@ impl TilePalette {
         let rows = (Self::tile_list().len() as f32 / no_of_cols as f32)
             .ceil()
             .max(1.0);
-        2.0 * INSPECTOR_SECTION_PADDING + (rows - 1.0) * self.gap + rows * self.cell_size
+        INSPECTOR_SECTION_PADDING + (rows - 1.0) * self.gap + rows * self.cell_size
     }
 
     fn cell_top_left(&self, index: usize, cols: usize, section_top_left: Vec2) -> Vec2 {
@@ -774,7 +762,6 @@ impl TilePalette {
 
 pub struct Button {
     id: &'static str,
-    offset: Vec2,
     size: Vec2,
     label: String,
 }
@@ -798,8 +785,7 @@ impl Button {
         }
     }
 
-    fn contains(&self, section_top_left: Vec2, point: Vec2) -> bool {
-        let top_left = section_top_left + self.offset;
+    fn contains(&self, top_left: Vec2, point: Vec2) -> bool {
         point.x >= top_left.x
             && point.x <= top_left.x + self.size.x
             && point.y >= top_left.y
@@ -811,13 +797,12 @@ impl Button {
     /// is_selected/is_disabled state and the same section_top_left.
     fn build(
         &self,
-        section_top_left: Vec2,
+        top_left: Vec2,
         is_selected: bool,
         is_disabled: bool,
         font: &HashMap<char, TTFGlyph>,
     ) -> (SolidRect, Vec<PositionedTTFGlyph>) {
         let (fill_color, border_color, text_color) = Self::colors(is_selected, is_disabled);
-        let top_left = section_top_left + self.offset;
         let rect = SolidRect {
             position: top_left + self.size * 0.5,
             size: self.size,
@@ -825,7 +810,7 @@ impl Button {
             border_color,
             border_thickness_px: 1.5,
         };
-        let glyphs = self.build_label_glyphs(section_top_left, text_color, font);
+        let glyphs = self.build_label_glyphs(top_left, text_color, font);
         (rect, glyphs)
     }
 
@@ -835,11 +820,11 @@ impl Button {
     /// origin is known.
     fn build_label_glyphs(
         &self,
-        section_top_left: Vec2,
+        top_left: Vec2,
         text_color: [f32; 4],
         font: &HashMap<char, TTFGlyph>,
     ) -> Vec<PositionedTTFGlyph> {
-        let button_center = section_top_left + self.offset + self.size * 0.5;
+        let button_center = top_left + self.size * 0.5;
         let (mut glyphs, bounds) =
             text::layout_ttf_text(&self.label, font, Vec2::ZERO, 1.0, text_color);
 
@@ -858,8 +843,42 @@ pub struct TilesetControls {
 }
 
 impl TilesetControls {
+    /// Lays out rows top-to-bottom, and within each row, buttons
+    /// left-to-right — purely from each button's own size and
+    /// BUTTON_GAP. Adding, removing, or resizing a button never
+    /// requires touching anyone else's position; same "derive, don't
+    /// hardcode" idea as stack_widgets, one level further in (buttons
+    /// within a group, rather than widgets within a section).
+    fn layout_offsets(rows: &[&[Button]]) -> Vec<Vec<Vec2>> {
+        let mut cursor_y = INSPECTOR_SECTION_PADDING;
+        rows.iter()
+            .map(|row| {
+                let mut cursor_x = INSPECTOR_SECTION_PADDING;
+                let row_height = row.iter().map(|b| b.size.y).fold(0.0, f32::max);
+                let offsets = row
+                    .iter()
+                    .map(|b| {
+                        let offset = Vec2::new(cursor_x, cursor_y);
+                        cursor_x += b.size.x + BUTTON_GAP;
+                        offset
+                    })
+                    .collect();
+                cursor_y += row_height + BUTTON_GAP;
+                offsets
+            })
+            .collect()
+    }
+
+    /// Same row-shape as layout_offsets, so height and actual position
+    /// can never disagree — same principle as InspectorSection's own
+    /// required_height/stack_widgets pairing.
     pub fn required_height(&self) -> f32 {
-        2.0 * INSPECTOR_SECTION_PADDING + BUTTON_SIZE.y * 2.0 + BUTTON_GAP
+        let rows = [self.mode_buttons.as_slice(), self.action_buttons.as_slice()];
+        let row_heights: f32 = rows
+            .iter()
+            .map(|row| row.iter().map(|b| b.size.y).fold(0.0, f32::max))
+            .sum();
+        INSPECTOR_SECTION_PADDING + row_heights + BUTTON_GAP * (rows.len() - 1) as f32
     }
 
     /// is_active: whether paint mode (show_tile_editor) is currently
@@ -875,22 +894,24 @@ impl TilesetControls {
         is_active: bool,
         font: &HashMap<char, TTFGlyph>,
     ) -> (Vec<SolidRect>, Vec<PositionedTTFGlyph>) {
+        let offsets = Self::layout_offsets(&[&self.mode_buttons, &self.action_buttons]);
         let mut rects = Vec::new();
         let mut glyphs = Vec::new();
 
-        for button in &self.mode_buttons {
+        for (button, offset) in self.mode_buttons.iter().zip(&offsets[0]) {
             let is_selected = is_active
                 && matches!(
                     (button.id, current_mode),
                     ("place", PaintMode::Place) | ("remove", PaintMode::Remove)
                 );
             let (rect, label_glyphs) =
-                button.build(section_top_left, is_selected, !is_active, font);
+                button.build(section_top_left + *offset, is_selected, !is_active, font);
             rects.push(rect);
             glyphs.extend(label_glyphs);
         }
-        for button in &self.action_buttons {
-            let (rect, label_glyphs) = button.build(section_top_left, false, !is_active, font);
+        for (button, offset) in self.action_buttons.iter().zip(&offsets[1]) {
+            let (rect, label_glyphs) =
+                button.build(section_top_left + *offset, false, !is_active, font);
             rects.push(rect);
             glyphs.extend(label_glyphs);
         }
@@ -906,8 +927,10 @@ impl TilesetControls {
         if !is_active {
             return TilesetAction::None; // buttons disabled outside paint mode
         }
-        for button in &self.mode_buttons {
-            if button.contains(section_top_left, mouse_pos) {
+        let offsets = Self::layout_offsets(&[&self.mode_buttons, &self.action_buttons]);
+
+        for (button, offset) in self.mode_buttons.iter().zip(&offsets[0]) {
+            if button.contains(section_top_left + *offset, mouse_pos) {
                 return match button.id {
                     "place" => TilesetAction::SetMode(PaintMode::Place),
                     "remove" => TilesetAction::SetMode(PaintMode::Remove),
@@ -915,8 +938,8 @@ impl TilesetControls {
                 };
             }
         }
-        for button in &self.action_buttons {
-            if button.contains(section_top_left, mouse_pos) {
+        for (button, offset) in self.action_buttons.iter().zip(&offsets[1]) {
+            if button.contains(section_top_left + *offset, mouse_pos) {
                 return match button.id {
                     "save" => TilesetAction::Save,
                     "clear" => TilesetAction::Clear,
@@ -983,7 +1006,7 @@ impl HotkeyList {
 
     fn required_height(&self, content_width: f32, font: &HashMap<char, TTFGlyph>) -> f32 {
         self.wrapped_lines(content_width, font).len() as f32 * HOTKEY_LINE_HEIGHT
-            + 2.0 * INSPECTOR_SECTION_PADDING
+            + 4.0 * INSPECTOR_SECTION_PADDING
     }
 
     fn build_label_glyphs(
