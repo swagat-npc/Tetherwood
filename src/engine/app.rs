@@ -259,7 +259,7 @@ impl ApplicationHandler for App {
         let is_isometric = true;
         let initial_scene = AppState::build_scene(
             &mut renderer,
-            SceneId::Sandbox,
+            SceneId::Home,
             multiplying_factor,
             is_isometric,
             &mut progression,
@@ -278,7 +278,7 @@ impl ApplicationHandler for App {
                 .expect("failed to load monologue blip"),
         );
 
-        let inspector = Inspector::new(renderer.screen_size());
+        let inspector = Inspector::new(renderer.screen_size(), &renderer.ttf_glyphs);
 
         let state = AppState {
             window,
@@ -331,7 +331,9 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(size) => {
                 state.renderer.resize(size.width, size.height);
                 let screen_size = Vec2::new(size.width as f32, size.height as f32);
-                state.inspector.recompute_layout(screen_size);
+                state
+                    .inspector
+                    .recompute_layout(screen_size, &state.renderer.ttf_glyphs);
             }
             WindowEvent::RedrawRequested => {
                 let delta = state.tick_frame_timing();

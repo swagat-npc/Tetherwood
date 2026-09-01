@@ -34,8 +34,12 @@ impl AppState {
                 let bounds = Inspector::resolve_section_bounds(inspector_position, section);
                 let section_top_left = bounds.center - bounds.half_size;
                 let content_width = bounds.half_size.x * 2.0;
-                let slots =
-                    inspector::stack_widgets(&section.widgets, section_top_left, content_width);
+                let slots = inspector::stack_widgets(
+                    &section.widgets,
+                    section_top_left,
+                    content_width,
+                    &self.renderer.ttf_glyphs,
+                );
                 // NOTE: stack_widgets is private in inspector.rs today - either
                 // make it pub(crate) or add a small pub wrapper; see note below.
 
@@ -65,6 +69,7 @@ impl AppState {
                                 }
                             }
                         }
+                        SectionWidget::HotkeyList(_) => {}
                     }
                 }
             }

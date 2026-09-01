@@ -37,14 +37,16 @@ pub enum SectionWidget {
     Slider(Slider),
     TilePalette(TilePalette),
     TilesetControls(TilesetControls),
+    HotkeyList(HotkeyList),
 }
 
 impl SectionWidget {
-    fn required_height(&self, content_width: f32) -> f32 {
+    fn required_height(&self, content_width: f32, font: &HashMap<char, TTFGlyph>) -> f32 {
         match self {
             SectionWidget::Slider(s) => s.size.y + 2.0 * INSPECTOR_SECTION_PADDING,
             SectionWidget::TilePalette(p) => p.required_height(content_width),
             SectionWidget::TilesetControls(c) => c.required_height(),
+            SectionWidget::HotkeyList(h) => h.required_height(content_width, font),
         }
     }
 }
@@ -57,10 +59,14 @@ pub struct InspectorSection {
 }
 
 impl InspectorSection {
-    fn required_height(widgets: &[SectionWidget], content_width: f32) -> f32 {
+    fn required_height(
+        widgets: &[SectionWidget],
+        content_width: f32,
+        font: &HashMap<char, TTFGlyph>,
+    ) -> f32 {
         let sum: f32 = widgets
             .iter()
-            .map(|w| w.required_height(content_width))
+            .map(|w| w.required_height(content_width, font))
             .sum();
         sum + WIDGET_GAP * widgets.len().saturating_sub(1) as f32 + 2.0 * INSPECTOR_SECTION_PADDING
     }
@@ -89,12 +95,13 @@ pub fn stack_widgets(
     widgets: &[SectionWidget],
     section_top_left: Vec2,
     content_width: f32,
+    font: &HashMap<char, TTFGlyph>,
 ) -> Vec<(Vec2, f32)> {
     let mut cursor_y = section_top_left.y;
     widgets
         .iter()
         .map(|w| {
-            let height = w.required_height(content_width);
+            let height = w.required_height(content_width, font);
             let top_left = Vec2::new(section_top_left.x, cursor_y);
             cursor_y += height + WIDGET_GAP;
             (top_left, height)
@@ -103,7 +110,7 @@ pub fn stack_widgets(
 }
 
 impl Inspector {
-    pub fn new(screen_size: Vec2) -> Self {
+    pub fn new(screen_size: Vec2, font: &HashMap<char, TTFGlyph>) -> Self {
         let width = 250.0;
         let border_thickness_px = INSPECTOR_BORDER_THICKNESS;
         let visible_position = screen_size - Vec2::new(width / 2.0, screen_size.y / 2.0);
@@ -119,7 +126,7 @@ impl Inspector {
             state: None,
         };
 
-        inspector.populate_inspector();
+        inspector.populate_inspector(font);
         inspector
     }
 
@@ -188,11 +195,11 @@ impl Inspector {
     /// from a new screen size — same layout math as new(), callable
     /// again so a window resize can keep the panel correctly anchored
     /// to the right edge instead of drifting.
-    pub fn recompute_layout(&mut self, screen_size: Vec2) {
+    pub fn recompute_layout(&mut self, screen_size: Vec2, font: &HashMap<char, TTFGlyph>) {
         let width = 250.0;
         self.visible_position = screen_size - Vec2::new(width / 2.0, screen_size.y / 2.0);
         self.size = Vec2::new(width, screen_size.y);
-        self.populate_inspector();
+        self.populate_inspector(font);
 
         // Resize is a sudden, discrete event, not a user-initiated
         // toggle - snap position immediately rather than letting the
@@ -200,7 +207,7 @@ impl Inspector {
         self.position = self.target_position();
     }
 
-    fn populate_inspector(&mut self) {
+    fn populate_inspector(&mut self, font: &HashMap<char, TTFGlyph>) {
         let content_width = self.get_panel_content_width();
 
         // Slider needs a real offset derived from section geometry,
@@ -257,13 +264,17 @@ impl Inspector {
             }),
         ];
 
+        let hotkey_lines = SectionWidget::HotkeyList(HotkeyList);
+
         let section_heights = [
-            InspectorSection::required_height(&volume_widgets, content_width),
-            InspectorSection::required_height(&tileset_widgets, content_width),
+            InspectorSection::required_height(&volume_widgets, content_width, font),
+            InspectorSection::required_height(&tileset_widgets, content_width, font),
+            SectionWidget::required_height(&hotkey_lines, content_width, font),
         ];
 
         let (volume_offset, volume_half_size) = self.compute_section_offset(0, &section_heights);
         let (tileset_offset, tileset_half_size) = self.compute_section_offset(1, &section_heights);
+        let (hotkeys_offset, hotkeys_half_size) = self.compute_section_offset(2, &section_heights);
 
         let mut volume_widgets = volume_widgets;
         if let Some(SectionWidget::Slider(slider)) = volume_widgets.get_mut(0) {
@@ -284,6 +295,12 @@ impl Inspector {
                     half_size: tileset_half_size,
                     widgets: tileset_widgets,
                 },
+                InspectorSection {
+                    title: "Hotkeys".to_string(),
+                    offset: hotkeys_offset,
+                    half_size: hotkeys_half_size,
+                    widgets: vec![SectionWidget::HotkeyList(HotkeyList)],
+                },
             ],
         });
     }
@@ -297,7 +314,7 @@ impl Inspector {
         let slider_offset = section_offset - section_half_size
             + Vec2::new(
                 INSPECTOR_SECTION_PADDING + VOLUME_SLIDER_SIZE.x * 0.5,
-                INSPECTOR_SECTION_PADDING + VOLUME_SLIDER_SIZE.y * 0.5,
+                INSPECTOR_SECTION_PADDING * 2.0 + VOLUME_SLIDER_SIZE.y * 0.5,
             );
         Slider::new(slider_offset, VOLUME_SLIDER_SIZE, -40.0, 0.0, -24.0)
     }
@@ -339,7 +356,12 @@ impl Inspector {
                 let bounds = self.section_bounds(section);
                 let section_top_left = bounds.center - bounds.half_size;
                 let content_width = bounds.half_size.x * 2.0;
-                let slots = stack_widgets(&section.widgets, section_top_left, content_width);
+                let slots = stack_widgets(
+                    &section.widgets,
+                    section_top_left,
+                    content_width,
+                    &renderer.ttf_glyphs,
+                );
 
                 for (widget, (widget_top_left, _height)) in section.widgets.iter().zip(slots.iter())
                 {
@@ -361,6 +383,13 @@ impl Inspector {
                             );
                             rects.extend(button_rects);
                             label_glyphs.extend(button_glyphs);
+                        }
+                        SectionWidget::HotkeyList(list) => {
+                            label_glyphs.extend(list.build_label_glyphs(
+                                *widget_top_left,
+                                content_width,
+                                &renderer.ttf_glyphs,
+                            ));
                         }
                     }
                 }
@@ -822,5 +851,82 @@ impl TilesetControls {
             }
         }
         TilesetAction::None
+    }
+}
+
+const HOTKEYS: &[(&str, &str)] = &[
+    ("WASD", "Move"),
+    ("E", "Interact / Advance dialogue"),
+    ("Space", "Advance dialogue"),
+    ("F1", "Toggle debug info"),
+    ("F2", "Toggle colliders"),
+    ("F3", "Toggle debug renderer"),
+    ("F4", "Toggle grid"),
+    ("F5", "Toggle player neighbours"),
+    ("F6", "Toggle occupied cells"),
+    ("F8", "Toggle tile editor"),
+    ("F10", "Toggle isometric mode"),
+    ("F11", "Toggle player collider"),
+    ("F12", "Toggle inspector"),
+    ("Ctrl+R", "Reset scene"),
+    ("Numpad 8/2", "Grid display cell size +/-"),
+    ("Esc", "Quit"),
+];
+const HOTKEY_LINE_HEIGHT: f32 = 18.0;
+
+pub struct HotkeyList;
+
+fn wrap_text(text: &str, max_width: f32, font: &HashMap<char, TTFGlyph>) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        let candidate = if current.is_empty() {
+            word.to_string()
+        } else {
+            format!("{current} {word}")
+        };
+        let (_, bounds) = text::layout_ttf_text(&candidate, font, Vec2::ZERO, 1.0, [1.0; 4]);
+        if bounds.width() > max_width && !current.is_empty() {
+            lines.push(std::mem::replace(&mut current, word.to_string()));
+        } else {
+            current = candidate;
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
+impl HotkeyList {
+    fn wrapped_lines(&self, content_width: f32, font: &HashMap<char, TTFGlyph>) -> Vec<String> {
+        let usable_width = content_width - 2.0 * INSPECTOR_SECTION_PADDING;
+        HOTKEYS
+            .iter()
+            .flat_map(|(key, desc)| wrap_text(&format!("{key}: {desc}"), usable_width, font))
+            .collect()
+    }
+
+    fn required_height(&self, content_width: f32, font: &HashMap<char, TTFGlyph>) -> f32 {
+        self.wrapped_lines(content_width, font).len() as f32 * HOTKEY_LINE_HEIGHT
+            + 2.0 * INSPECTOR_SECTION_PADDING
+    }
+
+    fn build_label_glyphs(
+        &self,
+        section_top_left: Vec2,
+        content_width: f32,
+        font: &HashMap<char, TTFGlyph>,
+    ) -> Vec<PositionedTTFGlyph> {
+        let mut glyphs = Vec::new();
+        for (i, line) in self.wrapped_lines(content_width, font).iter().enumerate() {
+            let origin = section_top_left
+                + Vec2::new(0.0, HOTKEY_LINE_HEIGHT) // one line as gap to avoid section title and hotkey text overlap
+                + Vec2::new(INSPECTOR_SECTION_PADDING, INSPECTOR_SECTION_PADDING)
+                + Vec2::new(0.0, i as f32 * HOTKEY_LINE_HEIGHT);
+            let (line_glyphs, _) = text::layout_ttf_text(line, font, origin, 0.75, [1.0; 4]);
+            glyphs.extend(line_glyphs);
+        }
+        glyphs
     }
 }
