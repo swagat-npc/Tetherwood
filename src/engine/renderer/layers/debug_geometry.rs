@@ -49,7 +49,7 @@ impl Renderer {
         };
 
         if !debug_rects.is_empty() {
-            self.render_solid_rects(frame, &debug_rects, projection, debug_view);
+            self.render_solid_rects(frame, &debug_rects, projection, debug_view, None);
         }
     }
 }

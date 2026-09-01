@@ -84,6 +84,7 @@ pub struct Inspector {
     fill_color: [f32; 4],
     border_color: [f32; 4],
     border_thickness_px: f32,
+    pub scroll_offset: f32,
     pub state: Option<InspectorState>,
 }
 
@@ -123,6 +124,7 @@ impl Inspector {
             fill_color: [0.4, 0.4, 0.4, 1.0],
             border_color: [0.2, 0.2, 0.2, 1.0],
             border_thickness_px,
+            scroll_offset: 0.0,
             state: None,
         };
 
@@ -163,6 +165,59 @@ impl Inspector {
             center: self.position,
             half_size: self.size * 0.5,
         }
+    }
+
+    /// The panel's inner content area only - inset from the full panel
+    /// bounds by border + padding on every side, same inset
+    /// get_panel_content_width already applies for width. Used for
+    /// scissoring scrolled content, distinct from bounds() (the full
+    /// panel, used for "is the mouse over this panel at all" gating).
+    fn content_bounds(&self) -> Rect {
+        let inset = self.border_thickness_px + INSPECTOR_PADDING;
+        Rect {
+            center: self.position,
+            half_size: Vec2::new(self.get_panel_content_width(), self.size.y - 2.0 * inset) * 0.5,
+        }
+    }
+
+    fn scissor_rect(&self, screen_size: Vec2) -> (u32, u32, u32, u32) {
+        let bounds = self.content_bounds();
+        let x = (bounds.center.x - bounds.half_size.x).max(0.0);
+        let y = (bounds.center.y - bounds.half_size.y).max(0.0);
+        let width = (bounds.half_size.x * 2.0).min(screen_size.x - x);
+        let height = (bounds.half_size.y * 2.0).min(screen_size.y - y);
+        (
+            x as u32,
+            y as u32,
+            width.max(0.0) as u32,
+            height.max(0.0) as u32,
+        )
+    }
+
+    /// Total height every section would need stacked with no scrolling
+    /// at all - same accumulate-and-sum shape populate_inspector
+    /// already uses to build section_heights, just summed once more
+    /// for the max-scroll bound.
+    fn total_content_height(&self, font: &HashMap<char, TTFGlyph>) -> f32 {
+        let Some(state) = &self.state else { return 0.0 };
+        let content_width = self.get_panel_content_width();
+        let section_gap = 10.0;
+        let sum: f32 = state
+            .sections
+            .iter()
+            .map(|s| InspectorSection::required_height(&s.widgets, content_width, font))
+            .sum();
+        sum + section_gap * state.sections.len().saturating_sub(1) as f32
+    }
+
+    fn max_scroll(&self, font: &HashMap<char, TTFGlyph>) -> f32 {
+        let visible = self.content_bounds().half_size.y * 2.0;
+        (self.total_content_height(font) - visible).max(0.0)
+    }
+
+    pub fn scroll(&mut self, delta: f32, font: &HashMap<char, TTFGlyph>) {
+        let max = self.max_scroll(font);
+        self.scroll_offset = (self.scroll_offset - delta).clamp(0.0, max);
     }
 
     /// Finds the first TilePalette widget in any section, by type, not
@@ -334,18 +389,8 @@ impl Inspector {
         paint_mode: &PaintMode,
         is_paint_active: bool,
     ) {
-        if let Some(state) = &mut self.state {
-            for section in state.sections.iter_mut() {
-                for widget in section.widgets.iter_mut() {
-                    if let SectionWidget::Slider(slider) = widget {
-                        slider.sync_position(self.position);
-                    }
-                }
-            }
-        }
-
-        let mut rects = self.build_panel();
-        rects.extend(self.build_sections());
+        let panel_rects = self.build_panel();
+        let mut section_rects = self.build_sections();
 
         let mut thumbnail_entries = Vec::new();
         let mut highlight_rects = Vec::new();
@@ -366,7 +411,7 @@ impl Inspector {
                 for (widget, (widget_top_left, _height)) in section.widgets.iter().zip(slots.iter())
                 {
                     match widget {
-                        SectionWidget::Slider(slider) => rects.extend(slider.build_rects()),
+                        SectionWidget::Slider(slider) => section_rects.extend(slider.build_rects()),
                         SectionWidget::TilePalette(palette) => {
                             thumbnail_entries
                                 .extend(palette.thumbnail_entries(*widget_top_left, content_width));
@@ -381,7 +426,7 @@ impl Inspector {
                                 is_paint_active,
                                 &renderer.ttf_glyphs,
                             );
-                            rects.extend(button_rects);
+                            section_rects.extend(button_rects);
                             label_glyphs.extend(button_glyphs);
                         }
                         SectionWidget::HotkeyList(list) => {
@@ -397,16 +442,27 @@ impl Inspector {
         }
 
         let projection = renderer.screen_projection();
-        renderer.render_solid_rects(frame, &rects, projection, Mat4::IDENTITY);
+        let screen_size = renderer.screen_size();
+        // Everything section-derived (sections themselves, slider, thumbnails,
+        // highlight, text): scissored to the panel's inner content area, so
+        // scrolled-past content is cleanly cut off at the panel's edge rather
+        // than bleeding past the border.
+        let scissor = Some(self.scissor_rect(screen_size));
+
+        // Panel border/background: always full, never clipped by scroll.
+        renderer.render_solid_rects(frame, &panel_rects, projection, Mat4::IDENTITY, None);
+
+        renderer.render_solid_rects(frame, &section_rects, projection, Mat4::IDENTITY, scissor);
         renderer.render_ui_tiles(
             frame,
             &thumbnail_entries,
             TILE_THUMBNAIL_SIZE,
             is_isometric,
             projection,
+            scissor,
         );
-        renderer.render_solid_rects(frame, &highlight_rects, projection, Mat4::IDENTITY);
-        self.draw_section_titles(renderer, frame, &label_glyphs);
+        renderer.render_solid_rects(frame, &highlight_rects, projection, Mat4::IDENTITY, scissor);
+        self.draw_section_titles(renderer, frame, &label_glyphs, scissor);
     }
 
     fn build_panel(&self) -> Vec<SolidRect> {
@@ -439,9 +495,13 @@ impl Inspector {
         (center_offset, Vec2::new(content_width, section_size) * 0.5)
     }
 
-    pub fn resolve_section_bounds(position: Vec2, section: &InspectorSection) -> Rect {
+    pub fn resolve_section_bounds(
+        position: Vec2,
+        section: &InspectorSection,
+        scroll_offset: f32,
+    ) -> Rect {
         Rect {
-            center: position + section.offset,
+            center: position + section.offset - Vec2::new(0.0, scroll_offset),
             half_size: section.half_size,
         }
     }
@@ -451,7 +511,7 @@ impl Inspector {
     /// follows the panel's current (possibly animating) position rather
     /// than a stale, construction-time snapshot.
     fn section_bounds(&self, section: &InspectorSection) -> Rect {
-        Self::resolve_section_bounds(self.position, section)
+        Self::resolve_section_bounds(self.position, section, self.scroll_offset)
     }
 
     fn build_sections(&self) -> Vec<SolidRect> {
@@ -479,6 +539,7 @@ impl Inspector {
         renderer: &mut Renderer,
         frame: &Frame,
         label_glyphs: &[PositionedTTFGlyph],
+        scissor: Option<(u32, u32, u32, u32)>,
     ) {
         let Some(state) = &self.state else { return };
 
@@ -499,7 +560,7 @@ impl Inspector {
             );
             combined_glyphs.extend(&glyphs);
         }
-        renderer.render_ttf_text(frame, &combined_glyphs);
+        renderer.render_ttf_text(frame, &combined_glyphs, scissor);
     }
 }
 

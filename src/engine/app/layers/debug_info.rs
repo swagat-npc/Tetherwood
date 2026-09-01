@@ -31,7 +31,11 @@ impl AppState {
                 return;
             };
             for section in inspector_state.sections.iter_mut() {
-                let bounds = Inspector::resolve_section_bounds(inspector_position, section);
+                let bounds = Inspector::resolve_section_bounds(
+                    inspector_position,
+                    section,
+                    self.inspector.scroll_offset,
+                );
                 let section_top_left = bounds.center - bounds.half_size;
                 let content_width = bounds.half_size.x * 2.0;
                 let slots = inspector::stack_widgets(

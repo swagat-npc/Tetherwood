@@ -7,6 +7,7 @@ mod scene_lifecycle;
 use super::debug::DebugSettings;
 use crate::engine::debug::inspector::{Inspector, PaintMode};
 use crate::engine::debug::notifications::Notification;
+use crate::engine::entity;
 use crate::engine::renderer::{Renderer, tile};
 use crate::engine::scene::{InteractResult, Scene, SceneId, TileGrid};
 use crate::game::actions::{self, Action};
@@ -591,7 +592,19 @@ impl ApplicationHandler for App {
                     MouseScrollDelta::LineDelta(_, y) => y,
                     MouseScrollDelta::PixelDelta(pos) => pos.y as f32 * 0.01,
                 };
-                state.renderer.zoom = (state.renderer.zoom + scroll_amount * 0.1).clamp(0.5, 3.0);
+                let mouse_pos = Vec2::new(
+                    state.screen_mouse_position.0 as f32,
+                    state.screen_mouse_position.1 as f32,
+                );
+                let pixels_per_line = 32.0; // px/line, tune by feel
+                if entity::point_in_rect(mouse_pos, &state.inspector.bounds()) {
+                    state
+                        .inspector
+                        .scroll(scroll_amount * pixels_per_line, &state.renderer.ttf_glyphs);
+                } else {
+                    state.renderer.zoom =
+                        (state.renderer.zoom + scroll_amount * 0.1).clamp(0.5, 3.0);
+                }
             }
             _ => {}
         }

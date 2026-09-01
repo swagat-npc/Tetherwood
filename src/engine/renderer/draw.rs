@@ -50,6 +50,7 @@ impl Renderer {
         rects: &[SolidRect],
         projection: glam::Mat4,
         view: glam::Mat4,
+        scissor: Option<(u32, u32, u32, u32)>,
     ) {
         if rects.is_empty() {
             return;
@@ -104,6 +105,9 @@ impl Renderer {
                 multiview_mask: None,
             });
             render_pass.set_pipeline(&self.debug_pipeline);
+            if let Some((x, y, width, height)) = scissor {
+                render_pass.set_scissor_rect(x, y, width, height);
+            }
             render_pass.set_bind_group(0, &self.transform_bind_group, &[]);
             render_pass.set_vertex_buffer(0, solid_vertex_buffer.slice(..));
             render_pass.set_index_buffer(solid_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
@@ -133,7 +137,7 @@ impl Renderer {
         };
 
         let projection = self.screen_projection();
-        self.render_solid_rects(frame, &[panel], projection, glam::Mat4::IDENTITY);
+        self.render_solid_rects(frame, &[panel], projection, glam::Mat4::IDENTITY, None);
     }
 
     pub fn render_tiles(
@@ -219,6 +223,7 @@ impl Renderer {
         thumbnail_size: f32,
         is_isometric: bool,
         screen_projection: glam::Mat4,
+        scissor: Option<(u32, u32, u32, u32)>,
     ) {
         if entries.is_empty() {
             return;
@@ -268,6 +273,9 @@ impl Renderer {
                 multiview_mask: None,
             });
             render_pass.set_pipeline(&self.render_pipeline);
+            if let Some((x, y, width, height)) = scissor {
+                render_pass.set_scissor_rect(x, y, width, height);
+            }
             render_pass.set_bind_group(0, &self.tile_atlas_bind_group, &[]);
             render_pass.set_bind_group(1, &self.transform_bind_group, &[]);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
@@ -342,7 +350,12 @@ impl Renderer {
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 
-    pub fn render_ttf_text(&mut self, frame: &Frame, glyphs: &[text::PositionedTTFGlyph]) {
+    pub fn render_ttf_text(
+        &mut self,
+        frame: &Frame,
+        glyphs: &[text::PositionedTTFGlyph],
+        scissor: Option<(u32, u32, u32, u32)>,
+    ) {
         if glyphs.is_empty() {
             return;
         }
@@ -395,6 +408,9 @@ impl Renderer {
                 multiview_mask: None,
             });
             render_pass.set_pipeline(&self.render_pipeline);
+            if let Some((x, y, width, height)) = scissor {
+                render_pass.set_scissor_rect(x, y, width, height);
+            }
             render_pass.set_bind_group(0, &self.ttf_atlas_bind_group, &[]);
             render_pass.set_bind_group(1, &self.transform_bind_group, &[]);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
@@ -436,6 +452,6 @@ impl Renderer {
         };
 
         let projection = self.screen_projection();
-        self.render_solid_rects(frame, &[bg], projection, glam::Mat4::IDENTITY);
+        self.render_solid_rects(frame, &[bg], projection, glam::Mat4::IDENTITY, None);
     }
 }
