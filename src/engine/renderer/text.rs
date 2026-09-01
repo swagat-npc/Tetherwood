@@ -186,6 +186,44 @@ impl TextBounds {
     }
 }
 
+/// Flattens (text, color) pairs into one per-character color-tagged
+/// sequence - the shared primitive multi-color lines build on,
+/// independent of dialogue's own reveal/truncation logic.
+pub fn flatten_colored_spans(spans: &[(&str, [f32; 4])]) -> Vec<(char, [f32; 4])> {
+    spans
+        .iter()
+        .flat_map(|&(text, color)| text.chars().map(move |ch| (ch, color)))
+        .collect()
+}
+
+/// TTF equivalent of the bitmap font's layout_colored_text_scaled -
+/// advances by each glyph's real measured width (proportional), not a
+/// fixed pitch, since that's the whole reason TTF exists here.
+pub fn layout_colored_ttf_text(
+    chars: &[(char, [f32; 4])],
+    font: &HashMap<char, TTFGlyph>,
+    origin: Vec2,
+    scale: f32,
+) -> Vec<PositionedTTFGlyph> {
+    let mut glyphs = Vec::new();
+    let mut cursor = origin;
+    for &(c, color) in chars {
+        if let Some(g) = font.get(&c) {
+            glyphs.push(PositionedTTFGlyph {
+                uv_min: g.uv_min,
+                uv_max: g.uv_max,
+                position: cursor + g.offset * scale,
+                size: g.size * scale,
+                color,
+            });
+            cursor.x += g.advance * scale;
+        } else {
+            cursor.x += scale * 8.0;
+        }
+    }
+    glyphs
+}
+
 pub fn layout_ttf_text(
     text: &str,
     font: &HashMap<char, TTFGlyph>,

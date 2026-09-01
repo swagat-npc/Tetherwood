@@ -996,16 +996,32 @@ fn wrap_text(text: &str, max_width: f32, font: &HashMap<char, TTFGlyph>) -> Vec<
 }
 
 impl HotkeyList {
-    fn wrapped_lines(&self, content_width: f32, font: &HashMap<char, TTFGlyph>) -> Vec<String> {
+    /// Same wrapping as before, but each line now carries how many
+    /// leading bytes belong to "key:" (None for continuation lines
+    /// that are pure wrapped description, with no key prefix at all).
+    /// Computed once here, at the point the key is actually known -
+    /// not re-derived later by matching text back against HOTKEYS.
+    fn wrapped_entries(
+        &self,
+        content_width: f32,
+        font: &HashMap<char, TTFGlyph>,
+    ) -> Vec<(Option<usize>, String)> {
         let usable_width = content_width - 2.0 * INSPECTOR_SECTION_PADDING;
         HOTKEYS
             .iter()
-            .flat_map(|(key, desc)| wrap_text(&format!("{key}: {desc}"), usable_width, font))
+            .flat_map(|(key, desc)| {
+                let full = format!("{key}: {desc}");
+                let key_prefix_len = key.len() + 1; // covers "key:" - all HOTKEYS entries are ASCII, byte len == char count
+                wrap_text(&full, usable_width, font)
+                    .into_iter()
+                    .enumerate()
+                    .map(move |(i, line)| (if i == 0 { Some(key_prefix_len) } else { None }, line))
+            })
             .collect()
     }
 
     fn required_height(&self, content_width: f32, font: &HashMap<char, TTFGlyph>) -> f32 {
-        self.wrapped_lines(content_width, font).len() as f32 * HOTKEY_LINE_HEIGHT
+        self.wrapped_entries(content_width, font).len() as f32 * HOTKEY_LINE_HEIGHT
             + 4.0 * INSPECTOR_SECTION_PADDING
     }
 
@@ -1015,13 +1031,29 @@ impl HotkeyList {
         content_width: f32,
         font: &HashMap<char, TTFGlyph>,
     ) -> Vec<PositionedTTFGlyph> {
+        const KEY_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0]; // black
+        const DESC_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0]; // white
+
         let mut glyphs = Vec::new();
-        for (i, line) in self.wrapped_lines(content_width, font).iter().enumerate() {
+        for (i, (key_len, line)) in self.wrapped_entries(content_width, font).iter().enumerate() {
             let origin = section_top_left
                 + Vec2::new(INSPECTOR_SECTION_PADDING, INSPECTOR_SECTION_PADDING * 2.0)
                 + Vec2::new(0.0, i as f32 * HOTKEY_LINE_HEIGHT);
-            let (line_glyphs, _) = text::layout_ttf_text(line, font, origin, 0.75, [1.0; 4]);
-            glyphs.extend(line_glyphs);
+
+            let colored_chars = match key_len {
+                Some(split) => text::flatten_colored_spans(&[
+                    (&line[..*split], KEY_COLOR),
+                    (&line[*split..], DESC_COLOR),
+                ]),
+                None => text::flatten_colored_spans(&[(line.as_str(), DESC_COLOR)]),
+            };
+
+            glyphs.extend(text::layout_colored_ttf_text(
+                &colored_chars,
+                font,
+                origin,
+                0.75,
+            ));
         }
         glyphs
     }
