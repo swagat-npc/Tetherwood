@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::engine::entity::Rect;
-use crate::engine::renderer::text::{PositionedTTFGlyph, TTFGlyph};
+use crate::engine::renderer::text::{GLYPH_SIZE, PositionedTTFGlyph, TTFGlyph};
 use crate::engine::renderer::{Frame, Renderer, SolidRect, text, tile};
 use glam::{Mat4, Vec2};
 
@@ -10,6 +10,7 @@ const INSPECTOR_SECTION_PADDING: f32 = 12.0;
 const INSPECTOR_BORDER_THICKNESS: f32 = 4.0;
 const SECTION_BORDER_THICKNESS: f32 = 1.5;
 const WIDGET_GAP: f32 = 8.0;
+const TITLE_BAR_HEIGHT: f32 = GLYPH_SIZE.y + 5.0 * 2.0;
 
 const VOLUME_SLIDER_SIZE: Vec2 = Vec2::new(120.0, 12.0);
 const BUTTON_SIZE: Vec2 = Vec2::new(80.0, 30.0);
@@ -68,7 +69,10 @@ impl InspectorSection {
             .iter()
             .map(|w| w.required_height(content_width, font))
             .sum();
-        sum + WIDGET_GAP * widgets.len().saturating_sub(1) as f32 + 2.0 * INSPECTOR_SECTION_PADDING
+        TITLE_BAR_HEIGHT
+            + sum
+            + WIDGET_GAP * widgets.len().saturating_sub(1) as f32
+            + 2.0 * INSPECTOR_SECTION_PADDING
     }
 }
 
@@ -98,7 +102,7 @@ pub fn stack_widgets(
     content_width: f32,
     font: &HashMap<char, TTFGlyph>,
 ) -> Vec<(Vec2, f32)> {
-    let mut cursor_y = section_top_left.y;
+    let mut cursor_y = section_top_left.y + TITLE_BAR_HEIGHT;
     widgets
         .iter()
         .map(|w| {
@@ -514,24 +518,32 @@ impl Inspector {
         Self::resolve_section_bounds(self.position, section, self.scroll_offset)
     }
 
+    // build_sections — one title-bar rect per section, added alongside
+    // the existing body rect, both drawn into the scissored batch.
     fn build_sections(&self) -> Vec<SolidRect> {
         let Some(state) = &self.state else {
             return Vec::new();
         };
-        state
-            .sections
-            .iter()
-            .map(|section| {
-                let bounds = self.section_bounds(section);
-                SolidRect {
-                    position: bounds.center,
-                    size: bounds.half_size * 2.0,
-                    fill_color: [0.0, 0.0, 0.0, 0.3],
-                    border_color: [0.1, 0.1, 0.1, 1.0],
-                    border_thickness_px: SECTION_BORDER_THICKNESS,
-                }
-            })
-            .collect()
+        let mut rects = Vec::new();
+        for section in &state.sections {
+            let bounds = self.section_bounds(section);
+            rects.push(SolidRect {
+                position: bounds.center,
+                size: bounds.half_size * 2.0,
+                fill_color: [0.0, 0.0, 0.0, 0.3],
+                border_color: [0.1, 0.1, 0.1, 1.0],
+                border_thickness_px: SECTION_BORDER_THICKNESS,
+            });
+            let title_bar_top = bounds.center.y - bounds.half_size.y;
+            rects.push(SolidRect {
+                position: Vec2::new(bounds.center.x, title_bar_top + TITLE_BAR_HEIGHT * 0.5),
+                size: Vec2::new(bounds.half_size.x * 2.0, TITLE_BAR_HEIGHT),
+                fill_color: [0.15, 0.15, 0.15, 0.7], // distinct from section body — tune by eye
+                border_color: [0.1, 0.1, 0.1, 1.0],
+                border_thickness_px: 0.0,
+            });
+        }
+        rects
     }
 
     fn draw_section_titles(
@@ -549,7 +561,8 @@ impl Inspector {
             let bounds = self.section_bounds(section);
             let origin = Vec2::new(
                 bounds.center.x - bounds.half_size.x + 8.0,
-                bounds.center.y - bounds.half_size.y + 4.0,
+                bounds.center.y - bounds.half_size.y + TITLE_BAR_HEIGHT
+                    - (GLYPH_SIZE.y - 2.0) * 0.5,
             );
             let (glyphs, _bounds) = text::layout_ttf_text(
                 &section.title,
@@ -982,8 +995,7 @@ impl HotkeyList {
         let mut glyphs = Vec::new();
         for (i, line) in self.wrapped_lines(content_width, font).iter().enumerate() {
             let origin = section_top_left
-                + Vec2::new(0.0, HOTKEY_LINE_HEIGHT) // one line as gap to avoid section title and hotkey text overlap
-                + Vec2::new(INSPECTOR_SECTION_PADDING, INSPECTOR_SECTION_PADDING)
+                + Vec2::new(INSPECTOR_SECTION_PADDING, INSPECTOR_SECTION_PADDING * 2.0)
                 + Vec2::new(0.0, i as f32 * HOTKEY_LINE_HEIGHT);
             let (line_glyphs, _) = text::layout_ttf_text(line, font, origin, 0.75, [1.0; 4]);
             glyphs.extend(line_glyphs);
