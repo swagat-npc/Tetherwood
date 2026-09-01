@@ -6,8 +6,8 @@ use crate::engine::entity::{
 };
 use crate::engine::grid::SpatialGrid;
 use crate::engine::renderer::texture::{TextureId, TextureStore};
+use crate::engine::renderer::tile::TileGrid;
 use glam::Vec2;
-use std::collections::HashMap;
 
 pub struct Scene {
     pub id: SceneId,
@@ -165,47 +165,3 @@ pub enum SceneId {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WallId(pub usize);
-
-/// A scene's tile-based floor layout (ADR-096). Sparse — an unpainted
-/// cell simply shows void, per the existing no-camera-clamping
-/// convention. Stores atlas cells directly for now; ADR-097's compact
-/// integer save format is a separate, later step.
-#[derive(Clone)]
-pub struct TileGrid {
-    tiles: HashMap<(i32, i32), (i32, i32)>,
-}
-
-impl TileGrid {
-    pub fn new() -> Self {
-        Self {
-            tiles: HashMap::new(),
-        }
-    }
-
-    pub fn set_named(&mut self, cell: (i32, i32), name: &str, names: &HashMap<&str, (i32, i32)>) {
-        if let Some(&atlas_cell) = names.get(name) {
-            self.tiles.insert(cell, atlas_cell);
-        }
-    }
-
-    pub fn set(&mut self, cell: (i32, i32), atlas_cell: (i32, i32)) {
-        self.tiles.insert(cell, atlas_cell);
-    }
-
-    pub fn remove(&mut self, cell: (i32, i32)) {
-        self.tiles.remove(&cell);
-    }
-
-    pub fn tile_name_for(
-        cell: (i32, i32),
-        names: &HashMap<&'static str, (i32, i32)>,
-    ) -> Option<&'static str> {
-        names.iter().find(|&(_, &v)| v == cell).map(|(&k, _)| k)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = ((i32, i32), (i32, i32))> + '_ {
-        self.tiles
-            .iter()
-            .map(|(&cell, &atlas_cell)| (cell, atlas_cell))
-    }
-}

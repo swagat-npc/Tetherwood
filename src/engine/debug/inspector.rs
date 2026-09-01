@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::engine::entity::Rect;
 use crate::engine::renderer::text::{GLYPH_SIZE, PositionedTTFGlyph, TTFGlyph};
+use crate::engine::renderer::tile::PaintMode;
 use crate::engine::renderer::{Frame, Renderer, SolidRect, text, tile};
 use glam::{Mat4, Vec2};
 
@@ -21,12 +22,6 @@ const TILE_CELL_SIZE: f32 = 64.0;
 const TILE_CELL_PADDING: f32 = 6.0;
 const TILE_THUMBNAIL_SIZE: f32 = TILE_CELL_SIZE - 2.0 * TILE_CELL_PADDING;
 const TILE_CELL_GAP: f32 = 8.0;
-
-#[derive(Debug, Clone, Copy)]
-pub enum PaintMode {
-    Place,
-    Remove,
-}
 
 #[derive(Debug, Clone, Copy)]
 pub enum TilesetAction {

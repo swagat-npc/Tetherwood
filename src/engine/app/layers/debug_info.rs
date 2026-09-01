@@ -1,5 +1,6 @@
 use crate::engine::app::AppState;
-use crate::engine::debug::inspector::{self, Inspector, PaintMode, SectionWidget, TilesetAction};
+use crate::engine::debug::inspector::{self, Inspector, SectionWidget, TilesetAction};
+use crate::engine::renderer::tile::PaintMode;
 use crate::engine::renderer::{Frame, tile};
 use crate::engine::{debug, entity};
 use glam::Vec2;
@@ -80,7 +81,7 @@ impl AppState {
         }
 
         match tileset_action {
-            TilesetAction::SetMode(mode) => self.paint_mode = mode,
+            TilesetAction::SetMode(mode) => self.paint.mode = mode,
             TilesetAction::Save => self.save_paint_session(),
             TilesetAction::Clear => self.reset_paint_session(),
             TilesetAction::None => {}
@@ -96,14 +97,14 @@ impl AppState {
                 .screen_to_world(screen_mouse, self.is_isometric);
             let cell = tile::cell_at_position(world_pos, self.multiplying_factor);
 
-            if let Some(session) = &mut self.paint_session {
-                match self.paint_mode {
+            if let Some(session) = &mut self.paint.session {
+                match self.paint.mode {
                     PaintMode::Place => {
                         if let Some(selected) = self.inspector.selected_tile() {
-                            session.set(cell, selected);
+                            session.set(cell, self.paint.current_layer_id, selected);
                         }
                     }
-                    PaintMode::Remove => session.remove(cell),
+                    PaintMode::Remove => session.remove(cell, self.paint.current_layer_id),
                 }
             }
         }
@@ -124,7 +125,7 @@ impl AppState {
                 &mut self.renderer,
                 frame,
                 self.is_isometric,
-                &self.paint_mode,
+                &self.paint.mode,
                 self.debug.show_tile_editor,
             );
 

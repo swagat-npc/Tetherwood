@@ -1,5 +1,6 @@
 use crate::engine::app::AppState;
 use crate::engine::renderer::Renderer;
+use crate::engine::renderer::tile::PaintState;
 use crate::engine::scene::{Scene, SceneId};
 use crate::game::progression::ProgressionTracker;
 use crate::game::scenes::{home, sandbox, village};
@@ -14,6 +15,7 @@ impl AppState {
         multiplying_factor: f32,
         is_isometric: bool,
         progression: &mut ProgressionTracker,
+        paint: &mut PaintState,
     ) -> Scene {
         let mut new_scene = match scene_id {
             SceneId::Home => home::build(
@@ -41,7 +43,7 @@ impl AppState {
             )
             .expect("failed to debug home scene"),
         };
-        Self::load_tilemap(&mut new_scene);
+        Self::load_tilemap(&mut new_scene, paint);
         new_scene.build_static_grid(multiplying_factor);
         renderer.prepare_scene(&new_scene);
 
@@ -59,6 +61,7 @@ impl AppState {
             self.multiplying_factor,
             self.is_isometric,
             &mut self.progression,
+            &mut self.paint,
         );
         // Note: This is only relevant if player is allowed to
         // move when in the tile editor mode
@@ -74,6 +77,7 @@ impl AppState {
             self.multiplying_factor,
             self.is_isometric,
             &mut self.progression,
+            &mut self.paint,
         );
     }
 
@@ -108,7 +112,7 @@ impl AppState {
             .expect("failed to refresh debug scene"),
         };
 
-        Self::load_tilemap(&mut new_scene);
+        Self::load_tilemap(&mut new_scene, &mut self.paint);
         new_scene.build_static_grid(self.multiplying_factor);
         self.renderer.prepare_scene(&new_scene);
 

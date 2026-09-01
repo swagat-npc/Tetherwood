@@ -16,3 +16,5 @@ glam = "0.30"
 asefile = "0.3.8"
 kira = "0.12.3"
 fontdue = "0.9.4"
+serde = { version = "1", features = ["derive"] }
+ron = "0.8"

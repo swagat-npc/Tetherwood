@@ -5,11 +5,12 @@ mod player;
 mod scene_lifecycle;
 
 use super::debug::DebugSettings;
-use crate::engine::debug::inspector::{Inspector, PaintMode};
+use crate::engine::debug::inspector::Inspector;
 use crate::engine::debug::notifications::Notification;
 use crate::engine::entity;
+use crate::engine::renderer::tile::{PaintMode, PaintState, TileEntry, TileGrid, TilemapFile};
 use crate::engine::renderer::{Renderer, tile};
-use crate::engine::scene::{InteractResult, Scene, SceneId, TileGrid};
+use crate::engine::scene::{InteractResult, Scene, SceneId};
 use crate::game::actions::{self, Action};
 use crate::game::dialogue::line_for;
 use crate::game::progression::ProgressionTracker;
@@ -65,8 +66,7 @@ struct AppState {
     inspector: Inspector,
     is_isometric: bool,
     progression: ProgressionTracker,
-    paint_session: Option<TileGrid>,
-    paint_mode: PaintMode,
+    paint: PaintState,
 }
 
 impl AppState {
@@ -121,21 +121,33 @@ impl AppState {
     }
 
     fn reset_paint_session(&mut self) {
-        self.paint_session = Some(self.scene.tile_grid.clone());
+        self.paint.session = Some(self.scene.tile_grid.clone());
     }
 
     pub fn save_paint_session(&mut self) {
-        let Some(session) = &self.paint_session else {
+        let Some(session) = &self.paint.session else {
             return;
         };
         let names = tile::tile_names();
 
-        let mut contents = String::new();
-        for (cell, atlas_cell) in session.iter() {
-            if let Some(name) = TileGrid::tile_name_for(atlas_cell, &names) {
-                contents.push_str(&format!("{} {} {}\n", cell.0, cell.1, name));
-            }
-        }
+        let tiles = session
+            .iter()
+            .filter_map(|((x, y, layer_id), atlas_cell)| {
+                TileGrid::tile_name_for(atlas_cell, &names).map(|name| TileEntry {
+                    x,
+                    y,
+                    layer_id,
+                    tile_name: name.to_string(),
+                })
+            })
+            .collect();
+
+        let file = TilemapFile {
+            layers: self.paint.layers.clone(),
+            tiles,
+        };
+        let contents = ron::ser::to_string_pretty(&file, ron::ser::PrettyConfig::default())
+            .expect("failed to serialize tilemap");
 
         let path = Self::tilemap_path(self.current_scene_id());
         if let Some(dir) = std::path::Path::new(&path).parent() {
@@ -144,71 +156,40 @@ impl AppState {
 
         match std::fs::write(&path, contents) {
             Ok(()) => {
-                self.scene.tile_grid = self.paint_session.clone().unwrap();
+                self.scene.tile_grid = self.paint.session.clone().unwrap();
                 self.notify("Tilemap saved");
             }
-            Err(e) => {
-                self.notify(format!("Failed to save tilemap: {e}"));
-                // paint_session deliberately left intact - a failed
-                // write means nothing was lost, and the user can retry.
-            }
+            Err(e) => self.notify(format!("Failed to save tilemap: {e}")),
         }
     }
 
-    pub fn load_tilemap(scene: &mut Scene) {
+    pub fn load_tilemap(scene: &mut Scene, paint: &mut PaintState) {
         let path = Self::tilemap_path(scene.id);
-        let Ok(contents) = std::fs::read_to_string(&path) else {
-            return;
-        };
-
-        let mut layers: Vec<(i32, (i32, i32), &str)> = Vec::new();
-        for (line_number, line) in contents.lines().enumerate() {
-            let fields: Vec<&str> = line.split(' ').collect();
-            if fields.len() != 4 {
-                panic!(
-                    "malformed tilemap {path} at line {}: expected 'layer x y tile_name', got {line:?}",
-                    line_number + 1
-                );
-            }
-            let layer = fields[0].parse::<i32>().unwrap_or_else(|e| {
-                panic!(
-                    "malformed tilemap {path} at line {}: bad layer {:?}: {e}",
-                    line_number + 1,
-                    fields[0]
-                )
-            });
-            let x = fields[1].parse::<i32>().unwrap_or_else(|e| {
-                panic!(
-                    "malformed tilemap {path} at line {}: bad x {:?}: {e}",
-                    line_number + 1,
-                    fields[1]
-                )
-            });
-            let y = fields[2].parse::<i32>().unwrap_or_else(|e| {
-                panic!(
-                    "malformed tilemap {path} at line {}: bad y {:?}: {e}",
-                    line_number + 1,
-                    fields[2]
-                )
-            });
-            let tile_name = fields[3];
-            if tile_name.is_empty() {
-                panic!(
-                    "malformed tilemap {path} at line {}: bad tile name {:?}: tile name has to be provided",
-                    line_number + 1,
-                    fields[3]
-                )
-            }
-            layers.push((layer, (x, y), tile_name));
-        }
-        if layers.is_empty() {
-            return;
-        }
-        layers.sort_by_key(|(layer, _, _)| *layer);
-
         let names = tile::tile_names();
-        for (_layer, cell, name) in layers {
-            scene.tile_grid.set_named(cell, name, &names);
+
+        match std::fs::read_to_string(&path) {
+            Ok(contents) => {
+                let file: TilemapFile = ron::from_str(&contents)
+                    .unwrap_or_else(|e| panic!("malformed tilemap {path}: {e}"));
+                paint.layers = file.layers;
+                for entry in file.tiles {
+                    scene.tile_grid.set_named(
+                        (entry.x, entry.y),
+                        entry.layer_id,
+                        &entry.tile_name,
+                        &names,
+                    );
+                }
+            }
+            Err(_) => paint.layers = PaintState::default_layers(),
+        }
+
+        // current_layer_id must always point at a layer that actually
+        // exists in whatever layer set this scene just ended up with -
+        // covers both the no-file case and a loaded file whose layers
+        // don't happen to include the previous scene's current layer.
+        if !paint.layers.iter().any(|l| l.id == paint.current_layer_id) {
+            paint.current_layer_id = paint.layers.first().map(|l| l.id).unwrap_or(0);
         }
     }
 }
@@ -258,12 +239,14 @@ impl ApplicationHandler for App {
         let mut progression = ProgressionTracker::new();
 
         let is_isometric = true;
+        let mut initial_paint = PaintState::new();
         let initial_scene = AppState::build_scene(
             &mut renderer,
             SceneId::Home,
             multiplying_factor,
             is_isometric,
             &mut progression,
+            &mut initial_paint,
         );
 
         let audio =
@@ -303,9 +286,8 @@ impl ApplicationHandler for App {
             inspector,
             debug: DebugSettings::new(),
             is_isometric,
-            progression: ProgressionTracker::new(),
-            paint_session: None,
-            paint_mode: PaintMode::Place,
+            progression,
+            paint: initial_paint,
         };
 
         self.state = Some(state);
@@ -355,7 +337,8 @@ impl ApplicationHandler for App {
 
                         // Tile Layer
                         let active_grid = state
-                            .paint_session
+                            .paint
+                            .session
                             .as_ref()
                             .unwrap_or(&state.scene.tile_grid);
 
@@ -364,7 +347,10 @@ impl ApplicationHandler for App {
                             let world_pos = state.world_mouse_position();
                             let cell = tile::cell_at_position(world_pos, state.multiplying_factor);
                             let selected = state.inspector.selected_tile().unwrap_or((0, 0));
-                            (Some(cell), selected)
+                            (
+                                Some((cell.0, cell.1, state.paint.current_layer_id)),
+                                selected,
+                            )
                         } else {
                             (None, (0, 0))
                         };
@@ -373,7 +359,7 @@ impl ApplicationHandler for App {
                         let mut tile_entries: Vec<(Vec2, (i32, i32), f32)> = active_grid
                             .iter()
                             .filter_map(|(cell, atlas_cell)| {
-                                let draw_cell = match state.paint_mode {
+                                let draw_cell = match state.paint.mode {
                                     PaintMode::Place => {
                                         if Some(cell) == hover_cell {
                                             hover_cell_found = true;
@@ -391,7 +377,7 @@ impl ApplicationHandler for App {
                                     }
                                 };
                                 if let Some(draw_cell) = draw_cell {
-                                    Some(tile::tile_entry(
+                                    Some(tile::layered_tile_entry(
                                         cell,
                                         draw_cell,
                                         state.multiplying_factor,
@@ -405,8 +391,8 @@ impl ApplicationHandler for App {
                             .collect();
 
                         if let Some(cell) = hover_cell {
-                            if !hover_cell_found && let PaintMode::Place = state.paint_mode {
-                                tile_entries.push(tile::tile_entry(
+                            if !hover_cell_found && let PaintMode::Place = state.paint.mode {
+                                tile_entries.push(tile::layered_tile_entry(
                                     cell,
                                     ghost_atlas_cell,
                                     state.multiplying_factor,
@@ -501,7 +487,7 @@ impl ApplicationHandler for App {
                             state.reset_paint_session();
                         } else {
                             state.window.set_cursor(CursorIcon::Default);
-                            state.paint_session = None;
+                            state.paint.session = None;
                         }
                     } else if code == KeyCode::F10 {
                         state.is_isometric = !state.is_isometric;

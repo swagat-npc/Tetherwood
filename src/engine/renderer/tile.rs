@@ -1,7 +1,8 @@
+use crate::engine::grid::CELL_SIZE;
+use crate::engine::renderer::Renderer;
 use glam::Vec2;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-use crate::engine::{grid::CELL_SIZE, renderer::Renderer};
 
 pub const TILE_ATLAS_SIZE: Vec2 = Vec2::new(198.0, 352.0);
 pub const TILE_PIXEL_SIZE: f32 = 32.0;
@@ -120,20 +121,132 @@ pub fn isometric_footprint_padding(base_grid_x: f32, base_grid_y: f32) -> f32 {
     }
 }
 
-pub fn tile_entry(
-    cell: (i32, i32),
+pub fn layered_tile_entry(
+    cell: (i32, i32, i32),
     atlas_cell: (i32, i32),
     multiplying_factor: f32,
     is_isometric: bool,
     renderer: &Renderer,
 ) -> (Vec2, (i32, i32), f32) {
-    let depth = (cell.0 + cell.1) as f32;
-    let world_pos = tile_world_position(cell, multiplying_factor, is_isometric);
+    const LAYER_DEPTH_STEP: f32 = 100_000.0;
+    let (x, y, layer) = cell;
+    let depth = layer as f32 * LAYER_DEPTH_STEP + (x + y) as f32;
+    let world_pos = tile_world_position((x, y), multiplying_factor, is_isometric);
     let effective_pos = if is_isometric {
         renderer.shear(world_pos)
     } else {
         world_pos
     };
-
     (effective_pos, atlas_cell, depth)
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TileEntry {
+    pub x: i32,
+    pub y: i32,
+    pub layer_id: i32,
+    pub tile_name: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TilemapFile {
+    pub layers: Vec<Layer>,
+    pub tiles: Vec<TileEntry>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Layer {
+    pub id: i32,
+    pub index: i32,
+    pub name: String,
+}
+
+/// A scene's tile-based floor layout (ADR-096). Sparse - an unpainted
+/// cell simply shows void, per the existing no-camera-clamping
+/// convention. Stores atlas cells directly.
+#[derive(Clone)]
+pub struct TileGrid {
+    tiles: HashMap<(i32, i32, i32), (i32, i32)>,
+}
+
+impl TileGrid {
+    pub fn new() -> Self {
+        Self {
+            tiles: HashMap::new(),
+        }
+    }
+
+    pub fn set(&mut self, cell: (i32, i32), layer_id: i32, atlas_cell: (i32, i32)) {
+        self.tiles.insert((cell.0, cell.1, layer_id), atlas_cell);
+    }
+
+    pub fn set_named(
+        &mut self,
+        cell: (i32, i32),
+        layer_id: i32,
+        name: &str,
+        names: &HashMap<&str, (i32, i32)>,
+    ) {
+        if let Some(&atlas_cell) = names.get(name) {
+            self.set(cell, layer_id, atlas_cell);
+        }
+    }
+
+    pub fn remove(&mut self, cell: (i32, i32), layer_id: i32) {
+        self.tiles.remove(&(cell.0, cell.1, layer_id));
+    }
+
+    pub fn clear_all(&mut self) {
+        self.tiles.clear();
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = ((i32, i32, i32), (i32, i32))> + '_ {
+        self.tiles.iter().map(|(&k, &v)| (k, v))
+    }
+
+    pub fn tile_name_for(
+        atlas_cell: (i32, i32),
+        names: &HashMap<&'static str, (i32, i32)>,
+    ) -> Option<&'static str> {
+        names
+            .iter()
+            .find(|&(_, &v)| v == atlas_cell)
+            .map(|(&k, _)| k)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum PaintMode {
+    Place,
+    Remove,
+}
+
+pub struct PaintState {
+    pub session: Option<TileGrid>,
+    pub mode: PaintMode,
+    pub layers: Vec<Layer>,
+    pub current_layer_id: i32,
+}
+
+impl PaintState {
+    pub fn default_layers() -> Vec<Layer> {
+        vec![Layer {
+            id: 0,
+            index: 0,
+            name: "Layer 0".to_string(),
+        }]
+    }
+
+    pub fn new() -> Self {
+        Self {
+            session: None,
+            mode: PaintMode::Place,
+            layers: vec![Layer {
+                id: 0,
+                index: 0,
+                name: "Layer 0".to_string(),
+            }],
+            current_layer_id: 0,
+        }
+    }
 }
