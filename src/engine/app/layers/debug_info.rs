@@ -107,6 +107,12 @@ impl AppState {
                 }
             }
         }
+
+        self.inspector.update_scrollbar(
+            screen_mouse,
+            self.left_mouse_down,
+            &self.renderer.ttf_glyphs,
+        );
     }
 
     pub fn draw_debug_info(&mut self, frame: &Frame) {

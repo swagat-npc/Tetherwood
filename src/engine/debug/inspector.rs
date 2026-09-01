@@ -11,6 +11,8 @@ const INSPECTOR_BORDER_THICKNESS: f32 = 4.0;
 const SECTION_BORDER_THICKNESS: f32 = 1.5;
 const WIDGET_GAP: f32 = 8.0;
 const TITLE_BAR_HEIGHT: f32 = GLYPH_SIZE.y + 5.0 * 2.0;
+const SCROLLBAR_WIDTH: f32 = 8.0;
+const SCROLLBAR_GAP: f32 = 4.0;
 
 const VOLUME_SLIDER_SIZE: Vec2 = Vec2::new(120.0, 12.0);
 const BUTTON_SIZE: Vec2 = Vec2::new(80.0, 30.0);
@@ -89,6 +91,7 @@ pub struct Inspector {
     border_color: [f32; 4],
     border_thickness_px: f32,
     pub scroll_offset: f32,
+    scrollbar: Scrollbar,
     pub state: Option<InspectorState>,
 }
 
@@ -129,6 +132,7 @@ impl Inspector {
             border_color: [0.2, 0.2, 0.2, 1.0],
             border_thickness_px,
             scroll_offset: 0.0,
+            scrollbar: Scrollbar::new(),
             state: None,
         };
 
@@ -224,6 +228,37 @@ impl Inspector {
         self.scroll_offset = (self.scroll_offset - delta).clamp(0.0, max);
     }
 
+    fn scrollbar_track_bounds(&self) -> Rect {
+        let content = self.content_bounds();
+        let track_x =
+            content.center.x + content.half_size.x + SCROLLBAR_GAP + SCROLLBAR_WIDTH * 0.5;
+        Rect {
+            center: Vec2::new(track_x, content.center.y),
+            half_size: Vec2::new(SCROLLBAR_WIDTH * 0.5, content.half_size.y),
+        }
+    }
+
+    pub fn update_scrollbar(
+        &mut self,
+        mouse_pos: Vec2,
+        mouse_down: bool,
+        font: &HashMap<char, TTFGlyph>,
+    ) {
+        let track = self.scrollbar_track_bounds();
+        let max_scroll = self.max_scroll(font);
+        let total = self.total_content_height(font);
+        if let Some(new_offset) = self.scrollbar.update(
+            track,
+            mouse_pos,
+            mouse_down,
+            self.scroll_offset,
+            max_scroll,
+            total,
+        ) {
+            self.scroll_offset = new_offset;
+        }
+    }
+
     /// Finds the first TilePalette widget in any section, by type, not
     /// by section title - stays correct even if section names change.
     pub fn selected_tile(&self) -> Option<(i32, i32)> {
@@ -238,8 +273,18 @@ impl Inspector {
         None
     }
 
+    // Content width now reserves the gutter unconditionally,
+    // whether or not scrolling is currently needed. This avoids a layout
+    // feedback loop (needing a scrollbar depends on total content height,
+    // which depends on content width) and keeps every existing widget's
+    // layout math (TilePalette's column_length, etc.) correct automatically,
+    // since they all already recompute fresh from content_width each call.
     fn get_panel_content_width(&self) -> f32 {
-        self.size.x - 2.0 * self.border_thickness_px - 2.0 * INSPECTOR_PADDING
+        self.size.x
+            - 2.0 * self.border_thickness_px
+            - 2.0 * INSPECTOR_PADDING
+            - SCROLLBAR_WIDTH
+            - SCROLLBAR_GAP
     }
 
     fn target_position(&self) -> Vec2 {
@@ -382,7 +427,7 @@ impl Inspector {
         paint_mode: &PaintMode,
         is_paint_active: bool,
     ) {
-        let panel_rects = self.build_panel();
+        let mut panel_rects = self.build_panel();
         let mut section_rects = self.build_sections();
 
         let mut thumbnail_entries = Vec::new();
@@ -443,6 +488,13 @@ impl Inspector {
         // scrolled-past content is cleanly cut off at the panel's edge rather
         // than bleeding past the border.
         let scissor = Some(self.scissor_rect(screen_size));
+
+        panel_rects.extend(self.scrollbar.build_rects(
+            self.scrollbar_track_bounds(),
+            self.scroll_offset,
+            self.max_scroll(&renderer.ttf_glyphs),
+            self.total_content_height(&renderer.ttf_glyphs),
+        ));
 
         // Panel border/background: always full, never clipped by scroll.
         renderer.render_solid_rects(frame, &panel_rects, projection, Mat4::IDENTITY, None);
@@ -1056,5 +1108,116 @@ impl HotkeyList {
             ));
         }
         glyphs
+    }
+}
+
+pub struct Scrollbar {
+    dragging: bool,
+}
+
+impl Scrollbar {
+    pub fn new() -> Self {
+        Self { dragging: false }
+    }
+
+    fn thumb_rect(
+        &self,
+        track_bounds: Rect,
+        scroll_offset: f32,
+        max_scroll: f32,
+        total_content_height: f32,
+    ) -> Option<Rect> {
+        if max_scroll <= 0.0 {
+            return None;
+        }
+        let track_height = track_bounds.half_size.y * 2.0;
+        const MIN_THUMB_HEIGHT: f32 = 24.0;
+        let thumb_height = (track_height * (track_height / total_content_height))
+            .clamp(MIN_THUMB_HEIGHT, track_height);
+        let travel = track_height - thumb_height;
+        let t = (scroll_offset / max_scroll).clamp(0.0, 1.0);
+        let thumb_top = (track_bounds.center.y - track_bounds.half_size.y) + t * travel;
+        Some(Rect {
+            center: Vec2::new(track_bounds.center.x, thumb_top + thumb_height * 0.5),
+            half_size: Vec2::new(track_bounds.half_size.x, thumb_height * 0.5),
+        })
+    }
+
+    pub fn build_rects(
+        &self,
+        track_bounds: Rect,
+        scroll_offset: f32,
+        max_scroll: f32,
+        total_content_height: f32,
+    ) -> Vec<SolidRect> {
+        let mut rects = vec![SolidRect {
+            position: track_bounds.center,
+            size: track_bounds.half_size * 2.0,
+            fill_color: [0.1, 0.1, 0.1, 0.6],
+            border_color: [0.05, 0.05, 0.05, 1.0],
+            border_thickness_px: 1.0,
+        }];
+        if let Some(thumb) = self.thumb_rect(
+            track_bounds,
+            scroll_offset,
+            max_scroll,
+            total_content_height,
+        ) {
+            rects.push(SolidRect {
+                position: thumb.center,
+                size: thumb.half_size * 2.0,
+                fill_color: [0.6, 0.6, 0.6, 0.9],
+                border_color: [0.8, 0.8, 0.8, 1.0],
+                border_thickness_px: 1.0,
+            });
+        }
+        rects
+    }
+
+    /// Returns the new scroll_offset if the thumb was dragged this
+    /// call, None otherwise - caller (Inspector) applies it, same
+    /// "widget reports, caller acts" pattern as Slider::update's bool
+    /// and TilesetControls::handle_click's TilesetAction.
+    pub fn update(
+        &mut self,
+        track_bounds: Rect,
+        mouse_pos: Vec2,
+        mouse_down: bool,
+        scroll_offset: f32,
+        max_scroll: f32,
+        total_content_height: f32,
+    ) -> Option<f32> {
+        let Some(thumb) = self.thumb_rect(
+            track_bounds,
+            scroll_offset,
+            max_scroll,
+            total_content_height,
+        ) else {
+            self.dragging = false;
+            return None;
+        };
+        let track_height = track_bounds.half_size.y * 2.0;
+        let thumb_height = thumb.half_size.y * 2.0;
+
+        let over_thumb = mouse_pos.x >= thumb.center.x - thumb.half_size.x
+            && mouse_pos.x <= thumb.center.x + thumb.half_size.x
+            && mouse_pos.y >= thumb.center.y - thumb.half_size.y
+            && mouse_pos.y <= thumb.center.y + thumb.half_size.y;
+
+        if mouse_down && (self.dragging || over_thumb) {
+            self.dragging = true;
+            let track_top = track_bounds.center.y - track_bounds.half_size.y;
+            let travel = track_height - thumb_height;
+            let desired_thumb_top = mouse_pos.y - track_top - thumb_height * 0.5;
+            let t = if travel > 0.0 {
+                (desired_thumb_top / travel).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            Some(t * max_scroll)
+        } else {
+            self.dragging = false;
+            None
+        }
     }
 }
