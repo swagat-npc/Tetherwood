@@ -28,7 +28,8 @@ pub enum TilesetAction {
     None,
     SetMode(PaintMode),
     Save,
-    Clear,
+    Revert,
+    ClearAll,
 }
 
 pub enum SectionWidget {
@@ -345,11 +346,16 @@ impl Inspector {
                         label: "Save".to_string(),
                     },
                     Button {
-                        id: "clear",
-                        size: BUTTON_SIZE + Vec2::new(20.0, 0.0),
-                        label: "Clear".to_string(),
+                        id: "revert",
+                        size: BUTTON_SIZE,
+                        label: "Revert".to_string(),
                     },
                 ],
+                danger_buttons: vec![Button {
+                    id: "clear_all",
+                    size: BUTTON_SIZE + Vec2::new(20.0, 0.0),
+                    label: "Clear All".to_string(),
+                }],
             }),
         ];
 
@@ -820,15 +826,22 @@ impl Button {
     const SELECTED_BORDER: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
     const DISABLED_BG: [f32; 4] = [0.15, 0.15, 0.15, 0.6];
     const DISABLED_BORDER: [f32; 4] = [0.3, 0.3, 0.3, 0.6];
+    const DANGER_BG: [f32; 4] = [0.5, 0.1, 0.1, 0.9];
+    const DANGER_BORDER: [f32; 4] = [1.0, 0.3, 0.3, 1.0];
 
-    fn colors(is_selected: bool, is_disabled: bool) -> ([f32; 4], [f32; 4], [f32; 4]) {
-        const DEFAULT_TEXT: [f32; 4] = [0.0, 0.0, 0.0, 1.0]; // black
-        const SELECTED_TEXT: [f32; 4] = [1.0, 1.0, 1.0, 1.0]; // white
-        const DISABLED_TEXT: [f32; 4] = [0.5, 0.5, 0.5, 1.0]; // muted gray
-        match (is_disabled, is_selected) {
-            (true, _) => (Self::DISABLED_BG, Self::DISABLED_BORDER, DISABLED_TEXT),
-            (false, true) => (Self::SELECTED_BG, Self::SELECTED_BORDER, SELECTED_TEXT),
-            (false, false) => (Self::DEFAULT_BG, Self::DEFAULT_BORDER, DEFAULT_TEXT),
+    fn colors(
+        is_selected: bool,
+        is_disabled: bool,
+        is_danger: bool,
+    ) -> ([f32; 4], [f32; 4], [f32; 4]) {
+        const DEFAULT_TEXT: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+        const SELECTED_TEXT: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+        const DISABLED_TEXT: [f32; 4] = [0.5, 0.5, 0.5, 1.0];
+        match (is_disabled, is_danger, is_selected) {
+            (true, _, _) => (Self::DISABLED_BG, Self::DISABLED_BORDER, DISABLED_TEXT),
+            (false, true, _) => (Self::DANGER_BG, Self::DANGER_BORDER, SELECTED_TEXT),
+            (false, false, true) => (Self::SELECTED_BG, Self::SELECTED_BORDER, SELECTED_TEXT),
+            (false, false, false) => (Self::DEFAULT_BG, Self::DEFAULT_BORDER, DEFAULT_TEXT),
         }
     }
 
@@ -847,9 +860,11 @@ impl Button {
         top_left: Vec2,
         is_selected: bool,
         is_disabled: bool,
+        is_danger: bool,
         font: &HashMap<char, TTFGlyph>,
     ) -> (SolidRect, Vec<PositionedTTFGlyph>) {
-        let (fill_color, border_color, text_color) = Self::colors(is_selected, is_disabled);
+        let (fill_color, border_color, text_color) =
+            Self::colors(is_selected, is_disabled, is_danger);
         let rect = SolidRect {
             position: top_left + self.size * 0.5,
             size: self.size,
@@ -887,6 +902,7 @@ impl Button {
 pub struct TilesetControls {
     mode_buttons: Vec<Button>,
     action_buttons: Vec<Button>,
+    danger_buttons: Vec<Button>,
 }
 
 impl TilesetControls {
@@ -919,8 +935,12 @@ impl TilesetControls {
     /// Same row-shape as layout_offsets, so height and actual position
     /// can never disagree — same principle as InspectorSection's own
     /// required_height/stack_widgets pairing.
-    pub fn required_height(&self) -> f32 {
-        let rows = [self.mode_buttons.as_slice(), self.action_buttons.as_slice()];
+    fn required_height(&self) -> f32 {
+        let rows = [
+            self.mode_buttons.as_slice(),
+            self.action_buttons.as_slice(),
+            self.danger_buttons.as_slice(),
+        ];
         let row_heights: f32 = rows
             .iter()
             .map(|row| row.iter().map(|b| b.size.y).fold(0.0, f32::max))
@@ -941,7 +961,11 @@ impl TilesetControls {
         is_active: bool,
         font: &HashMap<char, TTFGlyph>,
     ) -> (Vec<SolidRect>, Vec<PositionedTTFGlyph>) {
-        let offsets = Self::layout_offsets(&[&self.mode_buttons, &self.action_buttons]);
+        let offsets = Self::layout_offsets(&[
+            &self.mode_buttons,
+            &self.action_buttons,
+            &self.danger_buttons,
+        ]);
         let mut rects = Vec::new();
         let mut glyphs = Vec::new();
 
@@ -951,14 +975,25 @@ impl TilesetControls {
                     (button.id, current_mode),
                     ("place", PaintMode::Place) | ("remove", PaintMode::Remove)
                 );
-            let (rect, label_glyphs) =
-                button.build(section_top_left + *offset, is_selected, !is_active, font);
+            let (rect, label_glyphs) = button.build(
+                section_top_left + *offset,
+                is_selected,
+                !is_active,
+                false,
+                font,
+            );
             rects.push(rect);
             glyphs.extend(label_glyphs);
         }
         for (button, offset) in self.action_buttons.iter().zip(&offsets[1]) {
             let (rect, label_glyphs) =
-                button.build(section_top_left + *offset, false, !is_active, font);
+                button.build(section_top_left + *offset, false, !is_active, false, font);
+            rects.push(rect);
+            glyphs.extend(label_glyphs);
+        }
+        for (button, offset) in self.danger_buttons.iter().zip(&offsets[2]) {
+            let (rect, label_glyphs) =
+                button.build(section_top_left + *offset, false, !is_active, true, font); // is_danger = true
             rects.push(rect);
             glyphs.extend(label_glyphs);
         }
@@ -972,9 +1007,13 @@ impl TilesetControls {
         is_active: bool,
     ) -> TilesetAction {
         if !is_active {
-            return TilesetAction::None; // buttons disabled outside paint mode
+            return TilesetAction::None;
         }
-        let offsets = Self::layout_offsets(&[&self.mode_buttons, &self.action_buttons]);
+        let offsets = Self::layout_offsets(&[
+            &self.mode_buttons,
+            &self.action_buttons,
+            &self.danger_buttons,
+        ]);
 
         for (button, offset) in self.mode_buttons.iter().zip(&offsets[0]) {
             if button.contains(section_top_left + *offset, mouse_pos) {
@@ -989,7 +1028,15 @@ impl TilesetControls {
             if button.contains(section_top_left + *offset, mouse_pos) {
                 return match button.id {
                     "save" => TilesetAction::Save,
-                    "clear" => TilesetAction::Clear,
+                    "revert" => TilesetAction::Revert,
+                    _ => TilesetAction::None,
+                };
+            }
+        }
+        for (button, offset) in self.danger_buttons.iter().zip(&offsets[2]) {
+            if button.contains(section_top_left + *offset, mouse_pos) {
+                return match button.id {
+                    "clear_all" => TilesetAction::ClearAll,
                     _ => TilesetAction::None,
                 };
             }

@@ -83,7 +83,12 @@ impl AppState {
         match tileset_action {
             TilesetAction::SetMode(mode) => self.paint.mode = mode,
             TilesetAction::Save => self.save_paint_session(),
-            TilesetAction::Clear => self.reset_paint_session(),
+            TilesetAction::Revert => self.reset_paint_session(),
+            TilesetAction::ClearAll => {
+                if let Some(session) = &mut self.paint.session {
+                    session.clear_all();
+                }
+            }
             TilesetAction::None => {}
         }
 
